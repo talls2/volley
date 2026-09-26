@@ -32,8 +32,9 @@ pub fn floor_point(camera: &Transform) -> Vec2 {
     from + horizontal.normalize_or_zero() * reach.min(MAX_DISTANCE)
 }
 
-/// Shows where your next hit would go while the ball is yours to play: white
-/// if it lands in, red if out.
+/// Shows where your next hit would go while the ball is yours to play: yellow
+/// if it lands in, red if out. An outer ring shows how far off a hit from a
+/// bad position may stray.
 fn draw_aim_marker(game: Res<Match>, driver: Res<LocalDriver>, mut gizmos: Gizmos) {
     if *driver != LocalDriver::Human {
         return;
@@ -50,7 +51,8 @@ fn draw_aim_marker(game: Res<Match>, driver: Res<LocalDriver>, mut gizmos: Gizmo
     if !yours {
         return;
     }
-    let (_, spot) = sim.preview_hit(me);
+    let preview = sim.preview_hit(me);
+    let spot = preview.target;
     let color = if court::is_inside(spot) { Color::srgb(1.0, 0.95, 0.4) } else { Color::srgb(1.0, 0.25, 0.2) };
     let at = spot.with_y(0.03);
     let flat = Quat::from_rotation_x(FRAC_PI_2);
@@ -59,4 +61,7 @@ fn draw_aim_marker(game: Res<Match>, driver: Res<LocalDriver>, mut gizmos: Gizmo
     gizmos.circle(Isometry3d::new(at, flat), 0.9, color);
     gizmos.line(at - Vec3::X * 0.7, at + Vec3::X * 0.7, color);
     gizmos.line(at - Vec3::Z * 0.7, at + Vec3::Z * 0.7, color);
+    if preview.spread > 1.1 {
+        gizmos.circle(Isometry3d::new(at, flat), preview.spread, color.with_alpha(0.5));
+    }
 }

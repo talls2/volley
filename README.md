@@ -34,7 +34,7 @@ variables cargo sets, so launching the binary directly won't load the characters
 | Move | W A S D | Left stick |
 | Jump | Space | A |
 | Pass / serve / block | Q | RB (or X) |
-| Spike (in the air) | E | RT (or Y) |
+| Attack (in the air) | E | RT (or Y) |
 | Dive | Left Shift | LT (or B) |
 | Foot save | F | LB |
 | Pause | P | Menu |
@@ -51,10 +51,10 @@ is relative to where it faces. The court is a third bigger than a real one (24 x
 - **Serving:** press pass. Each rally starts with the camera facing the net and the aim mid-way into the other court.
 - **Pass:** your team's first touch goes mid-court, the second is a set near the net, and the third goes over automatically.
 - **No touching twice in a row:** pass to your teammate, then go spike their set.
-- **Spike:** jump, then spike when the ball is in reach.
+- **Attack:** jump and press attack any time in the air: it stays armed until you land, steers you toward the ball, and hits it at the best moment it's in reach, with whatever reaches it. A ball overhead in front gets a **spike**, a low one a **volley kick**, and one behind your head a **bicycle kick**. The farther the ball is from that technique's sweet spot (a jump timed early or late, a ball out to the side), the weaker and wilder the hit: it flies slower and can land well off your aim, shown by a wider outer ring around the aim marker. A callout rates each attack, from "perfect!" to "scrambled".
 - **Shot speed follows distance:** short shots are quick and flat, long ones take longer. A short spike from far off the net will hit the net.
 - **Block:** at the net, while the ball is on the other side, pass means block: you jump with your hands up (or raise them if already in the air). Your hands stay up for that jump, so timing is everything: go up as the attacker hits. Squarely blocked spikes are stuffed back down on the attackers; edge-of-the-hands blocks pop up softly on your side. A block isn't one of your three touches, and serves can't be blocked.
-- **Ball trail:** the streak behind the ball shows the last hit: orange for spikes, gold for serves, blue for passes and digs, green for lobs, purple off a block.
+- **Ball trail:** the streak behind the ball shows the last hit: orange for spikes, red for volley kicks, violet for bicycle kicks, gold for serves, blue for passes and digs, green for lobs, purple off a block.
 - **Low balls:** you can't bump a ball below your knees. A **foot save** keeps you on your feet: it shoots a leg out almost instantly, reaches farther than a pass (but only low balls), and kicks the ball up high so a teammate has time to get there; it's rougher and you stumble for a moment. A **dive** reaches farthest but leaves you on the ground. When a save is the right move, a prompt says so ("Foot save! [F]", "Dive! [Shift]").
 - **Dive:** lunges toward where you're moving (or at the ball), reaching balls near the floor. You're on the ground for a moment afterwards.
 - The white rings mark where the ball will land if nobody touches it.
@@ -73,7 +73,8 @@ Everything a player does to the ball is a *move*, described as data in
 `crates/sim/src/moves.rs`: its button, whether it's done on the ground or in
 the air, its windup, active and recovery time, where it can reach the ball,
 any lunge, and what a touch does (keep it for a teammate, or attack over the
-net), how accurately, and how long it hangs. A *kit* is a set of moves plus
+net), how accurately, and how long it hangs. Attacks pick their technique and
+contact quality in `crates/sim/src/attack.rs`. A *kit* is a set of moves plus
 stats like run speed and jump height. Everyone uses the All-rounder kit for
 now; heroes will each be a kit with their own special moves.
 

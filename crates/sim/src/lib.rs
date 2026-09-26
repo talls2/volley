@@ -4,6 +4,7 @@
 //! and the tests all run exactly the same rules. Advance it with [`Sim::step`]
 //! at [`TICK_HZ`]; the same state and inputs always produce the same result.
 
+pub mod attack;
 mod ball;
 pub mod bot;
 pub mod court;
@@ -41,10 +42,11 @@ pub(crate) const SET_DEPTH: f32 = 1.3;
 pub(crate) fn flight_seconds(kind: HitKind, distance: f32) -> f32 {
     match kind {
         HitKind::Serve => 0.9 + 0.035 * distance,
-        HitKind::Spike => 0.3 + 0.02 * distance,
         HitKind::Lob => 0.8 + 0.035 * distance,
         // Scrambles like digs and kicks add the move's own hang time on top.
         HitKind::Pass | HitKind::Dig | HitKind::Kick => 1.2 + 0.05 * distance,
+        // Attacks depend on how cleanly they're hit.
+        HitKind::Spike | HitKind::Volley | HitKind::Bicycle => attack::flight_seconds(kind, distance, 1.0),
     }
 }
 
@@ -115,6 +117,35 @@ pub enum HitKind {
     /// Forced over the net on a team's last touch.
     Lob,
     Spike,
+    /// An attack kicked in the air, for a ball too low to spike.
+    Volley,
+    /// An attack kicked over the head, flipping backwards, for a ball behind.
+    Bicycle,
+}
+
+impl HitKind {
+    /// Attacks: hit hard over the net from the air.
+    pub fn is_attack(self) -> bool {
+        matches!(self, HitKind::Spike | HitKind::Volley | HitKind::Bicycle)
+    }
+}
+
+/// Where a hit would go, for showing an aim marker.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HitPreview {
+    pub kind: HitKind,
+    /// Where it's aimed to land.
+    pub target: Vec3,
+    /// It may land up to this far from `target`.
+    pub spread: f32,
+    /// For attacks, how cleanly it would be hit: 1 perfectly, 0 barely.
+    pub quality: f32,
+}
+
+/// A hit before it's launched.
+struct Plan {
+    preview: HitPreview,
+    seconds: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -129,7 +160,8 @@ pub enum PointReason {
 pub enum Event {
     /// A move began: a press, a dive, a foot save.
     MoveStarted { player: usize, id: MoveId },
-    Touched { player: usize, kind: HitKind },
+    /// `quality`: how cleanly an attack was hit, from 0 to 1. Other hits are 1.
+    Touched { player: usize, kind: HitKind, quality: f32 },
     /// A block at the net. `stuffed`: sent straight back down on the attackers;
     /// otherwise softened, popping up on the blocker's side.
     Blocked { player: usize, stuffed: bool },
@@ -337,48 +369,63 @@ impl Sim {
         self.ball = Ball::Held { by: server };
     }
 
-    /// What `player` would do if they hit the ball right now: the kind of hit and
-    /// where it would land. For showing an aim marker; changes nothing.
-    pub fn preview_hit(&self, player: usize) -> (HitKind, Vec3) {
+    /// What `player` would do if they hit the ball right now. For showing an
+    /// aim marker; changes nothing.
+    pub fn preview_hit(&self, player: usize) -> HitPreview {
         let p = &self.players[player];
         let id = if p.grounded() { MoveId::Pass } else { MoveId::Spike };
         let touches = self.team_touches(p.team) + 1;
-        let (kind, flight) = self.plan_hit(player, id, touches, self.ball_position());
-        (kind, flight.landing_point())
+        self.plan_hit(player, id, touches, self.ball_position()).preview
     }
 
     /// The hit `hitter` makes with move `id` from `from`, given the team's touch
     /// count including this one.
-    fn plan_hit(&self, hitter: usize, id: MoveId, touches: u32, from: Vec3) -> (HitKind, Flight) {
+    fn plan_hit(&self, hitter: usize, id: MoveId, touches: u32, from: Vec3) -> Plan {
         let player = &self.players[hitter];
         let side = player.side;
         let spec = id.spec();
-        let (kind, target) = if self.ball == (Ball::Held { by: hitter }) {
-            (HitKind::Serve, over_net_target(side, player.aim, OVER_DEPTH))
+        let (kind, target, quality) = if self.ball == (Ball::Held { by: hitter }) {
+            (HitKind::Serve, over_net_target(side, player.aim, OVER_DEPTH), 1.0)
         } else if let Touch::Keep(kind) = spec.touch {
             if touches >= MAX_TOUCHES {
                 // The team's last touch has to go over.
                 let kind = if kind == HitKind::Pass { HitKind::Lob } else { kind };
-                (kind, over_net_target(side, player.aim, OVER_DEPTH))
+                (kind, over_net_target(side, player.aim, OVER_DEPTH), 1.0)
             } else {
                 let depth = if touches == 1 { RECEIVE_DEPTH } else { SET_DEPTH };
-                (kind, own_side_target(side, player.aim, depth))
+                (kind, own_side_target(side, player.aim, depth), 1.0)
             }
         } else {
-            (HitKind::Spike, over_net_target(side, player.aim, SPIKE_DEPTH))
+            let (kind, quality) = attack::best_technique(player, from);
+            (kind, over_net_target(side, player.aim, SPIKE_DEPTH), quality)
         };
-        let target = target + wobble(spec.wobble, self.tick, hitter);
-        let seconds = flight_seconds(kind, from.with_y(0.0).distance(target.with_y(0.0))) + spec.hang;
-        (kind, Flight::to_target(from, target, seconds, self.tick))
+        let distance = from.with_y(0.0).distance(target.with_y(0.0));
+        let (seconds, spread) = if kind.is_attack() {
+            (attack::flight_seconds(kind, distance, quality), attack::wobble(kind, quality))
+        } else {
+            (flight_seconds(kind, distance) + spec.hang, spec.wobble)
+        };
+        Plan { preview: HitPreview { kind, target, spread, quality }, seconds }
+    }
+
+    /// Launches a planned hit, landing somewhere within its spread.
+    fn hit(&mut self, hitter: usize, plan: Plan, from: Vec3, events: &mut Vec<Event>) {
+        let HitPreview { kind, target, spread, quality } = plan.preview;
+        let target = target + wobble(spread, self.tick, hitter);
+        self.last_hit = Some(kind);
+        self.ball = Ball::InFlight(Flight::to_target(from, target, plan.seconds, self.tick));
+        self.touch_lockout_until = self.tick + TOUCH_LOCKOUT_TICKS;
+        events.push(Event::Touched { player: hitter, kind, quality });
     }
 
     fn update_serve(&mut self, server: usize, events: &mut Vec<Event>) {
         let Some(id) = self.players[server].spend(self.tick) else {
             return;
         };
-        let (kind, flight) = self.plan_hit(server, id, 1, held_ball_position(&self.players[server]));
+        let from = held_ball_position(&self.players[server]);
+        let plan = self.plan_hit(server, id, 1, from);
         self.touches = Touches { team: self.players[server].team, count: 1, last: Some(server) };
-        self.launch(server, kind, flight, events);
+        self.hit(server, plan, from, events);
     }
 
     fn update_flight(&mut self, flight: Flight, events: &mut Vec<Event>) {
@@ -434,9 +481,14 @@ impl Sim {
             return;
         }
         let ball = flight.position_at(self.tick);
+        let next_ball = flight.position_at(self.tick + 1);
         let hitter = (0..self.players.len())
             .filter(|&i| {
-                self.players[i].active_move(self.tick).is_some() && self.players[i].can_reach(ball, self.tick)
+                let player = &self.players[i];
+                player.active_move(self.tick).is_some_and(|id| {
+                    player.reaches(id, ball)
+                        && (id.spec().touch != Touch::Attack || attack::hits_now(player, id, ball, next_ball))
+                })
             })
             .min_by(|&a, &b| {
                 let da = self.players[a].position.distance_squared(ball);
@@ -468,8 +520,8 @@ impl Sim {
             return;
         }
 
-        let (kind, flight) = self.plan_hit(hitter, id, self.touches.count, ball);
-        self.launch(hitter, kind, flight, events);
+        let plan = self.plan_hit(hitter, id, self.touches.count, ball);
+        self.hit(hitter, plan, ball, events);
     }
 
     /// Who blocks a ball crossing the net at `at` moving at `velocity`, and
@@ -486,13 +538,6 @@ impl Sim {
             .filter_map(|i| self.players[i].block_contact(at).map(|stuffed| (i, stuffed)));
         // A square block beats a glancing one.
         contacts.max_by_key(|&(_, stuffed)| stuffed)
-    }
-
-    fn launch(&mut self, hitter: usize, kind: HitKind, flight: Flight, events: &mut Vec<Event>) {
-        self.last_hit = Some(kind);
-        self.ball = Ball::InFlight(flight);
-        self.touch_lockout_until = self.tick + TOUCH_LOCKOUT_TICKS;
-        events.push(Event::Touched { player: hitter, kind });
     }
 
     fn award_point(&mut self, team: usize, reason: PointReason, ball_at: Vec3, events: &mut Vec<Event>) {

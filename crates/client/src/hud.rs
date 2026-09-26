@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use volley_sim::court::TEAM_NAMES;
-use volley_sim::{Ball, DT, Event, MoveId, Phase, PointReason, Sim};
+use volley_sim::{Ball, DT, Event, HitKind, MoveId, Phase, PointReason, Sim};
 
 use crate::input::{ActiveDevice, LOCAL_TEAM, LocalDriver};
 use crate::scene::TEAM_COLORS;
@@ -123,6 +123,23 @@ fn announce_points(
                 color.0 = TEAM_COLORS[team];
                 *callout_until = None;
             }
+            // Your attacks: how you hit it, and how cleanly.
+            Event::Touched { player, kind, quality } if kind.is_attack() && player == game.current.player_index(LOCAL_TEAM, 0) => {
+                let how = match kind {
+                    HitKind::Volley => "Volley kick",
+                    HitKind::Bicycle => "Bicycle kick",
+                    _ => "Spike",
+                };
+                let contact = match quality {
+                    q if q >= 0.9 => "perfect!",
+                    q if q >= 0.6 => "good",
+                    q if q >= 0.3 => "off balance",
+                    _ => "scrambled",
+                };
+                text.0 = format!("{how}: {contact}");
+                color.0 = Color::srgb(1.0, 0.85 * quality + 0.15, 0.3);
+                *callout_until = Some(time.elapsed_secs() + CALLOUT_SECONDS);
+            }
             Event::Blocked { player, stuffed } => {
                 let team = game.current.players[player].team;
                 text.0 = if stuffed { "Stuff block!" } else { "Block touch" }.to_string();
@@ -154,12 +171,12 @@ fn update_controls_help(
         (LocalDriver::Human, ActiveDevice::Keyboard) => format!(
             "You are {you}. Click to look with the mouse, Esc to release it. Hits go where you look:\n\
              the yellow ring shows where (red = out). Look higher to hit farther.\n\
-             WASD move | Space jump | Q pass / serve (at the net: block) | E spike (in the air) | Shift dive | F foot save | P pause | 1 let a bot play",
+             WASD move | Space jump | Q pass / serve (at the net: block) | E attack (in the air: spike, volley or bicycle kick) | Shift dive | F foot save | P pause | 1 let a bot play",
         ),
         (LocalDriver::Human, ActiveDevice::Gamepad) => format!(
             "You are {you}. Right stick looks and aims: hits go where you look, the yellow ring shows\n\
              where (red = out). Look higher to hit farther.\n\
-             Left stick move | A jump | RB pass / serve (at the net: block) | RT spike (in the air) | LT dive | LB foot save | Menu pause | View let a bot play",
+             Left stick move | A jump | RB pass / serve (at the net: block) | RT attack (in the air: spike, volley or bicycle kick) | LT dive | LB foot save | Menu pause | View let a bot play",
         ),
         (LocalDriver::Bot, ActiveDevice::Keyboard) => format!("A bot is playing {you}. Press 1 to take over."),
         (LocalDriver::Bot, ActiveDevice::Gamepad) => format!("A bot is playing {you}. Press View to take over."),

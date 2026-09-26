@@ -160,17 +160,15 @@ fn would_connect(sim: &Sim, me: usize, flight: &Flight, id: MoveId, direction: V
 fn spike(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32) -> PlayerInput {
     let player = &sim.players[me];
     let mut input = PlayerInput::default();
-    // Keep steering under the ball, in the air too.
     input.movement = (to_ball / 0.4).clamp_length_max(1.0);
     if !player.grounded() {
-        if ball_close(sim, me, flight) {
-            input.spike = true;
-            input.aim = Some(spike_aim(sim, player.team, flight.position_at(sim.tick)));
-        }
+        // Arm the attack right away; it steers the rest of the way.
+        input.spike = player.active_move(sim.tick).is_none();
+        input.aim = Some(spike_aim(sim, player.team, flight.position_at(sim.tick)));
         return input;
     }
-    // Leave the ground so the top of the jump meets the ball. Steering in the
-    // air covers the last couple of meters.
+    // Leave the ground so the top of the jump meets the ball. The armed
+    // attack's steering covers the last couple of meters.
     let rise_time = player.kit.jump_speed / PLAYER_GRAVITY;
     input.jump = to_ball.length() < 2.5 && seconds_left <= rise_time;
     input

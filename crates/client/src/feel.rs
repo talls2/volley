@@ -5,7 +5,7 @@
 //! runs locally; online it will need to be purely visual.
 
 use bevy::prelude::*;
-use volley_sim::{Event, HitKind};
+use volley_sim::Event;
 
 use crate::SimEvent;
 
@@ -36,7 +36,8 @@ fn react_to_hits(
 ) {
     for SimEvent(event) in events.read() {
         let (freeze, trauma) = match *event {
-            Event::Touched { kind: HitKind::Spike, .. } => (0.07, 0.45),
+            // A clean attack hits harder.
+            Event::Touched { kind, quality, .. } if kind.is_attack() => (0.03 + 0.05 * quality, 0.15 + 0.35 * quality),
             Event::Blocked { stuffed: true, .. } => (0.09, 0.6),
             Event::Landed { velocity, .. } if velocity.length() > 15.0 => (0.0, 0.3),
             _ => continue,

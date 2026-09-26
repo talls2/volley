@@ -83,18 +83,27 @@ fn aimed_hits_land_where_aimed() {
     sim.ball = Ball::Dead { at: from };
 
     let spot = Vec2::new(7.0, -4.0);
-    sim.players[hitter].position.y = 1.0;
+    // Jumping with the ball right where a spike meets it best.
+    sim.players[hitter].position = Vec3::new(-2.3, 0.9, 0.0);
     sim.players[hitter].aim = Some(spot);
-    let (kind, flight) = sim.plan_hit(hitter, MoveId::Spike, 3, from);
-    assert_eq!(kind, HitKind::Spike);
-    assert!(Vec2::new(flight.landing_point().x, flight.landing_point().z).distance(spot) < 1e-3);
+    let plan = sim.plan_hit(hitter, MoveId::Spike, 3, from);
+    assert_eq!(plan.preview.kind, HitKind::Spike);
+    assert_eq!(plan.preview.spread, 0.0);
+    sim.hit(hitter, plan, from, &mut Vec::new());
+    assert!(landing(&sim).distance(spot) < 1e-3);
 
     let teammate_spot = Vec2::new(-2.0, 3.5);
     sim.players[hitter].position.y = 0.0;
     sim.players[hitter].aim = Some(teammate_spot);
-    let (kind, flight) = sim.plan_hit(hitter, MoveId::Pass, 1, from);
-    assert_eq!(kind, HitKind::Pass);
-    assert!(Vec2::new(flight.landing_point().x, flight.landing_point().z).distance(teammate_spot) < 1e-3);
+    let plan = sim.plan_hit(hitter, MoveId::Pass, 1, from);
+    assert_eq!(plan.preview.kind, HitKind::Pass);
+    sim.hit(hitter, plan, from, &mut Vec::new());
+    assert!(landing(&sim).distance(teammate_spot) < 1e-3);
+}
+
+fn landing(sim: &Sim) -> Vec2 {
+    let at = sim.landing_point().expect("ball in flight");
+    Vec2::new(at.x, at.z)
 }
 
 #[test]
@@ -212,7 +221,7 @@ fn diving_digs_a_ball_out_of_running_reach() {
         events.extend(sim.step(&idle(&sim)));
     }
     assert!(events.contains(&Event::MoveStarted { player: digger, id: MoveId::Dive }), "{events:?}");
-    assert!(events.contains(&Event::Touched { player: digger, kind: HitKind::Dig }), "{events:?}");
+    assert!(events.contains(&Event::Touched { player: digger, kind: HitKind::Dig, quality: 1.0 }), "{events:?}");
 }
 
 /// A ball dropping `sideways` meters to the side of team 1's first player,
@@ -251,7 +260,7 @@ fn foot_save_kicks_up_a_low_ball_out_of_arms_reach() {
     let kick = PlayerInput { kick: true, movement: Vec2::new(0.0, 1.0), ..default() };
     let events = play_ball(&mut sim, player, 0.15, kick);
     assert!(events.contains(&Event::MoveStarted { player, id: MoveId::FootSave }), "{events:?}");
-    assert!(events.contains(&Event::Touched { player, kind: HitKind::Kick }), "{events:?}");
+    assert!(events.contains(&Event::Touched { player, kind: HitKind::Kick, quality: 1.0 }), "{events:?}");
     // It pops up for a teammate, on our side.
     let Ball::InFlight(flight) = sim.ball else { panic!("ball should be in flight") };
     assert_eq!(sim.team_on(flight.landing_point().x), 1);
@@ -439,4 +448,137 @@ fn two_sets_win_the_match_and_the_decider_goes_to_15() {
     let inputs = bot_inputs(&sim);
     sim.step(&inputs);
     assert_eq!(sim.players, before.players);
+}
+
+
+/// Team 0's first player jumping at `at` with a spike armed, and the ball held
+/// still at `ball`, on team 0's side.
+fn armed_jump(at: Vec3, ball: Vec3) -> (Sim, usize) {
+    let mut sim = Sim::new(MatchConfig::default());
+    let player = sim.player_index(0, 0);
+    sim.players[player].position = at;
+    sim.ball = Ball::Dead { at: ball };
+    let mut inputs = idle(&sim);
+    inputs[player].jump = true;
+    sim.step(&inputs);
+    let mut inputs = idle(&sim);
+    inputs[player].spike = true;
+    sim.step(&inputs);
+    (sim, player)
+}
+
+#[test]
+fn spike_stays_armed_until_landing() {
+    let (mut sim, player) = armed_jump(Vec3::new(-6.0, 0.0, 0.0), Vec3::new(-2.0, 1.0, 0.0));
+    let mut armed_ticks = 0;
+    while !sim.players[player].grounded() {
+        armed_ticks += u32::from(sim.players[player].active_move(sim.tick) == Some(MoveId::Spike));
+        sim.step(&idle(&sim));
+    }
+    assert!(armed_ticks >= 35, "armed only {armed_ticks} ticks of the jump");
+    assert_eq!(sim.players[player].action, None, "landing ends it");
+}
+
+#[test]
+fn armed_spike_steers_toward_the_ball() {
+    let ball = Vec3::new(-2.0, 3.2, 1.5);
+    let (mut armed, player) = armed_jump(Vec3::new(-3.5, 0.0, 0.0), ball);
+    for _ in 0..30 {
+        armed.step(&idle(&armed));
+    }
+    let body = armed.players[player].position;
+    let wanted = attack::steer_position(&armed.players[player], ball);
+    assert!(Vec2::new(body.x, body.z).distance(wanted) < 0.3, "at {body}, wanted {wanted}");
+
+    // A plain jump goes straight up.
+    let mut plain = Sim::new(MatchConfig::default());
+    plain.players[player].position = Vec3::new(-3.5, 0.0, 0.0);
+    plain.ball = Ball::Dead { at: ball };
+    let mut inputs = idle(&plain);
+    inputs[player].jump = true;
+    for _ in 0..31 {
+        plain.step(&inputs);
+        inputs = idle(&plain);
+    }
+    assert_eq!(plain.players[player].position.with_y(0.0), Vec3::new(-3.5, 0.0, 0.0));
+}
+
+#[test]
+fn attacks_use_whatever_reaches_the_ball() {
+    // Team 0 faces +x, toward the net.
+    let body = Player::new(0, -1.0, Vec3::new(-3.0, 1.0, 0.0));
+    let (kind, quality) = attack::best_technique(&body, body.position + Vec3::new(0.3, 2.1, 0.0));
+    assert_eq!((kind, quality), (HitKind::Spike, 1.0));
+    let (kind, _) = attack::best_technique(&body, body.position + Vec3::new(0.6, 0.8, 0.0));
+    assert_eq!(kind, HitKind::Volley, "low in front");
+    let (kind, _) = attack::best_technique(&body, body.position + Vec3::new(-0.6, 1.8, 0.0));
+    assert_eq!(kind, HitKind::Bicycle, "behind the head");
+}
+
+#[test]
+fn off_position_attacks_are_weaker_and_wilder() {
+    let mut sim = Sim::new(MatchConfig::default());
+    let hitter = sim.player_index(0, 0);
+    let from = Vec3::new(-2.0, 3.0, 0.0);
+    sim.ball = Ball::Dead { at: from };
+    sim.players[hitter].aim = Some(Vec2::new(6.0, 0.0));
+
+    sim.players[hitter].position = Vec3::new(-2.3, 0.9, 0.0);
+    let clean = sim.plan_hit(hitter, MoveId::Spike, 3, from);
+    sim.players[hitter].position = Vec3::new(-2.3, 0.9, 0.9);
+    let off = sim.plan_hit(hitter, MoveId::Spike, 3, from);
+
+    assert_eq!(clean.preview.quality, 1.0);
+    assert!(off.preview.quality < 0.6, "quality {}", off.preview.quality);
+    assert!(off.seconds > clean.seconds * 1.2, "not slower: {} vs {}", off.seconds, clean.seconds);
+    assert!(off.preview.spread > 1.0, "not wilder: {}", off.preview.spread);
+}
+
+#[test]
+fn armed_spike_waits_for_the_sweet_spot() {
+    let mut sim = Sim::new(MatchConfig::default());
+    let player = sim.player_index(0, 0);
+    sim.players[player].position = Vec3::new(-2.0, 0.0, 0.0);
+    sim.touches = Touches { team: 0, count: 2, last: Some(1) };
+    // A set dropping onto the spot a spike meets best at the top of the jump.
+    let apex = Vec3::new(-1.7, 1.225 + 2.1, 0.0);
+    let rise = sim.players[player].kit.jump_speed / player::PLAYER_GRAVITY;
+    let velocity = Vec3::new(-0.5, -3.0, 0.0);
+    let origin = apex - velocity * rise + Vec3::Y * 0.5 * court::BALL_GRAVITY * rise * rise;
+    sim.ball = Ball::InFlight(Flight { origin, velocity, start_tick: sim.tick });
+
+    let mut inputs = idle(&sim);
+    inputs[player].jump = true;
+    inputs[player].spike = true;
+    let mut contact = None;
+    for _ in 0..TICK_HZ {
+        let events = sim.step(&inputs);
+        inputs = idle(&sim);
+        inputs[player].spike = sim.players[player].active_move(sim.tick).is_none() && !sim.players[player].grounded();
+        if let Some(&Event::Touched { kind, quality, .. }) = events.iter().find(|e| matches!(e, Event::Touched { .. })) {
+            contact = Some((kind, quality));
+            break;
+        }
+    }
+    let (kind, quality) = contact.expect("the spike connects");
+    assert_eq!(kind, HitKind::Spike);
+    assert!(quality > 0.8, "hit at quality {quality}");
+}
+
+#[test]
+fn ball_behind_the_head_gets_a_bicycle_kick() {
+    let mut sim = Sim::new(MatchConfig::default());
+    let player = sim.player_index(0, 0);
+    let tick = sim.tick;
+    // Rising with an attack armed, the ball hanging just behind.
+    sim.players[player].position = Vec3::new(-4.0, 0.3, 0.0);
+    sim.players[player].vertical_velocity = 5.0;
+    sim.players[player].action = Some(Action { id: MoveId::Spike, start_tick: tick, direction: Vec2::X, spent: false });
+    sim.ball = Ball::InFlight(Flight { origin: Vec3::new(-4.9, 3.0, 0.2), velocity: Vec3::ZERO, start_tick: tick });
+    let events = run_bots_idle(&mut sim, TICK_HZ);
+    assert!(events.iter().any(|e| matches!(e, Event::Touched { player: 0, kind: HitKind::Bicycle, .. })), "{events:?}");
+}
+
+fn run_bots_idle(sim: &mut Sim, ticks: u32) -> Vec<Event> {
+    (0..ticks).flat_map(|_| sim.step(&idle(sim))).collect()
 }

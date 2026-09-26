@@ -208,7 +208,28 @@ struct Character {
     /// Where the posed leg points, and how strongly (0 to 1) it's posed.
     leg_goal: Vec3,
     leg_weight: f32,
+    /// An attack kicked in the air, while it plays out.
+    air_kick: Option<AirKick>,
 }
+
+/// A volley or bicycle kick: the leg swings through where the ball was met,
+/// and a bicycle kick flips the body back.
+#[derive(Clone, Copy)]
+struct AirKick {
+    contact: Vec3,
+    bicycle: bool,
+    /// When it connected, in `Time::elapsed_secs`.
+    start: f32,
+}
+
+/// How long an air kick's leg stays posed...
+const AIR_KICK_SECONDS: f32 = 0.35;
+/// ...and how long a bicycle kick's flip lasts, and how far back it leans at
+/// its deepest, in radians.
+const FLIP_SECONDS: f32 = 0.6;
+const FLIP_ANGLE: f32 = 1.9;
+/// The flip turns about the hips.
+const HIP_HEIGHT: f32 = 1.0;
 
 impl Character {
     fn new(index: usize, yaw: f32) -> Self {
@@ -230,6 +251,7 @@ impl Character {
             leg: None,
             leg_goal: Vec3::ZERO,
             leg_weight: 0.0,
+            air_kick: None,
         }
     }
 
@@ -375,7 +397,7 @@ fn react_to_events(
         for mut character in &mut characters {
             let me = character.index;
             match *event {
-                Event::Touched { player, kind } if player == me => {
+                Event::Touched { player, kind, .. } if player == me => {
                     if let Ball::InFlight(flight) = game.current.ball {
                         character.face = Some((Vec2::new(flight.velocity.x, flight.velocity.z), face_until));
                     }
@@ -383,6 +405,19 @@ fn react_to_events(
                         HitKind::Serve => Clip::Serve,
                         HitKind::Pass | HitKind::Lob => Clip::Pass,
                         HitKind::Spike => Clip::Spike,
+                        // Kicked in the air: drop the arm swing and swing a leg instead.
+                        HitKind::Volley | HitKind::Bicycle => {
+                            let bicycle = kind == HitKind::Bicycle;
+                            character.air_kick =
+                                Some(AirKick { contact: game.current.ball_position(), bicycle, start: time.elapsed_secs() });
+                            // A bicycle kick faces away from where the ball goes.
+                            if bicycle && let Some((direction, until)) = character.face {
+                                character.face = Some((-direction, until));
+                            }
+                            character.action = None;
+                            character.winding_up = false;
+                            continue;
+                        }
                         // Digs and kicks happen mid-move, which keeps playing.
                         HitKind::Dig | HitKind::Kick => continue,
                     };
@@ -460,6 +495,15 @@ fn place_characters(
             character.yaw += turn.clamp(-max_turn, max_turn);
         }
         *transform = Transform::from_translation(feet).with_rotation(Quat::from_rotation_y(character.yaw));
+        if let Some(kick) = character.air_kick.filter(|kick| kick.bicycle) {
+            let progress = (time.elapsed_secs() - kick.start) / FLIP_SECONDS;
+            if progress < 1.0 {
+                // Lean back about the hips, head toward where the ball goes, and come back up.
+                let facing = transform.rotation;
+                let lean = facing * Quat::from_rotation_x(-FLIP_ANGLE * (PI * progress).sin()) * facing.inverse();
+                transform.rotate_around(feet + Vec3::Y * HIP_HEIGHT, lean);
+            }
+        }
     }
 }
 
@@ -631,8 +675,14 @@ fn pose_limbs(
     for (mut character, body) in &mut characters {
         let step = ARM_BLEND_SPEED * time.delta_secs();
 
+        let now = time.elapsed_secs();
+        if character.air_kick.is_some_and(|kick| now - kick.start > AIR_KICK_SECONDS.max(FLIP_SECONDS)) {
+            character.air_kick = None;
+        }
+        let air_kick = character.air_kick.filter(|kick| now - kick.start < AIR_KICK_SECONDS);
+
         // Keep the last goal while blending out, so arms ease back from where they were.
-        let target = match arm_goal(sim, character.index) {
+        let target = match arm_goal(sim, character.index).filter(|_| air_kick.is_none()) {
             Some((goal, strength)) => {
                 character.arm_goal = goal;
                 strength
@@ -665,7 +715,10 @@ fn pose_limbs(
             let extended = me.position + Vec3::new(action.direction.x, 0.0, action.direction.y) * 1.8 + Vec3::Y * 0.2;
             character.leg_goal = if near_and_low && action.phase(sim.tick) != Some(MovePhase::Recovery) { ball } else { extended };
         }
-        let target = if kicking.is_some() { 1.0 } else { 0.0 };
+        if let Some(kick) = air_kick {
+            character.leg_goal = kick.contact;
+        }
+        let target = if kicking.is_some() || air_kick.is_some() { 1.0 } else { 0.0 };
         character.leg_weight += (target - character.leg_weight).clamp(-step, step);
         if character.leg_weight > 0.0
             && let Some(leg) = character.leg

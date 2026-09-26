@@ -1,13 +1,19 @@
 use glam::{Vec2, Vec3};
 
 use crate::court::{self, HALF_LENGTH, HALF_WIDTH, RUNOFF};
-use crate::moves::{ALL_ROUNDER, Button, Kit, MoveId};
-use crate::{DT, PlayerInput};
+use crate::moves::{ALL_ROUNDER, Button, Kit, MoveId, Stance};
+use crate::{DT, PlayerInput, attack};
 
 /// How quickly players speed up and slow down, in m/s². On the ground they reach
 /// running speed or stop in about an eighth of a second; in the air they steer less.
 const ACCELERATION: f32 = 55.0;
 const AIR_ACCELERATION: f32 = 15.0;
+/// An armed attack pulls the body toward a ball within this far (horizontally),
+/// this hard, so a jump that's a little off still meets it.
+const STEER_RANGE: f32 = 3.0;
+const STEER_ACCELERATION: f32 = 35.0;
+/// Steering aims to close the gap in about this long.
+const STEER_SECONDS: f32 = 0.15;
 /// Stronger than real gravity so jumps feel snappy. Apex ≈ 1.2 m.
 pub(crate) const PLAYER_GRAVITY: f32 = 20.0;
 
@@ -205,8 +211,11 @@ impl Player {
             }
             Some((action, MovePhase::Recovery)) if action.id.spec().recovery > 0 => self.velocity = Vec2::ZERO,
             _ => {
-                let wanted = input.movement.clamp_length_max(1.0) * self.kit.run_speed;
-                let acceleration = if self.grounded() { ACCELERATION } else { AIR_ACCELERATION };
+                let (wanted, acceleration) = match self.steering(tick, ball) {
+                    Some(to_spot) => ((to_spot / STEER_SECONDS).clamp_length_max(self.kit.run_speed), STEER_ACCELERATION),
+                    None if self.grounded() => (input.movement.clamp_length_max(1.0) * self.kit.run_speed, ACCELERATION),
+                    None => (input.movement.clamp_length_max(1.0) * self.kit.run_speed, AIR_ACCELERATION),
+                };
                 self.velocity = move_towards(self.velocity, wanted, acceleration * DT);
                 if input.jump && self.grounded() {
                     self.vertical_velocity = self.kit.jump_speed;
@@ -240,9 +249,22 @@ impl Player {
                 self.position.y = 0.0;
                 self.vertical_velocity = 0.0;
                 self.hands_up = false;
+                // Air moves last until landing.
+                if self.action.is_some_and(|action| action.id.spec().stance == Stance::Air) {
+                    self.action = None;
+                }
             }
         }
         started
+    }
+
+    /// While an armed attack is in the air near the ball on our side, the
+    /// horizontal offset to where the body should be to hit it.
+    fn steering(&self, tick: u32, ball: Vec3) -> Option<Vec2> {
+        let armed = !self.grounded() && self.active_move(tick).is_some_and(MoveId::steers);
+        let to_spot = attack::steer_position(self, ball) - Vec2::new(self.position.x, self.position.z);
+        let near = Vec2::new(ball.x - self.position.x, ball.z - self.position.z).length() < STEER_RANGE;
+        (armed && near && self.side * ball.x > 0.0).then_some(to_spot)
     }
 }
 

@@ -87,10 +87,11 @@ fn play_game_sounds(
     let ball = game.current.ball_position();
     for SimEvent(event) in events.read() {
         match *event {
-            Event::Touched { kind, .. } => {
+            Event::Touched { kind, quality, .. } => {
                 *last_hit = Some(kind);
                 let (set, volume) = match kind {
-                    HitKind::Spike => (&sounds.spike, 1.0),
+                    // A mishit sounds like one.
+                    HitKind::Spike | HitKind::Volley | HitKind::Bicycle => (&sounds.spike, 0.4 + 0.6 * quality),
                     HitKind::Serve => (&sounds.serve, 0.8),
                     HitKind::Pass | HitKind::Dig | HitKind::Lob => (&sounds.pass, 0.7),
                     HitKind::Kick => (&sounds.pass, 0.55),
@@ -111,8 +112,8 @@ fn play_game_sounds(
             Event::MoveStarted { .. } => {}
             Event::Point { .. } => {
                 play(&mut commands, &sounds.whistle, 0.5, None);
-                // Big cheers for spikes; polite applause for the rest.
-                let crowd = if *last_hit == Some(HitKind::Spike) { &sounds.roar } else { &sounds.cheer };
+                // Big cheers for attacks; polite applause for the rest.
+                let crowd = if last_hit.is_some_and(HitKind::is_attack) { &sounds.roar } else { &sounds.cheer };
                 play(&mut commands, crowd, 0.45, None);
             }
             Event::SetWon { .. } => play(&mut commands, &sounds.roar, 0.6, None),

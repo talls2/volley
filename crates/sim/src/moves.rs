@@ -27,7 +27,7 @@ pub enum Touch {
     /// Keeps the ball on your side for a teammate, or sends it over on the
     /// team's last touch.
     Keep(HitKind),
-    /// Hits it hard over the net.
+    /// Hits it hard over the net, with whatever technique reaches the ball.
     Attack,
 }
 
@@ -64,6 +64,12 @@ pub enum MoveId {
 }
 
 impl MoveId {
+    /// Whether the player steers toward the ball in the air while this move is
+    /// armed: attacks do, so a jump a little off still meets the ball.
+    pub fn steers(self) -> bool {
+        self.spec().touch == Touch::Attack
+    }
+
     pub fn spec(self) -> &'static Move {
         match self {
             MoveId::Pass => &PASS,
@@ -95,10 +101,17 @@ const PASS: Move = Move {
     hang: 0.0,
 };
 
+/// Armed for the rest of the jump (air moves end on landing), with a wide zone
+/// that takes the ball with a hand or a foot, whichever reaches it: see
+/// [`crate::attack`].
 const SPIKE: Move = Move {
     name: "Spike",
     button: Button::Spike,
     stance: Stance::Air,
+    active: 2 * crate::TICK_HZ,
+    reach: 1.5,
+    low: 0.2,
+    high: 2.9,
     touch: Touch::Attack,
     ..PASS
 };

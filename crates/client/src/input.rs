@@ -48,6 +48,7 @@ pub struct Keys {
     pub pass: KeyCode,
     pub spike: KeyCode,
     pub dive: KeyCode,
+    pub kick: KeyCode,
     pub toggle_bot: KeyCode,
 }
 
@@ -60,6 +61,7 @@ pub const KEYS: Keys = Keys {
     pass: KeyCode::KeyQ,
     spike: KeyCode::KeyE,
     dive: KeyCode::ShiftLeft,
+    kick: KeyCode::KeyF,
     toggle_bot: KeyCode::Digit1,
 };
 
@@ -68,6 +70,7 @@ pub struct Buttons {
     pub pass: &'static [GamepadButton],
     pub spike: &'static [GamepadButton],
     pub dive: &'static [GamepadButton],
+    pub kick: &'static [GamepadButton],
     pub toggle_bot: GamepadButton,
 }
 
@@ -82,6 +85,8 @@ pub const BUTTONS: Buttons = Buttons {
     spike: &[GamepadButton::RightTrigger2, GamepadButton::North],
     // LT, B
     dive: &[GamepadButton::LeftTrigger2, GamepadButton::East],
+    // LB
+    kick: &[GamepadButton::LeftTrigger],
     // View / Back
     toggle_bot: GamepadButton::Select,
 };
@@ -109,6 +114,7 @@ struct Presses {
     pass: bool,
     spike: bool,
     dive: bool,
+    kick: bool,
 }
 
 /// Every connected gamepad controls the local player. The Mac can report extra
@@ -121,6 +127,7 @@ fn record_presses(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mu
     presses.pass |= pressed(KEYS.pass, BUTTONS.pass);
     presses.spike |= pressed(KEYS.spike, BUTTONS.spike);
     presses.dive |= pressed(KEYS.dive, BUTTONS.dive);
+    presses.kick |= pressed(KEYS.kick, BUTTONS.kick);
 }
 
 fn toggle_driver(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mut driver: ResMut<LocalDriver>) {
@@ -170,6 +177,7 @@ impl Controls<'_, '_> {
                 pass: presses.pass,
                 spike: presses.spike,
                 dive: presses.dive,
+                kick: presses.kick,
             };
         }
         inputs

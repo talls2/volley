@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use volley_sim::court::TEAM_NAMES;
-use volley_sim::{Event, Phase, PointReason};
+use volley_sim::{Ball, DT, Event, MoveId, Phase, PointReason, Sim};
 
 use crate::input::{ActiveDevice, LOCAL_TEAM, LocalDriver};
 use crate::scene::TEAM_COLORS;
@@ -10,7 +10,7 @@ use crate::{Match, SimEvent};
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Startup, spawn_hud)
-        .add_systems(Update, (update_score, announce_points, update_controls_help));
+        .add_systems(Update, (update_score, announce_points, update_controls_help, prompt_saves));
 }
 
 /// Keeps text readable over bright sand and sky.
@@ -21,6 +21,9 @@ struct ScoreText;
 
 #[derive(Component)]
 struct SetText;
+
+#[derive(Component)]
+struct MovePrompt;
 
 #[derive(Component)]
 struct Announcement;
@@ -44,6 +47,22 @@ fn spawn_hud(mut commands: Commands) {
             (SetText, Text::default(), TextFont { font_size: FontSize::Px(18.0), ..default() }, SHADOW),
             (Announcement, Text::default(), TextFont { font_size: FontSize::Px(22.0), ..default() }, SHADOW),
         ],
+    ));
+    commands.spawn((
+        Node {
+            width: Val::Percent(100.0),
+            position_type: PositionType::Absolute,
+            bottom: Val::Percent(26.0),
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        children![(
+            MovePrompt,
+            Text::default(),
+            TextFont { font_size: FontSize::Px(32.0), ..default() },
+            TextColor(Color::srgb(1.0, 0.55, 0.85)),
+            SHADOW,
+        )],
     ));
     commands.spawn((
         ControlsHelp,
@@ -135,14 +154,57 @@ fn update_controls_help(
         (LocalDriver::Human, ActiveDevice::Keyboard) => format!(
             "You are {you}. Click to look with the mouse, Esc to release it. Hits go where you look:\n\
              the yellow ring shows where (red = out). Look higher to hit farther.\n\
-             WASD move | Space jump | Q pass / serve (at the net: block) | E spike (in the air) | Shift dive | P pause | 1 let a bot play",
+             WASD move | Space jump | Q pass / serve (at the net: block) | E spike (in the air) | Shift dive | F foot save | P pause | 1 let a bot play",
         ),
         (LocalDriver::Human, ActiveDevice::Gamepad) => format!(
             "You are {you}. Right stick looks and aims: hits go where you look, the yellow ring shows\n\
              where (red = out). Look higher to hit farther.\n\
-             Left stick move | A jump | RB pass / serve (at the net: block) | RT spike (in the air) | LT dive | Menu pause | View let a bot play",
+             Left stick move | A jump | RB pass / serve (at the net: block) | RT spike (in the air) | LT dive | LB foot save | Menu pause | View let a bot play",
         ),
         (LocalDriver::Bot, ActiveDevice::Keyboard) => format!("A bot is playing {you}. Press 1 to take over."),
         (LocalDriver::Bot, ActiveDevice::Gamepad) => format!("A bot is playing {you}. Press View to take over."),
     };
+}
+
+/// How far ahead the save prompt looks.
+const PROMPT_LOOKAHEAD_TICKS: u32 = 30;
+
+/// Prompts a foot save when the ball is about to come by too low for your arms
+/// but within a foot, and a dive when it will land too far to run to.
+fn prompt_saves(
+    game: Res<Match>,
+    driver: Res<LocalDriver>,
+    device: Res<ActiveDevice>,
+    mut prompt: Single<&mut Text, With<MovePrompt>>,
+) {
+    prompt.0 = save_prompt(&game.current, *driver, *device).unwrap_or_default();
+}
+
+fn save_prompt(sim: &Sim, driver: LocalDriver, device: ActiveDevice) -> Option<String> {
+    let me = sim.player_index(LOCAL_TEAM, 0);
+    let player = &sim.players[me];
+    let Ball::InFlight(flight) = sim.ball else { return None };
+    let busy = player.action.is_some_and(|action| action.id.spec().lunge.is_some());
+    if driver != LocalDriver::Human || sim.must_not_touch(me) || busy || !player.grounded() {
+        return None;
+    }
+    let (foot_key, dive_key) = match device {
+        ActiveDevice::Keyboard => ("F", "Shift"),
+        ActiveDevice::Gamepad => ("LB", "LT"),
+    };
+    let upcoming = || (1..=PROMPT_LOOKAHEAD_TICKS).map(|ahead| flight.position_at(sim.tick + ahead));
+    let arms = upcoming().any(|ball| player.reaches(MoveId::Pass, ball));
+    let feet = upcoming().any(|ball| player.reaches(MoveId::FootSave, ball));
+    if feet && !arms {
+        return Some(format!("Foot save!  [{foot_key}]"));
+    }
+    // Landing on our side, too far to run to in time but within a dive.
+    let landing = flight.landing_point();
+    let seconds_left = flight.landing_time() - flight.elapsed(sim.tick);
+    let distance = Vec2::new(landing.x - player.position.x, landing.z - player.position.z).length();
+    let dive = MoveId::Dive.spec();
+    let dive_reach = dive.lunge.unwrap_or_default() * dive.active as f32 * DT + dive.reach;
+    let ours = sim.team_on(landing.x) == LOCAL_TEAM;
+    (ours && seconds_left < 0.6 && distance > player.kit.run_speed * seconds_left + 1.0 && distance < dive_reach)
+        .then(|| format!("Dive!  [{dive_key}]"))
 }

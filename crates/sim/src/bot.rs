@@ -8,9 +8,10 @@ fn default<T: Default>() -> T {
     T::default()
 }
 
-use crate::player::{BLOCK_DISTANCE, DIVE_LUNGE_TICKS, DIVE_SPEED, JUMP_SPEED, PLAYER_GRAVITY, RUN_SPEED};
+use crate::moves::MoveId;
+use crate::player::{BLOCK_DISTANCE, PLAYER_GRAVITY};
 use crate::court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT};
-use crate::{Ball, DT, Flight, HitKind, OVER_DEPTH, PlayerInput, SET_DEPTH, Sim, TICK_HZ, flight_seconds};
+use crate::{Ball, DT, Flight, HitKind, OVER_DEPTH, PlayerInput, SET_DEPTH, Sim, TICK_HZ, dice, flight_seconds};
 
 /// How long a bot waits before serving.
 const SERVE_DELAY_TICKS: u32 = TICK_HZ;
@@ -115,22 +116,45 @@ fn ball_close(sim: &Sim, me: usize, flight: &Flight) -> bool {
 fn pass(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32) -> PlayerInput {
     let player = &sim.players[me];
     let mut input = PlayerInput::default();
+    let landing = flight.landing_point();
+    let direction = Vec2::new(landing.x - player.position.x, landing.z - player.position.z).normalize_or_zero();
+    // Coming in too low for the arms: a foot gets it, if it's in reach.
+    if player.grounded()
+        && !would_connect(sim, me, flight, MoveId::Pass, direction)
+        && would_connect(sim, me, flight, MoveId::FootSave, direction)
+    {
+        return PlayerInput { kick: true, movement: direction, ..input };
+    }
     if ball_close(sim, me, flight) {
         input.pass = true;
         input.aim = pass_aim(sim, me);
         input.movement = (to_ball / 0.5).clamp_length_max(1.0);
         return input;
     }
-    let distance = to_ball.length();
-    let run_reach = RUN_SPEED * seconds_left.max(0.0);
-    let dive_reach = DIVE_SPEED * DIVE_LUNGE_TICKS as f32 * DT;
-    if distance > run_reach + 0.8 && distance < dive_reach + 1.0 && seconds_left < 0.45 && player.grounded() {
-        input.dive = true;
-        input.movement = to_ball.normalize_or_zero();
-        return input;
+    // Can't run there in time: stick a foot out, or dive, if that would get it.
+    let run_reach = player.kit.run_speed * seconds_left.max(0.0);
+    if to_ball.length() > run_reach + 0.3 && player.grounded() {
+        if would_connect(sim, me, flight, MoveId::FootSave, direction) {
+            return PlayerInput { kick: true, movement: direction, ..input };
+        }
+        if would_connect(sim, me, flight, MoveId::Dive, direction) {
+            return PlayerInput { dive: true, movement: direction, ..input };
+        }
     }
     input.movement = (to_ball / 0.5).clamp_length_max(1.0);
     input
+}
+
+/// Whether starting move `id` now, lunging toward `direction`, would touch
+/// the ball: plays the move forward tick by tick against the ball's flight.
+fn would_connect(sim: &Sim, me: usize, flight: &Flight, id: MoveId, direction: Vec2) -> bool {
+    let spec = id.spec();
+    let speed = spec.lunge.unwrap_or_default();
+    let mut body = sim.players[me];
+    (1..=spec.windup + spec.active).any(|tick| {
+        body.position += Vec3::new(direction.x, 0.0, direction.y) * speed * DT;
+        tick > spec.windup && body.reaches(id, flight.position_at(sim.tick + tick))
+    })
 }
 
 fn spike(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32) -> PlayerInput {
@@ -147,7 +171,7 @@ fn spike(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32
     }
     // Leave the ground so the top of the jump meets the ball. Steering in the
     // air covers the last couple of meters.
-    let rise_time = JUMP_SPEED / PLAYER_GRAVITY;
+    let rise_time = player.kit.jump_speed / PLAYER_GRAVITY;
     input.jump = to_ball.length() < 2.5 && seconds_left <= rise_time;
     input
 }
@@ -189,7 +213,7 @@ fn block(sim: &Sim, me: usize) -> Option<PlayerInput> {
     // Lining up exactly every time would stuff every spike.
     let misjudge = (seed / BLOCK_SKIP_EVERY % 3) as f32 * 0.4 - 0.4;
     let spot = Vec3::new(side * BLOCK_SPOT, 0.0, attack_z + misjudge);
-    let rise_time = JUMP_SPEED / PLAYER_GRAVITY;
+    let rise_time = player.kit.jump_speed / PLAYER_GRAVITY;
     let in_range = player.position.x.abs() < BLOCK_DISTANCE;
     Some(PlayerInput {
         movement: walk_to(player.position, spot),
@@ -197,15 +221,6 @@ fn block(sim: &Sim, me: usize) -> Option<PlayerInput> {
         pass: player.grounded() && in_range && until_spike.is_some_and(|t| t <= rise_time - 0.1),
         ..default()
     })
-}
-
-/// A number that varies from ball to ball and rally to rally, standing in for
-/// randomness while keeping the simulation deterministic.
-fn dice(tick: u32, rally: u32) -> u32 {
-    let mut x = tick.wrapping_mul(0x9E37_79B1) ^ rally.wrapping_mul(0x85EB_CA6B);
-    x ^= x >> 15;
-    x = x.wrapping_mul(0x2C1B_3C6D);
-    x ^ (x >> 13)
 }
 
 /// Where the other team is about to spike from, if they are.

@@ -7,12 +7,15 @@
 mod ball;
 pub mod bot;
 pub mod court;
+pub mod moves;
 mod player;
 
 pub use ball::{Ball, Flight};
 pub use glam::{Vec2, Vec3};
-pub use player::{Dive, HitRequest, Player};
+pub use moves::{Kit, Move, MoveId};
+pub use player::{Action, MovePhase, Player};
 
+use moves::Touch;
 use court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT, NET_HALF_WIDTH, RUNOFF};
 
 pub const TICK_HZ: u32 = 60;
@@ -40,9 +43,8 @@ pub(crate) fn flight_seconds(kind: HitKind, distance: f32) -> f32 {
         HitKind::Serve => 0.9 + 0.035 * distance,
         HitKind::Spike => 0.3 + 0.02 * distance,
         HitKind::Lob => 0.8 + 0.035 * distance,
-        HitKind::Pass => 1.2 + 0.05 * distance,
-        // A dig is a scramble, so it goes up higher, giving teammates time to get there.
-        HitKind::Dig => 1.5 + 0.05 * distance,
+        // Scrambles like digs and kicks add the move's own hang time on top.
+        HitKind::Pass | HitKind::Dig | HitKind::Kick => 1.2 + 0.05 * distance,
     }
 }
 
@@ -58,6 +60,7 @@ pub struct PlayerInput {
     pub pass: bool,
     pub spike: bool,
     pub dive: bool,
+    pub kick: bool,
 }
 
 /// Players per team and the scoring rules. The defaults are beach volleyball's.
@@ -107,6 +110,8 @@ pub enum HitKind {
     Pass,
     /// A pass made while diving.
     Dig,
+    /// A foot save.
+    Kick,
     /// Forced over the net on a team's last touch.
     Lob,
     Spike,
@@ -122,7 +127,8 @@ pub enum PointReason {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
-    Dove { player: usize },
+    /// A move began: a press, a dive, a foot save.
+    MoveStarted { player: usize, id: MoveId },
     Touched { player: usize, kind: HitKind },
     /// A block at the net. `stuffed`: sent straight back down on the attackers;
     /// otherwise softened, popping up on the blocker's side.
@@ -225,8 +231,8 @@ impl Sim {
         let ball = self.ball_position();
         for (i, input) in inputs.iter().enumerate() {
             let serving = self.ball == Ball::Held { by: i };
-            if self.players[i].update(input, self.tick, serving, ball) {
-                events.push(Event::Dove { player: i });
+            if let Some(id) = self.players[i].update(input, self.tick, serving, ball) {
+                events.push(Event::MoveStarted { player: i, id });
             }
         }
 
@@ -335,37 +341,42 @@ impl Sim {
     /// where it would land. For showing an aim marker; changes nothing.
     pub fn preview_hit(&self, player: usize) -> (HitKind, Vec3) {
         let p = &self.players[player];
-        let request = if p.grounded() { HitRequest::Pass } else { HitRequest::Spike };
+        let id = if p.grounded() { MoveId::Pass } else { MoveId::Spike };
         let touches = self.team_touches(p.team) + 1;
-        let (kind, flight) = self.plan_hit(player, Some(request), touches, self.ball_position());
+        let (kind, flight) = self.plan_hit(player, id, touches, self.ball_position());
         (kind, flight.landing_point())
     }
 
-    /// The hit `hitter` makes from `from`, given their request and the team's
-    /// touch count including this one.
-    fn plan_hit(&self, hitter: usize, request: Option<HitRequest>, touches: u32, from: Vec3) -> (HitKind, Flight) {
+    /// The hit `hitter` makes with move `id` from `from`, given the team's touch
+    /// count including this one.
+    fn plan_hit(&self, hitter: usize, id: MoveId, touches: u32, from: Vec3) -> (HitKind, Flight) {
         let player = &self.players[hitter];
         let side = player.side;
+        let spec = id.spec();
         let (kind, target) = if self.ball == (Ball::Held { by: hitter }) {
             (HitKind::Serve, over_net_target(side, player.aim, OVER_DEPTH))
-        } else if request == Some(HitRequest::Spike) && !player.grounded() {
-            (HitKind::Spike, over_net_target(side, player.aim, SPIKE_DEPTH))
-        } else if touches >= MAX_TOUCHES {
-            (HitKind::Lob, over_net_target(side, player.aim, OVER_DEPTH))
+        } else if let Touch::Keep(kind) = spec.touch {
+            if touches >= MAX_TOUCHES {
+                // The team's last touch has to go over.
+                let kind = if kind == HitKind::Pass { HitKind::Lob } else { kind };
+                (kind, over_net_target(side, player.aim, OVER_DEPTH))
+            } else {
+                let depth = if touches == 1 { RECEIVE_DEPTH } else { SET_DEPTH };
+                (kind, own_side_target(side, player.aim, depth))
+            }
         } else {
-            let depth = if touches == 1 { RECEIVE_DEPTH } else { SET_DEPTH };
-            let kind = if player.lunging(self.tick) { HitKind::Dig } else { HitKind::Pass };
-            (kind, own_side_target(side, player.aim, depth))
+            (HitKind::Spike, over_net_target(side, player.aim, SPIKE_DEPTH))
         };
-        let seconds = flight_seconds(kind, from.with_y(0.0).distance(target.with_y(0.0)));
+        let target = target + wobble(spec.wobble, self.tick, hitter);
+        let seconds = flight_seconds(kind, from.with_y(0.0).distance(target.with_y(0.0))) + spec.hang;
         (kind, Flight::to_target(from, target, seconds, self.tick))
     }
 
     fn update_serve(&mut self, server: usize, events: &mut Vec<Event>) {
-        if self.players[server].take_hit(self.tick).is_none() {
+        let Some(id) = self.players[server].spend(self.tick) else {
             return;
-        }
-        let (kind, flight) = self.plan_hit(server, None, 1, held_ball_position(&self.players[server]));
+        };
+        let (kind, flight) = self.plan_hit(server, id, 1, held_ball_position(&self.players[server]));
         self.touches = Touches { team: self.players[server].team, count: 1, last: Some(server) };
         self.launch(server, kind, flight, events);
     }
@@ -425,7 +436,7 @@ impl Sim {
         let ball = flight.position_at(self.tick);
         let hitter = (0..self.players.len())
             .filter(|&i| {
-                self.players[i].pending_hit(self.tick).is_some() && self.players[i].can_reach(ball, self.tick)
+                self.players[i].active_move(self.tick).is_some() && self.players[i].can_reach(ball, self.tick)
             })
             .min_by(|&a, &b| {
                 let da = self.players[a].position.distance_squared(ball);
@@ -438,7 +449,9 @@ impl Sim {
     }
 
     fn touch(&mut self, hitter: usize, ball: Vec3, events: &mut Vec<Event>) {
-        let request = self.players[hitter].take_hit(self.tick);
+        let Some(id) = self.players[hitter].spend(self.tick) else {
+            return;
+        };
         let team = self.players[hitter].team;
 
         if self.touches.team != team {
@@ -455,7 +468,7 @@ impl Sim {
             return;
         }
 
-        let (kind, flight) = self.plan_hit(hitter, request, self.touches.count, ball);
+        let (kind, flight) = self.plan_hit(hitter, id, self.touches.count, ball);
         self.launch(hitter, kind, flight, events);
     }
 
@@ -539,6 +552,27 @@ fn own_side_target(side: f32, aim: Option<Vec2>, depth: f32) -> Vec3 {
     let (min_x, max_x) = court::x_range(side, 0.8, HALF_LENGTH - 0.5);
     let max_z = HALF_WIDTH - 0.5;
     Vec3::new(spot.x.clamp(min_x, max_x), BALL_RADIUS, spot.y.clamp(-max_z, max_z))
+}
+
+/// An offset of up to `radius` meters for inaccurate touches, varying from hit
+/// to hit.
+fn wobble(radius: f32, tick: u32, hitter: usize) -> Vec3 {
+    if radius <= 0.0 {
+        return Vec3::ZERO;
+    }
+    let roll = dice(tick, hitter as u32);
+    let angle = (roll & 0xFFFF) as f32 / 65535.0 * std::f32::consts::TAU;
+    let distance = radius * (roll >> 16) as f32 / 65535.0;
+    Vec3::new(angle.cos() * distance, 0.0, angle.sin() * distance)
+}
+
+/// A number that varies from call to call with its inputs, standing in for
+/// randomness while keeping the simulation deterministic.
+pub(crate) fn dice(a: u32, b: u32) -> u32 {
+    let mut x = a.wrapping_mul(0x9E37_79B1) ^ b.wrapping_mul(0x85EB_CA6B);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x2C1B_3C6D);
+    x ^ (x >> 13)
 }
 
 #[cfg(test)]

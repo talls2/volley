@@ -3,12 +3,14 @@
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use volley_sim::Event;
+use volley_sim::{Event, MoveId};
 
 use crate::{Match, SimEvent};
 
 /// When a diving player's body hits the sand, after the lunge starts.
 const DIVE_IMPACT_SECONDS: f32 = 0.4;
+/// When a foot save's leg sweeps through the sand.
+const KICK_IMPACT_SECONDS: f32 = 0.1;
 const GRAIN_GRAVITY: f32 = 9.8;
 
 pub fn plugin(app: &mut App) {
@@ -82,7 +84,8 @@ fn kick_up_sand(
     for SimEvent(event) in events.read() {
         match *event {
             Event::Landed { at, velocity, .. } => puff(at, 40, (velocity.length() * 0.15).clamp(1.5, 3.5)),
-            Event::Dove { player } => pending.0.push((now + DIVE_IMPACT_SECONDS, player)),
+            Event::MoveStarted { player, id: MoveId::Dive } => pending.0.push((now + DIVE_IMPACT_SECONDS, player)),
+            Event::MoveStarted { player, id: MoveId::FootSave } => pending.0.push((now + KICK_IMPACT_SECONDS, player)),
             _ => {}
         }
     }

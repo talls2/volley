@@ -85,14 +85,14 @@ fn aimed_hits_land_where_aimed() {
     let spot = Vec2::new(7.0, -4.0);
     sim.players[hitter].position.y = 1.0;
     sim.players[hitter].aim = Some(spot);
-    let (kind, flight) = sim.plan_hit(hitter, Some(HitRequest::Spike), 3, from);
+    let (kind, flight) = sim.plan_hit(hitter, MoveId::Spike, 3, from);
     assert_eq!(kind, HitKind::Spike);
     assert!(Vec2::new(flight.landing_point().x, flight.landing_point().z).distance(spot) < 1e-3);
 
     let teammate_spot = Vec2::new(-2.0, 3.5);
     sim.players[hitter].position.y = 0.0;
     sim.players[hitter].aim = Some(teammate_spot);
-    let (kind, flight) = sim.plan_hit(hitter, Some(HitRequest::Pass), 1, from);
+    let (kind, flight) = sim.plan_hit(hitter, MoveId::Pass, 1, from);
     assert_eq!(kind, HitKind::Pass);
     assert!(Vec2::new(flight.landing_point().x, flight.landing_point().z).distance(teammate_spot) < 1e-3);
 }
@@ -211,8 +211,94 @@ fn diving_digs_a_ball_out_of_running_reach() {
     for _ in 0..30 {
         events.extend(sim.step(&idle(&sim)));
     }
-    assert!(events.contains(&Event::Dove { player: digger }), "{events:?}");
+    assert!(events.contains(&Event::MoveStarted { player: digger, id: MoveId::Dive }), "{events:?}");
     assert!(events.contains(&Event::Touched { player: digger, kind: HitKind::Dig }), "{events:?}");
+}
+
+/// A ball dropping `sideways` meters to the side of team 1's first player,
+/// with `height` left before it lands.
+fn low_ball_beside(sideways: f32) -> (Sim, usize) {
+    let mut sim = Sim::new(MatchConfig::default());
+    let player = sim.player_index(1, 0);
+    let landing = sim.players[player].position + Vec3::new(0.0, BALL_RADIUS, sideways);
+    sim.ball = Ball::InFlight(Flight::to_target(landing + Vec3::new(-6.0, 3.0, 0.0), landing, 1.0, sim.tick));
+    sim.touches = Touches { team: 0, count: 1, last: Some(0) };
+    (sim, player)
+}
+
+/// Steps until the ball lands or is touched, pressing `input` for `player`
+/// once the ball is within `when` seconds of landing.
+fn play_ball(sim: &mut Sim, player: usize, when: f32, input: PlayerInput) -> Vec<Event> {
+    let mut events = Vec::new();
+    let mut pressed = false;
+    while let Ball::InFlight(flight) = sim.ball {
+        let mut inputs = idle(sim);
+        if !pressed && flight.landing_time() - flight.elapsed(sim.tick) < when {
+            inputs[player] = input;
+            pressed = true;
+        }
+        events.extend(sim.step(&inputs));
+        if events.iter().any(|e| matches!(e, Event::Touched { .. } | Event::Landed { .. })) {
+            break;
+        }
+    }
+    events
+}
+
+#[test]
+fn foot_save_kicks_up_a_low_ball_out_of_arms_reach() {
+    let (mut sim, player) = low_ball_beside(1.6);
+    let kick = PlayerInput { kick: true, movement: Vec2::new(0.0, 1.0), ..default() };
+    let events = play_ball(&mut sim, player, 0.15, kick);
+    assert!(events.contains(&Event::MoveStarted { player, id: MoveId::FootSave }), "{events:?}");
+    assert!(events.contains(&Event::Touched { player, kind: HitKind::Kick }), "{events:?}");
+    // It pops up for a teammate, on our side.
+    let Ball::InFlight(flight) = sim.ball else { panic!("ball should be in flight") };
+    assert_eq!(sim.team_on(flight.landing_point().x), 1);
+
+    // A pass couldn't have reached it.
+    let (mut sim, player) = low_ball_beside(1.6);
+    let pass = PlayerInput { pass: true, ..default() };
+    let events = play_ball(&mut sim, player, 0.15, pass);
+    assert!(!events.iter().any(|e| matches!(e, Event::Touched { .. })), "{events:?}");
+}
+
+#[test]
+fn foot_save_only_reaches_low_balls() {
+    let sim = Sim::new(MatchConfig::default());
+    let player = sim.player_index(1, 0);
+    let at = sim.players[player].position;
+    assert!(sim.players[player].reaches(MoveId::FootSave, at + Vec3::new(0.0, 0.3, 1.7)));
+    assert!(!sim.players[player].reaches(MoveId::FootSave, at + Vec3::new(0.0, 1.5, 1.0)));
+}
+
+#[test]
+fn only_feet_reach_a_ball_at_the_ankles() {
+    let sim = Sim::new(MatchConfig::default());
+    let player = &sim.players[sim.player_index(1, 0)];
+    let at_the_ankles = player.position + Vec3::new(0.0, 0.3, 0.6);
+    assert!(!player.reaches(MoveId::Pass, at_the_ankles));
+    assert!(player.reaches(MoveId::FootSave, at_the_ankles));
+}
+
+#[test]
+fn foot_save_leaves_you_stumbling() {
+    let mut sim = Sim::new(MatchConfig::default());
+    let player = sim.player_index(1, 0);
+    let mut inputs = idle(&sim);
+    inputs[player].kick = true;
+    sim.step(&inputs);
+    let spec = MoveId::FootSave.spec();
+    for _ in 0..spec.windup + spec.active + 1 {
+        sim.step(&idle(&sim));
+    }
+    let before = sim.players[player].position;
+    let mut inputs = idle(&sim);
+    inputs[player].movement = Vec2::new(1.0, 0.0);
+    for _ in 0..5 {
+        sim.step(&inputs);
+    }
+    assert_eq!(sim.players[player].position, before, "can't run while recovering");
 }
 
 #[test]
@@ -225,7 +311,7 @@ fn cannot_dive_in_the_air() {
     let mut inputs = idle(&sim);
     inputs[player].dive = true;
     let events = sim.step(&inputs);
-    assert!(!events.contains(&Event::Dove { player }));
+    assert!(!events.contains(&Event::MoveStarted { player, id: MoveId::Dive }));
 }
 
 #[test]

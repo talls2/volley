@@ -18,7 +18,7 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy::world_serialization::WorldInstanceReady;
 use volley_sim::court::BALL_RADIUS;
-use volley_sim::{Ball, DT, Event, HitKind, HitRequest, Phase, Sim};
+use volley_sim::{Ball, DT, Event, HitKind, MoveId, MovePhase, Phase, Sim};
 
 use crate::input::LOCAL_TEAM;
 use crate::scene::{TEAM_COLORS, player_feet};
@@ -65,7 +65,7 @@ pub fn plugin(app: &mut App) {
             ),
         )
         // Overrides the animated arms, so it runs once the animation has been applied.
-        .add_systems(PostUpdate, pose_arms.after(TransformSystems::Propagate));
+        .add_systems(PostUpdate, pose_limbs.after(TransformSystems::Propagate));
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -80,6 +80,7 @@ enum Clip {
     Spike,
     Serve,
     Dive,
+    Kick,
     Celebrate,
 }
 
@@ -92,7 +93,7 @@ struct Swing {
 }
 
 impl Clip {
-    const ALL: [Clip; 11] = [
+    const ALL: [Clip; 12] = [
         Clip::Idle,
         Clip::Jog,
         Clip::Sprint,
@@ -103,6 +104,7 @@ impl Clip {
         Clip::Spike,
         Clip::Serve,
         Clip::Dive,
+        Clip::Kick,
         Clip::Celebrate,
     ];
 
@@ -123,6 +125,8 @@ impl Clip {
             Clip::Serve => "Punch_Cross",
             // Launches forward, hits the floor, rolls back up.
             Clip::Dive => "Roll",
+            // A low crouch; the kicking leg is posed in code toward the ball.
+            Clip::Kick => "Crouch_Idle_Loop",
             Clip::Celebrate => "Dance_Loop",
         }
     }
@@ -153,7 +157,7 @@ impl Clip {
     /// Moves started by the game rather than by running and jumping. Takeoffs and
     /// landings never cut these short.
     fn is_game_action(self) -> bool {
-        matches!(self, Clip::Pass | Clip::Spike | Clip::Serve | Clip::Dive | Clip::Celebrate)
+        matches!(self, Clip::Pass | Clip::Spike | Clip::Serve | Clip::Dive | Clip::Kick | Clip::Celebrate)
     }
 }
 
@@ -199,6 +203,11 @@ struct Character {
     /// Where posed arms point, and how strongly (0 to 1) they're posed.
     arm_goal: ArmGoal,
     arm_weight: f32,
+    /// The right leg's thigh, calf and foot bones, for foot saves.
+    leg: Option<[Entity; 3]>,
+    /// Where the posed leg points, and how strongly (0 to 1) it's posed.
+    leg_goal: Vec3,
+    leg_weight: f32,
 }
 
 impl Character {
@@ -218,6 +227,9 @@ impl Character {
             arms: Vec::new(),
             arm_goal: ArmGoal::Block,
             arm_weight: 0.0,
+            leg: None,
+            leg_goal: Vec3::ZERO,
+            leg_weight: 0.0,
         }
     }
 
@@ -298,6 +310,7 @@ fn hook_up_skeleton(
         .into_iter()
         .filter_map(|[upper, lower, hand]| Some([bone(upper)?, bone(lower)?, bone(hand)?]))
         .collect();
+    character.leg = (|| Some([bone("thigh_r")?, bone("calf_r")?, bone("foot_r")?]))();
 
     let look = &LOOKS[character.index % LOOKS.len()];
     let hair_color = look.hair_color;
@@ -370,8 +383,8 @@ fn react_to_events(
                         HitKind::Serve => Clip::Serve,
                         HitKind::Pass | HitKind::Lob => Clip::Pass,
                         HitKind::Spike => Clip::Spike,
-                        // Digs happen mid-dive; the roll keeps playing.
-                        HitKind::Dig => continue,
+                        // Digs and kicks happen mid-move, which keeps playing.
+                        HitKind::Dig | HitKind::Kick => continue,
                     };
                     if character.winding_up && character.action == Some(clip) {
                         character.release = true;
@@ -379,11 +392,25 @@ fn react_to_events(
                         character.start(clip, clip.swing().map(|swing| swing.contact));
                     }
                 }
-                Event::Dove { player } if player == me => {
-                    if let Some(dive) = game.current.players[me].dive {
-                        character.face = Some((dive.direction, face_until));
+                Event::MoveStarted { player, id } if player == me => {
+                    let body = &game.current.players[me];
+                    match id {
+                        MoveId::Dive | MoveId::FootSave => {
+                            if let Some(action) = body.action {
+                                character.face = Some((action.direction, face_until));
+                            }
+                            character.start(if id == MoveId::Dive { Clip::Dive } else { Clip::Kick }, None);
+                        }
+                        // A pressed hit winds up and waits for the ball. Serves
+                        // happen on the press itself, so they skip this.
+                        MoveId::Pass | MoveId::Spike => {
+                            let serving = game.current.ball == Ball::Held { by: me };
+                            if !serving && !character.action.is_some_and(Clip::is_game_action) {
+                                character.start(if id == MoveId::Pass { Clip::Pass } else { Clip::Spike }, None);
+                                character.winding_up = true;
+                            }
+                        }
                     }
-                    character.start(Clip::Dive, None);
                 }
                 Event::Point { team, .. } if team == game.current.players[me].team => {
                     character.start(Clip::Celebrate, None);
@@ -464,28 +491,14 @@ fn animate_characters(
             }
         }
 
-        // A hit button was just pressed: wind up and wait for the ball. Serves
-        // happen on the press itself, so they skip this.
-        let was_pressed = game.previous.players[character.index].pending_hit(game.previous.tick).is_some();
-        let swing = match me.pending_hit(game.current.tick) {
-            _ if was_pressed || me.dive.is_some() || game.current.ball == Ball::Held { by: character.index } => None,
-            Some(HitRequest::Pass) => Some(Clip::Pass),
-            Some(HitRequest::Spike) if airborne => Some(Clip::Spike),
-            _ => None,
-        };
-        if let Some(clip) = swing
-            && !character.action.is_some_and(Clip::is_game_action)
-        {
-            character.start(clip, None);
-            character.winding_up = true;
-        }
-
         let speed = ground_velocity(&game, character.index).length();
         if let Some(action) = character.action
             && !character.restart
         {
             let finished = match action {
                 Clip::Celebrate => game.current.phase == Phase::Rally,
+                // The crouch loops; it lasts as long as the foot save does.
+                Clip::Kick => !me.action.is_some_and(|action| action.id == MoveId::FootSave),
                 // Running cuts a landing short, so it never slows you down.
                 Clip::Land if speed > JOG_SPEED => true,
                 _ if character.winding_up => false,
@@ -506,7 +519,7 @@ fn animate_characters(
                 // Connected: jump to the contact frame and follow through.
                 active.seek_to(swing.contact).set_speed(action.speed()).resume();
                 character.winding_up = false;
-            } else if me.pending_hit(game.current.tick).is_none() {
+            } else if me.active_move(game.current.tick).is_none() {
                 // Nothing to hit: swing through anyway.
                 active.set_speed(action.speed()).resume();
                 character.winding_up = false;
@@ -562,6 +575,8 @@ const ARM_BLEND_SPEED: f32 = 12.0;
 const REACH_START: f32 = 2.6;
 const FULL_REACH: f32 = 1.2;
 const CHEST_HEIGHT: f32 = 1.3;
+/// A foot save's leg reaches for a ball this close; otherwise it kicks straight out.
+const KICK_REACH_START: f32 = 2.5;
 
 /// Where posed arms point.
 #[derive(Clone, Copy, PartialEq)]
@@ -597,13 +612,14 @@ fn arm_goal(sim: &Sim, index: usize) -> Option<(ArmGoal, f32)> {
     Some((ArmGoal::Reach { ball, both_arms: !spiking }, closeness))
 }
 
-/// The free animation library has no bump, set or block, so arms are posed in
-/// code: after the animation has placed the skeleton, arms are turned to point
-/// up for a block or at the ball as it comes in, with the elbows straightened.
+/// The free animation library has no bump, set, block or foot save, so arms
+/// and legs are posed in code: after the animation has placed the skeleton,
+/// arms are turned to point up for a block or at the ball as it comes in, with
+/// the elbows straightened, and a foot save stretches a leg out to the ball.
 /// Both arms converging on a low ball makes a bump; on a high one, a set. This
-/// works on the final bone positions, so everything below the upper arm
-/// (forearm, hand, fingers) is repositioned to follow.
-fn pose_arms(
+/// works on the final bone positions, so everything below a turned bone
+/// (forearm, hand, fingers; calf, foot) is repositioned to follow.
+fn pose_limbs(
     game: Res<Match>,
     time: Res<Time>,
     mut characters: Query<(&mut Character, &Transform)>,
@@ -611,44 +627,75 @@ fn pose_arms(
     children: Query<&Children>,
     mut globals: Query<&mut GlobalTransform>,
 ) {
+    let sim = &game.current;
     for (mut character, body) in &mut characters {
+        let step = ARM_BLEND_SPEED * time.delta_secs();
+
         // Keep the last goal while blending out, so arms ease back from where they were.
-        let target = match arm_goal(&game.current, character.index) {
+        let target = match arm_goal(sim, character.index) {
             Some((goal, strength)) => {
                 character.arm_goal = goal;
                 strength
             }
             None => 0.0,
         };
-        let step = ARM_BLEND_SPEED * time.delta_secs();
         character.arm_weight += (target - character.arm_weight).clamp(-step, step);
-        let weight = character.arm_weight;
-        if weight <= 0.0 {
-            continue;
-        }
-        let forward = body.rotation * Vec3::Z;
-        for (side, &[upper, lower, hand]) in character.arms.iter().enumerate() {
-            // Arms are stored left, right; a spike swings only the right.
-            if matches!(character.arm_goal, ArmGoal::Reach { both_arms: false, .. }) && side == 0 {
-                continue;
-            }
-            // Turn the upper arm, then the forearm: a bone points toward the
-            // next one down the arm.
-            for (bone, child) in [(upper, lower), (lower, hand)] {
-                let (Ok(global), Ok(child_local)) = (globals.get(bone).copied(), locals.get(child)) else {
+        if character.arm_weight > 0.0 {
+            let forward = body.rotation * Vec3::Z;
+            let goal = character.arm_goal;
+            for (side, &arm) in character.arms.iter().enumerate() {
+                // Arms are stored left, right; a spike swings only the right.
+                if matches!(goal, ArmGoal::Reach { both_arms: false, .. }) && side == 0 {
                     continue;
-                };
-                let (scale, rotation, translation) = global.to_scale_rotation_translation();
-                let aim = match character.arm_goal {
+                }
+                let aim = |joint: Vec3| match goal {
                     ArmGoal::Block => (Vec3::Y + forward * 0.25).normalize(),
-                    ArmGoal::Reach { ball, .. } => (ball - translation).normalize_or_zero(),
+                    ArmGoal::Reach { ball, .. } => (ball - joint).normalize_or_zero(),
                 };
-                let pointing = (rotation * child_local.translation).normalize_or_zero();
-                let turn = Quat::IDENTITY.slerp(Quat::from_rotation_arc(pointing, aim), weight);
-                let posed = GlobalTransform::from(Transform { translation, rotation: turn * rotation, scale });
-                follow_parent(bone, posed, &locals, &children, &mut globals);
+                point_limb(arm, aim, character.arm_weight, &locals, &children, &mut globals);
             }
         }
+
+        // A foot save stretches the right leg out toward the ball.
+        let me = &sim.players[character.index];
+        let kicking = me.action.filter(|action| action.id == MoveId::FootSave && action.phase(sim.tick).is_some());
+        if let Some(action) = kicking {
+            let ball = sim.ball_position();
+            let near_and_low = ball.distance(me.position) < KICK_REACH_START && ball.y - me.position.y < 1.2;
+            let extended = me.position + Vec3::new(action.direction.x, 0.0, action.direction.y) * 1.8 + Vec3::Y * 0.2;
+            character.leg_goal = if near_and_low && action.phase(sim.tick) != Some(MovePhase::Recovery) { ball } else { extended };
+        }
+        let target = if kicking.is_some() { 1.0 } else { 0.0 };
+        character.leg_weight += (target - character.leg_weight).clamp(-step, step);
+        if character.leg_weight > 0.0
+            && let Some(leg) = character.leg
+        {
+            let goal = character.leg_goal;
+            point_limb(leg, |joint| (goal - joint).normalize_or_zero(), character.leg_weight, &locals, &children, &mut globals);
+        }
+    }
+}
+
+/// Turns a limb, given as its upper bone, lower bone and end bone, so each
+/// bone points where `aim` says from its joint, blended in by `weight`: a bone
+/// points toward the next one down the limb.
+fn point_limb(
+    [upper, lower, end]: [Entity; 3],
+    aim: impl Fn(Vec3) -> Vec3,
+    weight: f32,
+    locals: &Query<&Transform, Without<Character>>,
+    children: &Query<&Children>,
+    globals: &mut Query<&mut GlobalTransform>,
+) {
+    for (bone, child) in [(upper, lower), (lower, end)] {
+        let (Ok(global), Ok(child_local)) = (globals.get(bone).copied(), locals.get(child)) else {
+            continue;
+        };
+        let (scale, rotation, translation) = global.to_scale_rotation_translation();
+        let pointing = (rotation * child_local.translation).normalize_or_zero();
+        let turn = Quat::IDENTITY.slerp(Quat::from_rotation_arc(pointing, aim(translation)), weight);
+        let posed = GlobalTransform::from(Transform { translation, rotation: turn * rotation, scale });
+        follow_parent(bone, posed, locals, children, globals);
     }
 }
 

@@ -36,6 +36,8 @@ variables cargo sets, so launching the binary directly won't load the characters
 | Pass / serve / block | Q | RB (or X) |
 | Spike (in the air) | E | RT (or Y) |
 | Dive | Left Shift | LT (or B) |
+| Foot save | F | LB |
+| Pause | P | Menu |
 | Let a bot play for you | 1 | View |
 
 On a controller, hits are on the bumpers and triggers so your right thumb can
@@ -53,9 +55,27 @@ is relative to where it faces. The court is a third bigger than a real one (24 x
 - **Shot speed follows distance:** short shots are quick and flat, long ones take longer. A short spike from far off the net will hit the net.
 - **Block:** at the net, while the ball is on the other side, pass means block: you jump with your hands up (or raise them if already in the air). Your hands stay up for that jump, so timing is everything: go up as the attacker hits. Squarely blocked spikes are stuffed back down on the attackers; edge-of-the-hands blocks pop up softly on your side. A block isn't one of your three touches, and serves can't be blocked.
 - **Ball trail:** the streak behind the ball shows the last hit: orange for spikes, gold for serves, blue for passes and digs, green for lobs, purple off a block.
+- **Low balls:** you can't bump a ball below your knees. A **foot save** keeps you on your feet: it shoots a leg out almost instantly, reaches farther than a pass (but only low balls), and kicks the ball up high so a teammate has time to get there; it's rougher and you stumble for a moment. A **dive** reaches farthest but leaves you on the ground. When a save is the right move, a prompt says so ("Foot save! [F]", "Dive! [Shift]").
 - **Dive:** lunges toward where you're moving (or at the ball), reaching balls near the floor. You're on the ground for a moment afterwards.
 - The white rings mark where the ball will land if nobody touches it.
 - Presses count for a few frames early, so you don't need frame-perfect timing.
+
+## Match rules
+
+Beach volleyball: sets to 21 won by two, a deciding third set to 15, best of
+three. Teams switch sides every 7 points (every 5 in the deciding set). The
+team that loses a set serves first in the next. A title screen starts the
+match; a match-over screen offers a rematch.
+
+## Moves and kits
+
+Everything a player does to the ball is a *move*, described as data in
+`crates/sim/src/moves.rs`: its button, whether it's done on the ground or in
+the air, its windup, active and recovery time, where it can reach the ball,
+any lunge, and what a touch does (keep it for a teammate, or attack over the
+net), how accurately, and how long it hangs. A *kit* is a set of moves plus
+stats like run speed and jump height. Everyone uses the All-rounder kit for
+now; heroes will each be a kit with their own special moves.
 
 ## Art and sound
 

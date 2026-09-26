@@ -1,30 +1,15 @@
 use glam::{Vec2, Vec3};
 
 use crate::court::{self, HALF_LENGTH, HALF_WIDTH, RUNOFF};
+use crate::moves::{ALL_ROUNDER, Button, Kit, MoveId};
 use crate::{DT, PlayerInput};
 
-pub(crate) const RUN_SPEED: f32 = 6.5;
 /// How quickly players speed up and slow down, in m/s². On the ground they reach
 /// running speed or stop in about an eighth of a second; in the air they steer less.
 const ACCELERATION: f32 = 55.0;
 const AIR_ACCELERATION: f32 = 15.0;
 /// Stronger than real gravity so jumps feel snappy. Apex ≈ 1.2 m.
 pub(crate) const PLAYER_GRAVITY: f32 = 20.0;
-pub(crate) const JUMP_SPEED: f32 = 7.0;
-
-/// How far from the player's center line the ball can be touched.
-const REACH_RADIUS: f32 = 1.0;
-/// Ball-center heights above the feet that can be touched.
-const REACH_LOW: f32 = 0.2;
-const REACH_HIGH: f32 = 2.4;
-
-/// A dive is a lunge along the floor, then time on the ground getting back up.
-pub(crate) const DIVE_SPEED: f32 = 9.0;
-pub(crate) const DIVE_LUNGE_TICKS: u32 = 24;
-const DIVE_RECOVERY_TICKS: u32 = 30;
-/// Reach while lunging: wider, and down to the floor.
-const DIVE_REACH_RADIUS: f32 = 1.5;
-const DIVE_REACH_HIGH: f32 = 1.3;
 
 /// Within this distance of the net, while the ball is on the other side, pass
 /// means block: a jump with the hands up.
@@ -37,21 +22,46 @@ const STUFF_HALF_WIDTH: f32 = 0.3;
 const BLOCK_LOW: f32 = 1.3;
 const BLOCK_HIGH: f32 = 2.4;
 
-/// A hit press stays active this long, waiting for the ball to come in reach.
-/// Without it, players must press on the exact tick, which feels unresponsive.
-const HIT_BUFFER_TICKS: u32 = 8;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HitRequest {
-    Pass,
-    Spike,
+/// A move in progress.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Action {
+    pub id: MoveId,
+    pub start_tick: u32,
+    /// World XZ direction of the move's lunge, unit length.
+    pub direction: Vec2,
+    /// Already touched the ball: the move plays out but can't touch it again.
+    pub spent: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Dive {
-    /// World-space XZ direction, unit length.
-    pub direction: Vec2,
-    pub start_tick: u32,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MovePhase {
+    Windup,
+    Active,
+    Recovery,
+}
+
+impl Action {
+    /// Where the move is at `tick`, or `None` once it's over.
+    pub fn phase(&self, tick: u32) -> Option<MovePhase> {
+        let spec = self.id.spec();
+        let elapsed = tick.saturating_sub(self.start_tick);
+        if elapsed < spec.windup {
+            Some(MovePhase::Windup)
+        } else if elapsed < spec.windup + spec.active {
+            Some(MovePhase::Active)
+        } else if elapsed < spec.windup + spec.active + spec.recovery {
+            Some(MovePhase::Recovery)
+        } else {
+            None
+        }
+    }
+
+    /// Moves with a lunge or recovery commit the body: nothing else can start
+    /// until they finish.
+    fn committed(&self) -> bool {
+        let spec = self.id.spec();
+        spec.lunge.is_some() || spec.recovery > 0
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -59,6 +69,7 @@ pub struct Player {
     pub team: usize,
     /// The half this player's team is on: -1 or +1.
     pub side: f32,
+    pub kit: Kit,
     /// Position of the feet.
     pub position: Vec3,
     pub vertical_velocity: f32,
@@ -66,37 +77,56 @@ pub struct Player {
     pub velocity: Vec2,
     /// Where the player's next hit goes, from their latest input.
     pub aim: Option<Vec2>,
-    pub dive: Option<Dive>,
+    pub action: Option<Action>,
     /// Hands raised to block, until landing.
     pub(crate) hands_up: bool,
-    pending_hit: Option<(HitRequest, u32)>,
 }
 
 impl Player {
     pub fn new(team: usize, side: f32, position: Vec3) -> Self {
-        Self { team, side, position, vertical_velocity: 0.0, velocity: Vec2::ZERO, aim: None, dive: None, hands_up: false, pending_hit: None }
+        Self {
+            team,
+            side,
+            kit: ALL_ROUNDER,
+            position,
+            vertical_velocity: 0.0,
+            velocity: Vec2::ZERO,
+            aim: None,
+            action: None,
+            hands_up: false,
+        }
     }
 
     pub fn grounded(&self) -> bool {
         self.position.y <= 0.0
     }
 
-    /// Whether the player is in the lunge part of a dive.
-    pub fn lunging(&self, tick: u32) -> bool {
-        self.dive.is_some_and(|dive| tick < dive.start_tick + DIVE_LUNGE_TICKS)
+    /// The move that could touch the ball right now, if any.
+    pub fn active_move(&self, tick: u32) -> Option<MoveId> {
+        self.action.filter(|action| !action.spent && action.phase(tick) == Some(MovePhase::Active)).map(|action| action.id)
     }
 
-    pub fn can_reach(&self, ball: Vec3, tick: u32) -> bool {
-        let (radius, low, high) = if self.lunging(tick) {
-            (DIVE_REACH_RADIUS, 0.0, DIVE_REACH_HIGH)
-        } else {
-            (REACH_RADIUS, REACH_LOW, REACH_HIGH)
-        };
+    /// The direction of the body's lunge, while a lunging move is underway.
+    pub fn lunge(&self, tick: u32) -> Option<Vec2> {
+        let action = self.action?;
+        let lunging = action.id.spec().lunge.is_some()
+            && matches!(action.phase(tick), Some(MovePhase::Windup | MovePhase::Active));
+        lunging.then_some(action.direction)
+    }
+
+    /// Whether the move `id` could touch a ball at `ball`.
+    pub fn reaches(&self, id: MoveId, ball: Vec3) -> bool {
+        let spec = id.spec();
         let horizontal = Vec2::new(ball.x - self.position.x, ball.z - self.position.z).length();
         let height = ball.y - self.position.y;
         // No reaching across the net into the other half.
         let on_our_side = self.side * ball.x > -court::BALL_RADIUS;
-        horizontal <= radius && (low..=high).contains(&height) && on_our_side
+        horizontal <= spec.reach && (spec.low..=spec.high).contains(&height) && on_our_side
+    }
+
+    /// Whether the move underway could touch a ball at `ball` (a pass, if none is).
+    pub fn can_reach(&self, ball: Vec3, tick: u32) -> bool {
+        self.reaches(self.active_move(tick).unwrap_or(MoveId::Pass), ball)
     }
 
     /// In the air right by the net, hands up.
@@ -113,64 +143,74 @@ impl Player {
         covered.then_some(sideways <= STUFF_HALF_WIDTH)
     }
 
-    /// The pending hit, if one was pressed recently enough.
-    pub fn pending_hit(&self, tick: u32) -> Option<HitRequest> {
-        self.pending_hit.filter(|&(_, expires)| tick <= expires).map(|(hit, _)| hit)
-    }
-
-    pub(crate) fn take_hit(&mut self, tick: u32) -> Option<HitRequest> {
-        let hit = self.pending_hit(tick);
-        self.pending_hit = None;
-        hit
+    /// Uses up the active move on a touch, returning which move made it.
+    pub(crate) fn spend(&mut self, tick: u32) -> Option<MoveId> {
+        let id = self.active_move(tick)?;
+        let action = self.action.as_mut()?;
+        action.spent = true;
+        if !action.committed() {
+            self.action = None;
+        }
+        Some(id)
     }
 
     pub(crate) fn reset(&mut self, position: Vec3) {
-        *self = Self::new(self.team, self.side, position);
+        *self = Player { kit: self.kit, ..Self::new(self.team, self.side, position) };
     }
 
-    /// Applies one tick of input and returns whether a dive started. A server
-    /// holding the ball must stay behind the end line.
-    pub(crate) fn update(&mut self, input: &PlayerInput, tick: u32, serving: bool, ball: Vec3) -> bool {
-        if self.dive.is_some_and(|dive| tick >= dive.start_tick + DIVE_LUNGE_TICKS + DIVE_RECOVERY_TICKS) {
-            self.dive = None;
+    /// Applies one tick of input. Returns a move that just started (not one
+    /// merely re-pressed). A server holding the ball must stay behind the end line.
+    pub(crate) fn update(&mut self, input: &PlayerInput, tick: u32, serving: bool, ball: Vec3) -> Option<MoveId> {
+        if self.action.is_some_and(|action| action.phase(tick).is_none()) {
+            self.action = None;
+        }
+        self.aim = input.aim;
+
+        let committed = self.action.is_some_and(|action| action.committed());
+        if input.pass && !committed && self.position.x.abs() < BLOCK_DISTANCE && self.side * ball.x < 0.0 {
+            // Block: hands up, jumping first if still on the ground.
+            self.hands_up = true;
+            if self.grounded() {
+                self.vertical_velocity = self.kit.jump_speed;
+            }
         }
 
-        self.aim = input.aim;
-        let mut dove = false;
-        if input.dive && self.dive.is_none() && self.grounded() && !serving {
+        let mut started = None;
+        let presses = [(input.dive, Button::Dive), (input.kick, Button::Kick), (input.spike, Button::Spike), (input.pass, Button::Pass)];
+        for (pressed, button) in presses {
+            if !pressed || committed || (serving && button != Button::Pass) {
+                continue;
+            }
+            let Some(id) = self.kit.move_for(button, self.grounded()) else {
+                continue;
+            };
+            let repressed = self.action.is_some_and(|action| action.id == id && !action.spent);
             let toward_ball = Vec2::new(ball.x - self.position.x, ball.z - self.position.z);
             let direction = [input.movement, toward_ball]
                 .into_iter()
                 .find(|d| d.length() > 0.1)
                 .unwrap_or(Vec2::new(-self.side, 0.0))
                 .normalize();
-            self.dive = Some(Dive { direction, start_tick: tick });
-            // Diving is how you dig: it passes any ball that comes in reach during the lunge.
-            self.pending_hit = Some((HitRequest::Pass, tick + DIVE_LUNGE_TICKS));
-            dove = true;
-        } else if input.spike {
-            self.pending_hit = Some((HitRequest::Spike, tick + HIT_BUFFER_TICKS));
-        } else if input.pass {
-            let at_net = self.position.x.abs() < BLOCK_DISTANCE;
-            let ball_across = self.side * ball.x < 0.0;
-            if at_net && ball_across && self.dive.is_none() {
-                // Block: hands up, jumping first if still on the ground.
-                self.hands_up = true;
-                if self.grounded() {
-                    self.vertical_velocity = JUMP_SPEED;
-                }
+            self.action = Some(Action { id, start_tick: tick, direction, spent: false });
+            if !repressed {
+                started = Some(id);
             }
-            self.pending_hit = Some((HitRequest::Pass, tick + HIT_BUFFER_TICKS));
+            break;
         }
 
-        if let Some(dive) = self.dive {
-            self.velocity = if self.lunging(tick) { dive.direction * DIVE_SPEED } else { Vec2::ZERO };
-        } else {
-            let wanted = input.movement.clamp_length_max(1.0) * RUN_SPEED;
-            let acceleration = if self.grounded() { ACCELERATION } else { AIR_ACCELERATION };
-            self.velocity = move_towards(self.velocity, wanted, acceleration * DT);
-            if input.jump && self.grounded() {
-                self.vertical_velocity = JUMP_SPEED;
+        let phase = self.action.and_then(|action| action.phase(tick).map(|phase| (action, phase)));
+        match phase {
+            Some((action, MovePhase::Windup | MovePhase::Active)) if action.id.spec().lunge.is_some() => {
+                self.velocity = action.direction * action.id.spec().lunge.unwrap_or_default();
+            }
+            Some((action, MovePhase::Recovery)) if action.id.spec().recovery > 0 => self.velocity = Vec2::ZERO,
+            _ => {
+                let wanted = input.movement.clamp_length_max(1.0) * self.kit.run_speed;
+                let acceleration = if self.grounded() { ACCELERATION } else { AIR_ACCELERATION };
+                self.velocity = move_towards(self.velocity, wanted, acceleration * DT);
+                if input.jump && self.grounded() {
+                    self.vertical_velocity = self.kit.jump_speed;
+                }
             }
         }
         self.position.x += self.velocity.x * DT;
@@ -202,7 +242,7 @@ impl Player {
                 self.hands_up = false;
             }
         }
-        dove
+        started
     }
 }
 

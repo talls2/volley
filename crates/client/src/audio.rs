@@ -3,7 +3,7 @@
 
 use bevy::audio::{DefaultSpatialScale, SpatialScale, Volume};
 use bevy::prelude::*;
-use volley_sim::{DT, Event, HitKind};
+use volley_sim::{DT, Event, HitKind, MoveId};
 
 use crate::{Match, SimEvent};
 
@@ -93,6 +93,7 @@ fn play_game_sounds(
                     HitKind::Spike => (&sounds.spike, 1.0),
                     HitKind::Serve => (&sounds.serve, 0.8),
                     HitKind::Pass | HitKind::Dig | HitKind::Lob => (&sounds.pass, 0.7),
+                    HitKind::Kick => (&sounds.pass, 0.55),
                 };
                 play(&mut commands, next(set, &mut turn), volume, Some(ball));
             }
@@ -104,9 +105,10 @@ fn play_game_sounds(
             }
             Event::HitNet { at } => play(&mut commands, &sounds.net, 0.8, Some(at)),
             Event::Landed { at, .. } => play(&mut commands, next(&sounds.sand, &mut turn), 0.9, Some(at)),
-            Event::Dove { player } => {
+            Event::MoveStarted { player, id: MoveId::Dive | MoveId::FootSave } => {
                 play(&mut commands, next(&sounds.step, &mut turn), 1.0, Some(game.current.players[player].position));
             }
+            Event::MoveStarted { .. } => {}
             Event::Point { .. } => {
                 play(&mut commands, &sounds.whistle, 0.5, None);
                 // Big cheers for spikes; polite applause for the rest.
@@ -143,8 +145,8 @@ fn footsteps(
             continue;
         }
         let moved = before.position.with_y(0.0).distance(after.position.with_y(0.0));
-        // Skip teleports and dive slides; only running counts.
-        if moved > 10.0 * DT || after.dive.is_some() {
+        // Skip teleports and lunges like dives; only running counts.
+        if moved > 10.0 * DT || after.lunge(game.current.tick).is_some() {
             continue;
         }
         walked[i] += moved;

@@ -15,6 +15,7 @@ use bevy::animation::{AnimatedBy, AnimationTargetId};
 use bevy::gltf::Gltf;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+use bevy::transform::TransformSystems;
 use bevy::world_serialization::WorldInstanceReady;
 use volley_sim::{Ball, DT, Event, HitKind, HitRequest, Phase, court};
 
@@ -61,7 +62,9 @@ pub fn plugin(app: &mut App) {
                     .run_if(resource_exists::<Animations>),
                 draw_team_markers,
             ),
-        );
+        )
+        // Overrides the animated arms, so it runs once the animation has been applied.
+        .add_systems(PostUpdate, raise_arms_to_block.after(TransformSystems::Propagate));
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -190,6 +193,10 @@ struct Character {
     yaw: f32,
     /// A direction to face instead of the usual, until a time (`Time::elapsed_secs`).
     face: Option<(Vec2, f32)>,
+    /// Each arm's upper arm, forearm and hand bones, for posing arms in code.
+    arms: Vec<[Entity; 3]>,
+    /// How far the arms are raised for a block, 0 to 1.
+    arms_up: f32,
 }
 
 impl Character {
@@ -206,6 +213,8 @@ impl Character {
             airborne: false,
             yaw,
             face: None,
+            arms: Vec::new(),
+            arms_up: 0.0,
         }
     }
 
@@ -279,6 +288,13 @@ fn hook_up_skeleton(
     commands.entity(armature).insert((AnimationPlayer::default(), AnimationTransitions::new()));
     add_animation_targets(&mut commands, armature, armature, &children, &names);
     character.armature = Some(armature);
+    let bone = |name: &str| {
+        children.iter_descendants(armature).find(|&entity| names.get(entity).is_ok_and(|n| n.as_str() == name))
+    };
+    character.arms = [["upperarm_l", "lowerarm_l", "hand_l"], ["upperarm_r", "lowerarm_r", "hand_r"]]
+        .into_iter()
+        .filter_map(|[upper, lower, hand]| Some([bone(upper)?, bone(lower)?, bone(hand)?]))
+        .collect();
 
     let look = &LOOKS[character.index % LOOKS.len()];
     let hair_color = look.hair_color;
@@ -400,6 +416,10 @@ fn place_characters(
         let facing = match character.face {
             Some((direction, until)) if time.elapsed_secs() < until => direction,
             _ if character.winding_up => to_ball,
+            // Square to the net, hands up.
+            _ if game.current.players[character.index].blocking() => {
+                Vec2::new(-court::side(game.current.players[character.index].team), 0.0)
+            }
             _ if velocity.length() > JOG_SPEED => velocity,
             _ => to_ball,
         };
@@ -435,7 +455,8 @@ fn animate_characters(
         let airborne = !me.grounded();
         if airborne != character.airborne {
             character.airborne = airborne;
-            if !character.action.is_some_and(Clip::is_game_action) {
+            // A block goes straight to hands up, without the takeoff crouch.
+            if !character.action.is_some_and(Clip::is_game_action) && !me.blocking() {
                 character.start(if airborne { Clip::JumpStart } else { Clip::Land }, None);
             }
         }
@@ -527,6 +548,68 @@ fn draw_team_markers(game: Res<Match>, characters: Query<(&Character, &Transform
         gizmos.circle(Isometry3d::new(at, flat), 0.55, color);
         if character.index == local {
             gizmos.circle(Isometry3d::new(at, flat), 0.65, color);
+        }
+    }
+}
+
+/// How quickly arms go up for a block and come back down, per second.
+const ARMS_UP_SPEED: f32 = 12.0;
+
+/// The free animation library has no block, so blocking arms are posed in code:
+/// after the animation has placed the skeleton, each arm is turned to point up
+/// and a little forward over the net, with the elbow straightened. This works
+/// on the final bone positions, so everything below the upper arm (forearm,
+/// hand, fingers) is repositioned to follow.
+fn raise_arms_to_block(
+    game: Res<Match>,
+    time: Res<Time>,
+    mut characters: Query<(&mut Character, &Transform)>,
+    locals: Query<&Transform, Without<Character>>,
+    children: Query<&Children>,
+    mut globals: Query<&mut GlobalTransform>,
+) {
+    for (mut character, body) in &mut characters {
+        let target = if game.current.players[character.index].blocking() { 1.0 } else { 0.0 };
+        let step = ARMS_UP_SPEED * time.delta_secs();
+        character.arms_up += (target - character.arms_up).clamp(-step, step);
+        let weight = character.arms_up;
+        if weight <= 0.0 {
+            continue;
+        }
+        let forward = body.rotation * Vec3::Z;
+        let up = (Vec3::Y + forward * 0.25).normalize();
+        for &[upper, lower, hand] in &character.arms {
+            // Turn the upper arm, then the forearm, so each points up: a bone
+            // points toward the next one down the arm.
+            for (bone, child) in [(upper, lower), (lower, hand)] {
+                let (Ok(global), Ok(child_local)) = (globals.get(bone).copied(), locals.get(child)) else {
+                    continue;
+                };
+                let (scale, rotation, translation) = global.to_scale_rotation_translation();
+                let pointing = (rotation * child_local.translation).normalize_or_zero();
+                let turn = Quat::IDENTITY.slerp(Quat::from_rotation_arc(pointing, up), weight);
+                let posed = GlobalTransform::from(Transform { translation, rotation: turn * rotation, scale });
+                follow_parent(bone, posed, &locals, &children, &mut globals);
+            }
+        }
+    }
+}
+
+/// Sets `entity`'s world transform and recomputes everything below it from
+/// their local transforms.
+fn follow_parent(
+    entity: Entity,
+    global: GlobalTransform,
+    locals: &Query<&Transform, Without<Character>>,
+    children: &Query<&Children>,
+    globals: &mut Query<&mut GlobalTransform>,
+) {
+    if let Ok(mut current) = globals.get_mut(entity) {
+        *current = global;
+    }
+    for &child in children.get(entity).into_iter().flatten() {
+        if let Ok(local) = locals.get(child) {
+            follow_parent(child, global.mul_transform(*local), locals, children, globals);
         }
     }
 }

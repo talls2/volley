@@ -4,9 +4,13 @@
 
 use glam::{Vec2, Vec3};
 
-use crate::player::{DIVE_LUNGE_TICKS, DIVE_SPEED, JUMP_SPEED, PLAYER_GRAVITY, RUN_SPEED};
-use crate::court::{HALF_LENGTH, HALF_WIDTH};
-use crate::{Ball, DT, Flight, OVER_DEPTH, PlayerInput, SET_DEPTH, Sim, TICK_HZ, court};
+fn default<T: Default>() -> T {
+    T::default()
+}
+
+use crate::player::{BLOCK_DISTANCE, DIVE_LUNGE_TICKS, DIVE_SPEED, JUMP_SPEED, PLAYER_GRAVITY, RUN_SPEED};
+use crate::court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT};
+use crate::{Ball, DT, Flight, HitKind, OVER_DEPTH, PlayerInput, SET_DEPTH, Sim, TICK_HZ, court, flight_seconds};
 
 /// How long a bot waits before serving.
 const SERVE_DELAY_TICKS: u32 = TICK_HZ;
@@ -28,6 +32,10 @@ const SPIKE_HEIGHT: f32 = 3.1;
 const SPIKE_RANGE: f32 = 4.5;
 /// Where an attacker waits for the set.
 const APPROACH_DEPTH: f32 = 3.5;
+/// Where a blocker stands, from the net.
+const BLOCK_SPOT: f32 = 0.6;
+/// One attack in this many goes unblocked, varying with the set.
+const BLOCK_SKIP_EVERY: u32 = 3;
 
 pub fn input_for(sim: &Sim, me: usize) -> PlayerInput {
     let player = &sim.players[me];
@@ -67,9 +75,16 @@ pub fn input_for(sim: &Sim, me: usize) -> PlayerInput {
         _ => {}
     }
 
-    // Not our ball: get into position. After our first touch, get ready to attack.
+    if let Some(input) = block(sim, me) {
+        return input;
+    }
+
+    // Not our ball: get into position. After our first touch, get ready to
+    // attack. While a teammate blocks, cover the side the block leaves open.
     let spot = if sim.team_touches(team) == 1 && matches!(sim.ball, Ball::InFlight(_)) {
         sim.home_position(me).with_x(side * APPROACH_DEPTH)
+    } else if let Some(attack) = incoming_attack(sim, team) {
+        Vec3::new(side * HALF_LENGTH * 0.55, 0.0, (-attack.z).clamp(-3.0, 3.0))
     } else {
         sim.home_position(me)
     };
@@ -80,7 +95,7 @@ pub fn input_for(sim: &Sim, me: usize) -> PlayerInput {
 fn reaction_ticks(flight: &Flight) -> u32 {
     if flight.velocity.length() > FAST_BALL_SPEED {
         // The hit's start tick stands in for randomness, keeping the simulation deterministic.
-        FAST_BALL_REACTION_TICKS + flight.start_tick % REACTION_SPREAD_TICKS
+        FAST_BALL_REACTION_TICKS + dice(flight.start_tick, 0) % REACTION_SPREAD_TICKS
     } else {
         REACTION_TICKS
     }
@@ -126,7 +141,7 @@ fn spike(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32
     if !player.grounded() {
         if ball_close(sim, me, flight) {
             input.spike = true;
-            input.aim = Some(spike_aim(sim, player.team));
+            input.aim = Some(spike_aim(sim, player.team, flight.position_at(sim.tick)));
         }
         return input;
     }
@@ -135,6 +150,72 @@ fn spike(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32
     let rise_time = JUMP_SPEED / PLAYER_GRAVITY;
     input.jump = to_ball.length() < 2.5 && seconds_left <= rise_time;
     input
+}
+
+/// When the other team has the ball, one teammate blocks: they walk to the net
+/// across from the player who will attack, then press block (pass at the net)
+/// just before the spike, so their hands are highest as it crosses. Some
+/// attacks go unblocked and some blocks are a little off, as people misjudge.
+fn block(sim: &Sim, me: usize) -> Option<PlayerInput> {
+    let Ball::InFlight(flight) = sim.ball else { return None };
+    let player = &sim.players[me];
+    let side = court::side(player.team);
+    // Already up: keep drifting to the net with hands up until landing,
+    // instead of chasing the spike and leaving the block.
+    if player.blocking() {
+        return Some(PlayerInput { movement: walk_to(player.position, player.position.with_x(side * BLOCK_SPOT)), ..default() });
+    }
+    let attackers = 1 - player.team;
+    let seed = dice(flight.start_tick, sim.rally);
+    if seed % BLOCK_SKIP_EVERY == 0 {
+        return None;
+    }
+    // Before the set, line up with whoever will attack: the receiver, since
+    // nobody touches twice in a row. After it, with where the spike will be hit.
+    let (attack_z, until_spike) = match sim.team_touches(attackers) {
+        1 => (sim.players[sim.last_toucher(attackers)?].position.z, None),
+        2 => {
+            let attack = attack_point(&flight, attackers)?;
+            (attack.z, Some(flight.descending_time_at_height(SPIKE_HEIGHT)? - flight.elapsed(sim.tick)))
+        }
+        _ => return None,
+    };
+    let blocker = (0..sim.config.players_per_team)
+        .map(|slot| sim.player_index(player.team, slot))
+        .min_by(|&a, &b| (sim.players[a].position.z - attack_z).abs().total_cmp(&(sim.players[b].position.z - attack_z).abs()))?;
+    if blocker != me {
+        return None;
+    }
+    // Lining up exactly every time would stuff every spike.
+    let misjudge = (seed / BLOCK_SKIP_EVERY % 3) as f32 * 0.4 - 0.4;
+    let spot = Vec3::new(side * BLOCK_SPOT, 0.0, attack_z + misjudge);
+    let rise_time = JUMP_SPEED / PLAYER_GRAVITY;
+    let in_range = player.position.x.abs() < BLOCK_DISTANCE;
+    Some(PlayerInput {
+        movement: walk_to(player.position, spot),
+        // The spike crosses the net about 0.1 s after it's hit, so jump just before.
+        pass: player.grounded() && in_range && until_spike.is_some_and(|t| t <= rise_time - 0.1),
+        ..default()
+    })
+}
+
+/// A number that varies from ball to ball and rally to rally, standing in for
+/// randomness while keeping the simulation deterministic.
+fn dice(tick: u32, rally: u32) -> u32 {
+    let mut x = tick.wrapping_mul(0x9E37_79B1) ^ rally.wrapping_mul(0x85EB_CA6B);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x2C1B_3C6D);
+    x ^ (x >> 13)
+}
+
+/// Where the other team is about to spike from, if they are.
+fn incoming_attack(sim: &Sim, team: usize) -> Option<Vec3> {
+    let Ball::InFlight(flight) = sim.ball else { return None };
+    let attackers = 1 - team;
+    if sim.team_touches(attackers) != 2 {
+        return None;
+    }
+    attack_point(&flight, attackers)
 }
 
 /// Where a spike would be hit, if the ball comes down close enough to the net.
@@ -155,15 +236,35 @@ fn pass_aim(sim: &Sim, me: usize) -> Option<Vec2> {
     Some(Vec2::new(court::side(team) * SET_DEPTH, sim.players[attacker].position.z))
 }
 
-/// Aim for open court: rank nine spots across the opponents' half by distance
-/// from the nearest defender, and pick one of the best three. Always picking the
-/// very best would make every spike unreturnable.
-fn spike_aim(sim: &Sim, team: usize) -> Vec2 {
+/// Aim for open court, around any block: rank nine spots across the opponents'
+/// half by distance from the nearest defender, ruling out shots that would hit
+/// the net or cross it through a blocker's hands, and pick one of the best three. Always picking
+/// the very best would make every spike unreturnable.
+fn spike_aim(sim: &Sim, team: usize, from: Vec3) -> Vec2 {
     let defenders: Vec<Vec3> = (0..sim.config.players_per_team)
         .map(|slot| sim.players[sim.player_index(1 - team, slot)].position)
         .collect();
+    // Now and then an attacker doesn't read the block and hits straight into it.
+    let reads_block = dice(sim.tick, sim.rally.wrapping_add(1)) % 4 != 0;
+    let blocked = |spot: Vec2| {
+        // Where the straight path to `spot` crosses the net, sideways.
+        let share = from.x.abs() / (from.x.abs() + spot.x.abs());
+        let crossing_z = from.z + (spot.y - from.z) * share;
+        reads_block && defenders.iter().any(|d| d.x.abs() < BLOCK_DISTANCE && (d.z - crossing_z).abs() < 0.5)
+    };
+    let clears_net = |spot: Vec2| {
+        let target = Vec3::new(spot.x, BALL_RADIUS, spot.y);
+        let seconds = flight_seconds(HitKind::Spike, from.with_y(0.0).distance(target.with_y(0.0)));
+        let flight = Flight::to_target(from, target, seconds, 0);
+        flight.net_crossing_time().is_some_and(|t| flight.position_at_time(t).y > NET_HEIGHT + BALL_RADIUS + 0.1)
+    };
     let openness = |spot: Vec2| {
-        defenders.iter().map(|d| Vec2::new(d.x, d.z).distance(spot)).fold(f32::MAX, f32::min)
+        let open = defenders.iter().map(|d| Vec2::new(d.x, d.z).distance(spot)).fold(f32::MAX, f32::min);
+        match (clears_net(spot), blocked(spot)) {
+            (false, _) => open - 1000.0,
+            (true, true) => open - 100.0,
+            (true, false) => open,
+        }
     };
     let side = court::side(team);
     let mut aims: Vec<Vec2> = [0.35, 0.6, 0.85]
@@ -171,8 +272,7 @@ fn spike_aim(sim: &Sim, team: usize) -> Vec2 {
         .flat_map(|depth| [-0.7, 0.0, 0.7].map(|z| Vec2::new(-side * depth * HALF_LENGTH, z * HALF_WIDTH)))
         .collect();
     aims.sort_by(|&a, &b| openness(b).total_cmp(&openness(a)));
-    // The tick stands in for randomness, keeping the simulation deterministic.
-    aims[sim.tick as usize % 3]
+    aims[dice(sim.tick, sim.rally) as usize % 3]
 }
 
 /// The teammate who plays the ball at a spot: the nearest one allowed to touch

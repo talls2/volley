@@ -34,7 +34,7 @@ pub(crate) const SET_DEPTH: f32 = 1.3;
 
 /// Seconds a hit takes to travel `distance` meters: a base plus a little per
 /// meter, so short shots are quick and flat and long ones stay playable.
-fn flight_seconds(kind: HitKind, distance: f32) -> f32 {
+pub(crate) fn flight_seconds(kind: HitKind, distance: f32) -> f32 {
     match kind {
         HitKind::Serve => 0.9 + 0.035 * distance,
         HitKind::Spike => 0.3 + 0.02 * distance,
@@ -100,6 +100,9 @@ pub enum PointReason {
 pub enum Event {
     Dove { player: usize },
     Touched { player: usize, kind: HitKind },
+    /// A block at the net. `stuffed`: sent straight back down on the attackers;
+    /// otherwise softened, popping up on the blocker's side.
+    Blocked { player: usize, stuffed: bool },
     HitNet { at: Vec3 },
     /// `velocity` is the ball's as it hit the floor.
     Landed { at: Vec3, velocity: Vec3, inside: bool },
@@ -131,6 +134,8 @@ pub struct Sim {
     serve_rotation: [usize; 2],
     touches: Touches,
     touch_lockout_until: u32,
+    /// The kind of the latest hit.
+    last_hit: Option<HitKind>,
 }
 
 impl Sim {
@@ -151,6 +156,7 @@ impl Sim {
             serve_rotation: [0, 0],
             touches: Touches { team: 0, count: 0, last: None },
             touch_lockout_until: 0,
+            last_hit: None,
         };
         sim.start_rally();
         sim
@@ -211,6 +217,11 @@ impl Sim {
         if self.touches.team == team { self.touches.count } else { 0 }
     }
 
+    /// Who last touched the ball for `team`, if they have it.
+    pub fn last_toucher(&self, team: usize) -> Option<usize> {
+        if self.touches.team == team { self.touches.last } else { None }
+    }
+
     /// Index of `team`'s player in `slot`.
     pub fn player_index(&self, team: usize, slot: usize) -> usize {
         team * self.config.players_per_team + slot
@@ -235,6 +246,7 @@ impl Sim {
         self.phase = Phase::Rally;
         self.touches = Touches { team: self.serving_team, count: 0, last: None };
         self.touch_lockout_until = 0;
+        self.last_hit = None;
 
         for i in 0..self.players.len() {
             let home = self.home_position(i);
@@ -296,10 +308,25 @@ impl Sim {
             && crossing < landing
         {
             let at = flight.position_at_time(crossing);
+            let v = flight.velocity_at_time(crossing);
+            // Just clear of the net on the side the ball came from.
+            let back = -v.x.signum() * (BALL_RADIUS + 0.01);
+            if let Some((blocker, stuffed)) = self.blocker_for(at, v) {
+                let (x, velocity) = if stuffed {
+                    (back, Vec3::new(-v.x * 0.45, v.y.min(0.0) - 2.0, v.z * 0.5))
+                } else {
+                    (-back, Vec3::new(v.x * 0.2, 4.0, v.z * 0.4))
+                };
+                self.ball = Ball::InFlight(Flight { origin: Vec3::new(x, at.y, at.z), velocity, start_tick: self.tick });
+                // A block isn't one of the team's three touches, and the blocker may play the ball again.
+                self.touches = Touches { team: self.players[blocker].team, count: 0, last: None };
+                self.touch_lockout_until = self.tick + TOUCH_LOCKOUT_TICKS;
+                events.push(Event::Blocked { player: blocker, stuffed });
+                return;
+            }
             if at.y < NET_HEIGHT + BALL_RADIUS && at.z.abs() <= NET_HALF_WIDTH {
                 // Drops back down on the side it came from.
-                let v = flight.velocity_at_time(crossing);
-                let origin = Vec3::new(-v.x.signum() * (BALL_RADIUS + 0.01), at.y, at.z);
+                let origin = Vec3::new(back, at.y, at.z);
                 let velocity = Vec3::new(-v.x * 0.2, v.y.min(0.0) * 0.5, v.z * 0.5);
                 self.ball = Ball::InFlight(Flight { origin, velocity, start_tick: self.tick });
                 events.push(Event::HitNet { at });
@@ -359,7 +386,24 @@ impl Sim {
         self.launch(hitter, kind, flight, events);
     }
 
+    /// Who blocks a ball crossing the net at `at` moving at `velocity`, and
+    /// whether squarely. Serves can't be blocked, and balls going into the net
+    /// aren't blocks.
+    fn blocker_for(&self, at: Vec3, velocity: Vec3) -> Option<(usize, bool)> {
+        if self.last_hit == Some(HitKind::Serve) || at.y < NET_HEIGHT {
+            return None;
+        }
+        // The team on the side the ball is heading into.
+        let defending = if velocity.x > 0.0 { 1 } else { 0 };
+        let contacts = (0..self.players.len())
+            .filter(|&i| self.players[i].team == defending)
+            .filter_map(|i| self.players[i].block_contact(at).map(|stuffed| (i, stuffed)));
+        // A square block beats a glancing one.
+        contacts.max_by_key(|&(_, stuffed)| stuffed)
+    }
+
     fn launch(&mut self, hitter: usize, kind: HitKind, flight: Flight, events: &mut Vec<Event>) {
+        self.last_hit = Some(kind);
         self.ball = Ball::InFlight(flight);
         self.touch_lockout_until = self.tick + TOUCH_LOCKOUT_TICKS;
         events.push(Event::Touched { player: hitter, kind });

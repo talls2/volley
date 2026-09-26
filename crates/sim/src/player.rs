@@ -22,6 +22,17 @@ const DIVE_RECOVERY_TICKS: u32 = 30;
 const DIVE_REACH_RADIUS: f32 = 1.5;
 const DIVE_REACH_HIGH: f32 = 1.3;
 
+/// Within this distance of the net, while the ball is on the other side, pass
+/// means block: a jump with the hands up.
+pub(crate) const BLOCK_DISTANCE: f32 = 1.2;
+/// Blocking hands cover this far to each side of the player's center...
+const BLOCK_HALF_WIDTH: f32 = 0.6;
+/// ...and squarely enough to stuff the ball within this far.
+const STUFF_HALF_WIDTH: f32 = 0.3;
+/// Heights above the feet the blocking hands cover, from forearms to fingertips.
+const BLOCK_LOW: f32 = 1.3;
+const BLOCK_HIGH: f32 = 2.4;
+
 /// A hit press stays active this long, waiting for the ball to come in reach.
 /// Without it, players must press on the exact tick, which feels unresponsive.
 const HIT_BUFFER_TICKS: u32 = 8;
@@ -48,12 +59,14 @@ pub struct Player {
     /// Where the player's next hit goes, from their latest input.
     pub aim: Option<Vec2>,
     pub dive: Option<Dive>,
+    /// Hands raised to block, until landing.
+    pub(crate) hands_up: bool,
     pending_hit: Option<(HitRequest, u32)>,
 }
 
 impl Player {
     pub fn new(team: usize, position: Vec3) -> Self {
-        Self { team, position, vertical_velocity: 0.0, aim: None, dive: None, pending_hit: None }
+        Self { team, position, vertical_velocity: 0.0, aim: None, dive: None, hands_up: false, pending_hit: None }
     }
 
     pub fn grounded(&self) -> bool {
@@ -76,6 +89,20 @@ impl Player {
         // No reaching across the net into the other half.
         let on_our_side = court::side(self.team) * ball.x > -court::BALL_RADIUS;
         horizontal <= radius && (low..=high).contains(&height) && on_our_side
+    }
+
+    /// In the air right by the net, hands up.
+    pub fn blocking(&self) -> bool {
+        self.hands_up && !self.grounded() && self.position.x.abs() < BLOCK_DISTANCE
+    }
+
+    /// Whether this player's block catches a ball crossing the net at `at`:
+    /// `Some(true)` squarely (a stuff block), `Some(false)` with the edge of the hands.
+    pub(crate) fn block_contact(&self, at: Vec3) -> Option<bool> {
+        let sideways = (at.z - self.position.z).abs();
+        let height = at.y - self.position.y;
+        let covered = self.blocking() && sideways <= BLOCK_HALF_WIDTH && (BLOCK_LOW..=BLOCK_HIGH).contains(&height);
+        covered.then_some(sideways <= STUFF_HALF_WIDTH)
     }
 
     /// The pending hit, if one was pressed recently enough.
@@ -116,6 +143,15 @@ impl Player {
         } else if input.spike {
             self.pending_hit = Some((HitRequest::Spike, tick + HIT_BUFFER_TICKS));
         } else if input.pass {
+            let at_net = self.position.x.abs() < BLOCK_DISTANCE;
+            let ball_across = court::side(self.team) * ball.x < 0.0;
+            if at_net && ball_across && self.dive.is_none() {
+                // Block: hands up, jumping first if still on the ground.
+                self.hands_up = true;
+                if self.grounded() {
+                    self.vertical_velocity = JUMP_SPEED;
+                }
+            }
             self.pending_hit = Some((HitRequest::Pass, tick + HIT_BUFFER_TICKS));
         }
 
@@ -148,6 +184,7 @@ impl Player {
             if self.position.y <= 0.0 {
                 self.position.y = 0.0;
                 self.vertical_velocity = 0.0;
+                self.hands_up = false;
             }
         }
         dove

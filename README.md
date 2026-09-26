@@ -33,7 +33,7 @@ variables cargo sets, so launching the binary directly won't load the characters
 | Look and aim | Mouse (click the window to capture it, Esc to release) | Right stick |
 | Move | W A S D | Left stick |
 | Jump | Space | A |
-| Pass / serve | Q | RB (or X) |
+| Pass / serve / block | Q | RB (or X) |
 | Spike (in the air) | E | RT (or Y) |
 | Dive | Left Shift | LT (or B) |
 | Let a bot play for you | 1 | View |
@@ -51,6 +51,8 @@ is relative to where it faces. The court is a third bigger than a real one (24 x
 - **No touching twice in a row:** pass to your teammate, then go spike their set.
 - **Spike:** jump, then spike when the ball is in reach.
 - **Shot speed follows distance:** short shots are quick and flat, long ones take longer. A short spike from far off the net will hit the net.
+- **Block:** at the net, while the ball is on the other side, pass means block: you jump with your hands up (or raise them if already in the air). Your hands stay up for that jump, so timing is everything: go up as the attacker hits. Squarely blocked spikes are stuffed back down on the attackers; edge-of-the-hands blocks pop up softly on your side. A block isn't one of your three touches, and serves can't be blocked.
+- **Ball trail:** the streak behind the ball shows the last hit: orange for spikes, gold for serves, blue for passes and digs, green for lobs, purple off a block.
 - **Dive:** lunges toward where you're moving (or at the ball), reaching balls near the floor. You're on the ground for a moment afterwards.
 - The white rings mark where the ball will land if nobody touches it.
 - Presses count for a few frames early, so you don't need frame-perfect timing.

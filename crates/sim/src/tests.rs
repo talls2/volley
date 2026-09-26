@@ -109,6 +109,85 @@ fn aiming_out_lands_out() {
     assert!(!court::is_inside(target), "{target}");
 }
 
+/// A spike from team 0 straight at the net, with team 1's first player in the
+/// air right behind it, `offset` meters to the side.
+fn spike_into_block(offset: f32, kind: HitKind) -> (Sim, usize) {
+    let mut sim = Sim::new(MatchConfig::default());
+    let blocker = sim.player_index(1, 0);
+    sim.players[blocker].position = Vec3::new(0.6, 1.2, offset);
+    sim.players[blocker].hands_up = true;
+    let from = Vec3::new(-1.5, 3.1, 0.0);
+    let flight = Flight::to_target(from, Vec3::new(7.2, BALL_RADIUS, 0.0), 0.47, sim.tick);
+    sim.ball = Ball::InFlight(flight);
+    sim.touches = Touches { team: 0, count: 3, last: Some(0) };
+    sim.last_hit = Some(kind);
+    (sim, blocker)
+}
+
+fn run_until_point(sim: &mut Sim) -> Vec<Event> {
+    let mut events = Vec::new();
+    while !events.iter().any(|e| matches!(e, Event::Point { .. })) && events.len() < 50 {
+        let inputs = idle(sim);
+        events.extend(sim.step(&inputs));
+        assert!(sim.tick < 1000, "no point: {events:?}");
+    }
+    events
+}
+
+#[test]
+fn square_block_stuffs_the_spike() {
+    let (mut sim, blocker) = spike_into_block(0.0, HitKind::Spike);
+    let events = run_until_point(&mut sim);
+    assert!(events.contains(&Event::Blocked { player: blocker, stuffed: true }), "{events:?}");
+    assert!(events.contains(&Event::Point { team: 1, reason: PointReason::LandedIn }), "{events:?}");
+}
+
+#[test]
+fn edge_of_block_softens_the_spike() {
+    let (mut sim, blocker) = spike_into_block(0.5, HitKind::Spike);
+    let events = run_until_point(&mut sim);
+    assert!(events.contains(&Event::Blocked { player: blocker, stuffed: false }), "{events:?}");
+    // Pops up on the blockers' side; nobody plays it, so it drops there.
+    assert!(events.contains(&Event::Point { team: 0, reason: PointReason::LandedIn }), "{events:?}");
+}
+
+#[test]
+fn jumping_without_pressing_block_does_not_block() {
+    let (mut sim, blocker) = spike_into_block(0.0, HitKind::Spike);
+    sim.players[blocker].hands_up = false;
+    let events = run_until_point(&mut sim);
+    assert!(!events.iter().any(|e| matches!(e, Event::Blocked { .. })), "{events:?}");
+}
+
+#[test]
+fn pass_at_the_net_jumps_to_block_only_when_the_ball_is_across() {
+    let mut sim = Sim::new(MatchConfig::default());
+    let player = sim.player_index(1, 0);
+    sim.players[player].position = Vec3::new(0.6, 0.0, 0.0);
+    // Ball on the other side: pass means block.
+    sim.ball = Ball::Dead { at: Vec3::new(-3.0, 1.0, 0.0) };
+    let mut inputs = idle(&sim);
+    inputs[player].pass = true;
+    sim.step(&inputs);
+    assert!(sim.players[player].blocking(), "should jump with hands up");
+
+    // Ball on our side: pass is a pass, no jump.
+    let mut sim = Sim::new(MatchConfig::default());
+    sim.players[player].position = Vec3::new(0.6, 0.0, 0.0);
+    sim.ball = Ball::Dead { at: Vec3::new(2.0, 1.0, 0.0) };
+    let mut inputs = idle(&sim);
+    inputs[player].pass = true;
+    sim.step(&inputs);
+    assert!(sim.players[player].grounded() && !sim.players[player].blocking());
+}
+
+#[test]
+fn serves_cannot_be_blocked() {
+    let (mut sim, _) = spike_into_block(0.0, HitKind::Serve);
+    let events = run_until_point(&mut sim);
+    assert!(!events.iter().any(|e| matches!(e, Event::Blocked { .. })), "{events:?}");
+}
+
 #[test]
 fn diving_digs_a_ball_out_of_running_reach() {
     let mut sim = Sim::new(MatchConfig::default());
@@ -159,7 +238,9 @@ fn bots_play_real_rallies() {
         let inputs = bot_inputs(&sim);
         for event in sim.step(&inputs) {
             match event {
-                Event::Touched { player, .. } => last_team = Some(sim.players[player].team),
+                Event::Touched { player, .. } | Event::Blocked { player, .. } => {
+                    last_team = Some(sim.players[player].team);
+                }
                 // Dropped on their own side after touching it: a fumble, not a point won by the other team.
                 Event::Landed { at, inside, .. } if inside && Some(court::half_owner(at.x)) == last_team => {
                     unforced_errors += 1;

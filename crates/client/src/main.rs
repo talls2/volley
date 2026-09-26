@@ -8,6 +8,7 @@ mod characters;
 mod hud;
 mod input;
 mod scene;
+mod trail;
 
 use bevy::prelude::*;
 use volley_sim::{Event, MatchConfig, Sim, TICK_HZ};
@@ -34,7 +35,7 @@ fn main() {
         .insert_resource(Time::<Fixed>::from_hz(TICK_HZ as f64))
         .insert_resource(Match { previous: sim.clone(), current: sim })
         .add_message::<SimEvent>()
-        .add_plugins((input::plugin, camera::plugin, aim::plugin, scene::plugin, characters::plugin, hud::plugin))
+        .add_plugins((input::plugin, camera::plugin, aim::plugin, scene::plugin, trail::plugin, characters::plugin, hud::plugin))
         .add_systems(FixedUpdate, step_match)
         .run();
 }

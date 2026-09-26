@@ -57,25 +57,45 @@ fn update_score(game: Res<Match>, mut text: Single<&mut Text, With<ScoreText>>) 
     text.0 = format!("{}  {red} : {blue}  {}", TEAM_NAMES[0], TEAM_NAMES[1]);
 }
 
+/// How long a mid-rally callout, like a block, stays up.
+const CALLOUT_SECONDS: f32 = 1.2;
+
+/// Points stay up until the next rally starts; blocks get a short callout.
 fn announce_points(
     game: Res<Match>,
+    time: Res<Time>,
     mut events: MessageReader<SimEvent>,
     mut announcement: Single<(&mut Text, &mut TextColor), With<Announcement>>,
+    mut callout_until: Local<Option<f32>>,
 ) {
     let (text, color) = &mut *announcement;
     for SimEvent(event) in events.read() {
-        if let Event::Point { team, reason } = *event {
-            let why = match reason {
-                PointReason::LandedIn => "ball landed in",
-                PointReason::LandedOut => "ball out",
-                PointReason::TooManyTouches => "four touches",
-                PointReason::DoubleTouch => "double touch",
-            };
-            text.0 = format!("Point {}: {why}", TEAM_NAMES[team]);
-            color.0 = TEAM_COLORS[team];
+        match *event {
+            Event::Point { team, reason } => {
+                let why = match reason {
+                    PointReason::LandedIn => "ball landed in",
+                    PointReason::LandedOut => "ball out",
+                    PointReason::TooManyTouches => "four touches",
+                    PointReason::DoubleTouch => "double touch",
+                };
+                text.0 = format!("Point {}: {why}", TEAM_NAMES[team]);
+                color.0 = TEAM_COLORS[team];
+                *callout_until = None;
+            }
+            Event::Blocked { player, stuffed } => {
+                let team = game.current.players[player].team;
+                text.0 = if stuffed { "Stuff block!" } else { "Block touch" }.to_string();
+                color.0 = TEAM_COLORS[team];
+                *callout_until = Some(time.elapsed_secs() + CALLOUT_SECONDS);
+            }
+            _ => {}
         }
     }
-    if game.current.phase == Phase::Rally {
+    let expired = match *callout_until {
+        Some(until) => time.elapsed_secs() > until,
+        None => game.current.phase == Phase::Rally,
+    };
+    if expired {
         text.0.clear();
     }
 }
@@ -93,12 +113,12 @@ fn update_controls_help(
         (LocalDriver::Human, ActiveDevice::Keyboard) => format!(
             "You are {you}. Click to look with the mouse, Esc to release it. Hits go where you look:\n\
              the yellow ring shows where (red = out). Look higher to hit farther.\n\
-             WASD move | Space jump | Q pass / serve | E spike (in the air) | Shift dive | 1 let a bot play",
+             WASD move | Space jump | Q pass / serve (at the net: block) | E spike (in the air) | Shift dive | 1 let a bot play",
         ),
         (LocalDriver::Human, ActiveDevice::Gamepad) => format!(
             "You are {you}. Right stick looks and aims: hits go where you look, the yellow ring shows\n\
              where (red = out). Look higher to hit farther.\n\
-             Left stick move | A jump | RB pass / serve | RT spike (in the air) | LT dive | View let a bot play",
+             Left stick move | A jump | RB pass / serve (at the net: block) | RT spike (in the air) | LT dive | View let a bot play",
         ),
         (LocalDriver::Bot, ActiveDevice::Keyboard) => format!("A bot is playing {you}. Press 1 to take over."),
         (LocalDriver::Bot, ActiveDevice::Gamepad) => format!("A bot is playing {you}. Press View to take over."),

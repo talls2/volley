@@ -18,7 +18,7 @@ pub fn plugin(app: &mut App) {
 }
 
 #[derive(Component)]
-struct BallView;
+pub struct BallView;
 
 fn spawn_scene(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
     // Nearly overhead, so shadows land close to what casts them.

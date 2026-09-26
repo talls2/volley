@@ -88,7 +88,7 @@ fn update_controls_help(driver: Res<LocalDriver>, mut help: Single<&mut Text, Wi
     help.0 = match *driver {
         LocalDriver::Human => format!(
             "You are {you}. Click to look with the mouse, Esc to release it.\n\
-             WASD move | Space jump | Q pass / serve | E spike (in the air) | 1 let a bot play",
+             WASD move | Space jump | Q pass / serve | E spike (in the air) | Shift dive | 1 let a bot play",
         ),
         LocalDriver::Bot => format!("A bot is playing {you}. Press 1 to take over."),
     };

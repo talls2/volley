@@ -2,8 +2,9 @@
 
 3v3 online volleyball with superpowers, built with Rust and Bevy.
 
-Right now it's at milestone 1: one player per team, played locally, no powers or
-networking yet. The question this milestone answers: **does hitting the ball feel good?**
+Right now it's a local 2v2 against bots: you and a bot teammate against two bots.
+The goal of this stage is polished normal volleyball, Mario Tennis style, before
+adding hero characters with powers and then online play.
 
 ## Layout
 
@@ -17,7 +18,7 @@ networking yet. The question this milestone answers: **does hitting the ball fee
 
 ```bash
 cargo run -p volley_client          # play
-cargo run -p volley_server          # watch bots play in the terminal (add 3 for 3v3)
+cargo run -p volley_server          # watch bots play 2v2 in the terminal (add 1 or 3 for other sizes)
 cargo test -p volley_sim            # rules tests
 ```
 
@@ -34,14 +35,17 @@ variables cargo sets, so launching the binary directly won't load the characters
 | Jump | Space | A / Cross |
 | Pass / serve | Q | X / Square |
 | Spike (in the air) | E | B / Circle |
+| Dive | Left Shift | Y / Triangle |
 | Let a bot play for you | 1 | |
 
-You play Red against a bot. The camera follows you from behind, and movement is
-relative to where it faces.
+You play Red with a bot teammate. The camera follows you from behind, and movement
+is relative to where it faces. The court is a third bigger than a real one (24 x 12 m).
 
 - **Serving:** press pass. Movement keys aim it.
-- **Pass:** sends the ball high to your side of the net, setting you up. Your third touch goes over automatically.
+- **Pass:** your team's first touch goes mid-court, the second is a set near the net, and the third goes over automatically.
+- **No touching twice in a row:** pass to your teammate, then go spike their set.
 - **Spike:** jump, then spike when the ball is in reach. Movement keys aim it.
+- **Dive:** lunges toward where you're moving (or at the ball), reaching balls near the floor. You're on the ground for a moment afterwards.
 - The white rings mark where the ball will land.
 - Presses count for a few frames early, so you don't need frame-perfect timing.
 
@@ -55,7 +59,7 @@ passes, spikes and serves borrow the closest motions it has; the mapping is
 
 ## Next milestones
 
-1. Tune the feel until hitting is fun.
-2. Networking (renet): the server runs the sim; clients send inputs.
-3. Superpowers.
-4. 3v3, rotations, better bots.
+1. Polish normal volleyball until it's fun (in progress).
+2. Hero characters, each with their own powers, strengths and weaknesses.
+3. 3v3, rotations.
+4. Networking (renet): the server runs the sim; clients send inputs.

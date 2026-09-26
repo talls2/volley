@@ -16,7 +16,7 @@ use bevy::gltf::Gltf;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::world_serialization::WorldInstanceReady;
-use volley_sim::{DT, Event, HitKind, Phase, court};
+use volley_sim::{Ball, DT, Event, HitKind, HitRequest, Phase, court};
 
 use crate::input::LOCAL_TEAM;
 use crate::scene::{TEAM_COLORS, player_feet};
@@ -75,11 +75,20 @@ enum Clip {
     Pass,
     Spike,
     Serve,
+    Dive,
     Celebrate,
 }
 
+/// Timing inside a hit animation, in seconds of the clip.
+struct Swing {
+    /// The end of the wind-up. A pressed hit holds here until the ball arrives.
+    wind_up: f32,
+    /// Where the hand meets the ball. A hit jumps here the moment it happens.
+    contact: f32,
+}
+
 impl Clip {
-    const ALL: [Clip; 10] = [
+    const ALL: [Clip; 11] = [
         Clip::Idle,
         Clip::Jog,
         Clip::Sprint,
@@ -89,6 +98,7 @@ impl Clip {
         Clip::Pass,
         Clip::Spike,
         Clip::Serve,
+        Clip::Dive,
         Clip::Celebrate,
     ];
 
@@ -102,9 +112,13 @@ impl Clip {
             Clip::JumpStart => "Jump_Start",
             Clip::Airborne => "Jump_Loop",
             Clip::Land => "Jump_Land",
-            Clip::Pass => "Spell_Simple_Shoot",
+            // One arm sweeps up and forward from the waist.
+            Clip::Pass => "Spell_Simple_Enter",
+            // Hand high and back, then down across the body.
             Clip::Spike => "Sword_Attack",
             Clip::Serve => "Punch_Cross",
+            // Launches forward, hits the floor, rolls back up.
+            Clip::Dive => "Roll",
             Clip::Celebrate => "Dance_Loop",
         }
     }
@@ -113,12 +127,36 @@ impl Clip {
         matches!(self, Clip::Idle | Clip::Jog | Clip::Sprint | Clip::Airborne | Clip::Celebrate)
     }
 
+    /// Playback speed. The landing and roll are sped up to fit the game's quicker jumps and dives.
+    fn speed(self) -> f32 {
+        match self {
+            Clip::Land | Clip::Dive => 1.6,
+            Clip::Spike => 1.2,
+            _ => 1.0,
+        }
+    }
+
+    /// Timings measured from the clips' hand positions.
+    fn swing(self) -> Option<Swing> {
+        match self {
+            Clip::Pass => Some(Swing { wind_up: 0.2, contact: 0.4 }),
+            Clip::Spike => Some(Swing { wind_up: 0.26, contact: 0.35 }),
+            Clip::Serve => Some(Swing { wind_up: 0.17, contact: 0.25 }),
+            _ => None,
+        }
+    }
+
     /// Moves started by the game rather than by running and jumping. Takeoffs and
     /// landings never cut these short.
     fn is_game_action(self) -> bool {
-        matches!(self, Clip::Pass | Clip::Spike | Clip::Serve | Clip::Celebrate)
+        matches!(self, Clip::Pass | Clip::Spike | Clip::Serve | Clip::Dive | Clip::Celebrate)
     }
 }
+
+/// How fast a wind-up plays on its way to the held pose.
+const WIND_UP_SPEED: f32 = 2.0;
+/// How long a player keeps facing where they sent the ball, or where they dove.
+const FACE_SECONDS: f32 = 0.6;
 
 #[derive(Resource)]
 struct AnimationLibrary(Handle<Gltf>);
@@ -141,9 +179,43 @@ struct Character {
     action: Option<Clip>,
     /// Play `action` from the start even if it's already playing, e.g. two passes in a row.
     restart: bool,
+    /// Where to start `action` when it next plays, in clip seconds.
+    seek: Option<f32>,
+    /// A pressed hit is winding up or holding, waiting for the ball.
+    winding_up: bool,
+    /// The held hit connected: jump to contact and follow through.
+    release: bool,
     airborne: bool,
     /// Facing, as a rotation about the vertical axis. 0 faces +z.
     yaw: f32,
+    /// A direction to face instead of the usual, until a time (`Time::elapsed_secs`).
+    face: Option<(Vec2, f32)>,
+}
+
+impl Character {
+    fn new(index: usize, yaw: f32) -> Self {
+        Self {
+            index,
+            armature: None,
+            playing: None,
+            action: None,
+            restart: false,
+            seek: None,
+            winding_up: false,
+            release: false,
+            airborne: false,
+            yaw,
+            face: None,
+        }
+    }
+
+    fn start(&mut self, clip: Clip, seek: Option<f32>) {
+        self.action = Some(clip);
+        self.restart = true;
+        self.seek = seek;
+        self.winding_up = false;
+        self.release = false;
+    }
 }
 
 fn load_animation_library(mut commands: Commands, assets: Res<AssetServer>) {
@@ -179,7 +251,7 @@ fn spawn_characters(mut commands: Commands, assets: Res<AssetServer>, game: Res<
         let yaw = -court::side(player.team) * FRAC_PI_2;
         commands
             .spawn((
-                Character { index, armature: None, playing: None, action: None, restart: false, airborne: false, yaw },
+                Character::new(index, yaw),
                 WorldAssetRoot(model),
                 Transform::default(),
             ))
@@ -260,22 +332,44 @@ fn add_animation_targets(
     }
 }
 
-fn react_to_events(mut events: MessageReader<SimEvent>, game: Res<Match>, mut characters: Query<&mut Character>) {
+fn react_to_events(
+    mut events: MessageReader<SimEvent>,
+    game: Res<Match>,
+    time: Res<Time>,
+    mut characters: Query<&mut Character>,
+) {
+    let face_until = time.elapsed_secs() + FACE_SECONDS;
     for SimEvent(event) in events.read() {
         for mut character in &mut characters {
-            let team = game.current.players[character.index].team;
-            let clip = match *event {
-                Event::Touched { player, kind } if player == character.index => Some(match kind {
-                    HitKind::Serve => Clip::Serve,
-                    HitKind::Pass | HitKind::Lob => Clip::Pass,
-                    HitKind::Spike => Clip::Spike,
-                }),
-                Event::Point { team: winner, .. } if winner == team => Some(Clip::Celebrate),
-                _ => None,
-            };
-            if let Some(clip) = clip {
-                character.action = Some(clip);
-                character.restart = true;
+            let me = character.index;
+            match *event {
+                Event::Touched { player, kind } if player == me => {
+                    if let Ball::InFlight(flight) = game.current.ball {
+                        character.face = Some((Vec2::new(flight.velocity.x, flight.velocity.z), face_until));
+                    }
+                    let clip = match kind {
+                        HitKind::Serve => Clip::Serve,
+                        HitKind::Pass | HitKind::Lob => Clip::Pass,
+                        HitKind::Spike => Clip::Spike,
+                        // Digs happen mid-dive; the roll keeps playing.
+                        HitKind::Dig => continue,
+                    };
+                    if character.winding_up && character.action == Some(clip) {
+                        character.release = true;
+                    } else {
+                        character.start(clip, clip.swing().map(|swing| swing.contact));
+                    }
+                }
+                Event::Dove { player } if player == me => {
+                    if let Some(dive) = game.current.players[me].dive {
+                        character.face = Some((dive.direction, face_until));
+                    }
+                    character.start(Clip::Dive, None);
+                }
+                Event::Point { team, .. } if team == game.current.players[me].team => {
+                    character.start(Clip::Celebrate, None);
+                }
+                _ => {}
             }
         }
     }
@@ -290,8 +384,8 @@ fn ground_velocity(game: &Match, index: usize) -> Vec2 {
     Vec2::new(delta.x, delta.z) / DT
 }
 
-/// Moves each model to its player and turns it: toward where it's running, or
-/// toward the ball when standing still.
+/// Moves each model to its player and turns it: toward where it just sent the
+/// ball or dove, else toward where it's running, else toward the ball.
 fn place_characters(
     game: Res<Match>,
     fixed: Res<Time<Fixed>>,
@@ -302,10 +396,12 @@ fn place_characters(
     for (mut character, mut transform) in &mut characters {
         let feet = player_feet(&game, &fixed, character.index);
         let velocity = ground_velocity(&game, character.index);
-        let facing = if velocity.length() > JOG_SPEED {
-            velocity
-        } else {
-            Vec2::new(ball.x - feet.x, ball.z - feet.z)
+        let to_ball = Vec2::new(ball.x - feet.x, ball.z - feet.z);
+        let facing = match character.face {
+            Some((direction, until)) if time.elapsed_secs() < until => direction,
+            _ if character.winding_up => to_ball,
+            _ if velocity.length() > JOG_SPEED => velocity,
+            _ => to_ball,
         };
         if facing.length() > 0.1 {
             let wanted = facing.x.atan2(facing.y);
@@ -335,29 +431,66 @@ fn animate_characters(
             commands.entity(armature).insert(AnimationGraphHandle(animations.graph.clone()));
         }
 
-        let airborne = !game.current.players[character.index].grounded();
+        let me = &game.current.players[character.index];
+        let airborne = !me.grounded();
         if airborne != character.airborne {
             character.airborne = airborne;
             if !character.action.is_some_and(Clip::is_game_action) {
-                character.action = Some(if airborne { Clip::JumpStart } else { Clip::Land });
-                character.restart = true;
+                character.start(if airborne { Clip::JumpStart } else { Clip::Land }, None);
             }
         }
 
+        // A hit button was just pressed: wind up and wait for the ball. Serves
+        // happen on the press itself, so they skip this.
+        let was_pressed = game.previous.players[character.index].pending_hit(game.previous.tick).is_some();
+        let swing = match me.pending_hit(game.current.tick) {
+            _ if was_pressed || me.dive.is_some() || game.current.ball == Ball::Held { by: character.index } => None,
+            Some(HitRequest::Pass) => Some(Clip::Pass),
+            Some(HitRequest::Spike) if airborne => Some(Clip::Spike),
+            _ => None,
+        };
+        if let Some(clip) = swing
+            && !character.action.is_some_and(Clip::is_game_action)
+        {
+            character.start(clip, None);
+            character.winding_up = true;
+        }
+
+        let speed = ground_velocity(&game, character.index).length();
         if let Some(action) = character.action
             && !character.restart
         {
-            let finished = if action == Clip::Celebrate {
-                game.current.phase == Phase::Rally
-            } else {
-                player.animation(animations.nodes[&action]).is_none_or(|active| active.is_finished())
+            let finished = match action {
+                Clip::Celebrate => game.current.phase == Phase::Rally,
+                // Running cuts a landing short, so it never slows you down.
+                Clip::Land if speed > JOG_SPEED => true,
+                _ if character.winding_up => false,
+                _ => player.animation(animations.nodes[&action]).is_none_or(|active| active.is_finished()),
             };
             if finished {
                 character.action = None;
             }
         }
 
-        let speed = ground_velocity(&game, character.index).length();
+        if character.winding_up
+            && !character.restart
+            && let Some(action) = character.action
+            && let Some(swing) = action.swing()
+            && let Some(active) = player.animation_mut(animations.nodes[&action])
+        {
+            if character.release {
+                // Connected: jump to the contact frame and follow through.
+                active.seek_to(swing.contact).set_speed(action.speed()).resume();
+                character.winding_up = false;
+            } else if me.pending_hit(game.current.tick).is_none() {
+                // Nothing to hit: swing through anyway.
+                active.set_speed(action.speed()).resume();
+                character.winding_up = false;
+            } else if active.seek_time() >= swing.wind_up {
+                active.pause();
+            }
+        }
+
         let movement = if airborne {
             Clip::Airborne
         } else if speed > SPRINT_SPEED {
@@ -369,7 +502,12 @@ fn animate_characters(
         };
         let clip = character.action.unwrap_or(movement);
         if character.playing != Some(clip) || character.restart {
-            let active = transitions.play(&mut player, animations.nodes[&clip], BLEND);
+            // Restarting doesn't un-pause, and a held wind-up may have paused this clip.
+            let active = transitions.play(&mut player, animations.nodes[&clip], BLEND).resume();
+            active.set_speed(if character.winding_up { WIND_UP_SPEED } else { clip.speed() });
+            if let Some(seek) = character.seek.take() {
+                active.seek_to(seek);
+            }
             if clip.looping() {
                 active.repeat();
             }

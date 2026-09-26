@@ -3,21 +3,23 @@
 
 use glam::Vec3;
 
+// A third bigger than a real 18 x 9 court in each direction, for more running and diving.
+
 /// Distance from the net to an end line.
-pub const HALF_LENGTH: f32 = 9.0;
+pub const HALF_LENGTH: f32 = 12.0;
 /// Distance from the center line to a sideline.
-pub const HALF_WIDTH: f32 = 4.5;
+pub const HALF_WIDTH: f32 = 6.0;
 /// Distance from the net to each attack line.
-pub const ATTACK_LINE: f32 = 3.0;
+pub const ATTACK_LINE: f32 = 4.0;
 /// How far past the lines players may run.
 pub const RUNOFF: f32 = 3.0;
 
 pub const NET_HEIGHT: f32 = 2.43;
 /// The net spans |z| <= this.
-pub const NET_HALF_WIDTH: f32 = 5.0;
+pub const NET_HALF_WIDTH: f32 = 6.5;
 
-/// Bigger than a real ball (0.105) so it reads well on screen.
-pub const BALL_RADIUS: f32 = 0.2;
+/// A little bigger than a real ball (0.105) so it reads well from behind a player.
+pub const BALL_RADIUS: f32 = 0.13;
 pub const BALL_GRAVITY: f32 = 9.81;
 
 pub const TEAM_NAMES: [&str; 2] = ["Red", "Blue"];

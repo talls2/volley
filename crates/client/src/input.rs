@@ -35,6 +35,7 @@ pub struct Keys {
     pub jump: KeyCode,
     pub pass: KeyCode,
     pub spike: KeyCode,
+    pub dive: KeyCode,
     pub toggle_bot: KeyCode,
 }
 
@@ -46,12 +47,14 @@ pub const KEYS: Keys = Keys {
     jump: KeyCode::Space,
     pass: KeyCode::KeyQ,
     spike: KeyCode::KeyE,
+    dive: KeyCode::ShiftLeft,
     toggle_bot: KeyCode::Digit1,
 };
 
 const JUMP_BUTTON: GamepadButton = GamepadButton::South;
 const PASS_BUTTON: GamepadButton = GamepadButton::West;
 const SPIKE_BUTTON: GamepadButton = GamepadButton::East;
+const DIVE_BUTTON: GamepadButton = GamepadButton::North;
 
 /// Button presses seen since the last simulation tick.
 ///
@@ -63,6 +66,7 @@ struct Presses {
     jump: bool,
     pass: bool,
     spike: bool,
+    dive: bool,
 }
 
 fn record_presses(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mut presses: ResMut<Presses>) {
@@ -71,6 +75,7 @@ fn record_presses(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mu
     presses.jump |= pressed(KEYS.jump, JUMP_BUTTON);
     presses.pass |= pressed(KEYS.pass, PASS_BUTTON);
     presses.spike |= pressed(KEYS.spike, SPIKE_BUTTON);
+    presses.dive |= pressed(KEYS.dive, DIVE_BUTTON);
 }
 
 fn toggle_driver(keys: Res<ButtonInput<KeyCode>>, mut driver: ResMut<LocalDriver>) {
@@ -99,6 +104,7 @@ impl Controls<'_, '_> {
                 jump: presses.jump,
                 pass: presses.pass,
                 spike: presses.spike,
+                dive: presses.dive,
             };
         }
         inputs

@@ -3,6 +3,7 @@
 //! they're all in `volley_sim`.
 
 mod camera;
+mod characters;
 mod hud;
 mod input;
 mod scene;
@@ -18,7 +19,7 @@ pub struct Match {
     pub current: Sim,
 }
 
-/// A simulation event, forwarded to whichever systems care (HUD now; sound and effects later).
+/// A simulation event, forwarded to whichever systems care (HUD, character animations).
 #[derive(Message)]
 pub struct SimEvent(pub Event);
 
@@ -32,7 +33,7 @@ fn main() {
         .insert_resource(Time::<Fixed>::from_hz(TICK_HZ as f64))
         .insert_resource(Match { previous: sim.clone(), current: sim })
         .add_message::<SimEvent>()
-        .add_plugins((input::plugin, camera::plugin, scene::plugin, hud::plugin))
+        .add_plugins((input::plugin, camera::plugin, scene::plugin, characters::plugin, hud::plugin))
         .add_systems(FixedUpdate, step_match)
         .run();
 }

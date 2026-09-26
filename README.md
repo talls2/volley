@@ -10,7 +10,7 @@ networking yet. The question this milestone answers: **does hitting the ball fee
 | Crate | What it is |
 |---|---|
 | `crates/sim` | The game rules. Plain Rust, no engine. Server, client and tests all run this. |
-| `crates/client` | The Bevy app: input, 3D view, HUD. Contains no rules. |
+| `crates/client` | The Bevy app: input, 3D view, characters, HUD. Contains no rules. |
 | `crates/server` | Headless match loop. Plays bots for now; networking goes here next. |
 
 ## Running
@@ -22,6 +22,8 @@ cargo test -p volley_sim            # rules tests
 ```
 
 The first build compiles Bevy and takes several minutes; after that it's quick.
+Run the client with `cargo run`: Bevy finds `crates/client/assets` through the
+variables cargo sets, so launching the binary directly won't load the characters.
 
 ## Controls
 
@@ -43,9 +45,17 @@ relative to where it faces.
 - The white rings mark where the ball will land.
 - Presses count for a few frames early, so you don't need frame-perfect timing.
 
+## Art
+
+Placeholder characters and animations by [Quaternius](https://quaternius.com), CC0:
+the free versions of Universal Base Characters and Universal Animation Library
+(licenses in `crates/client/assets`). The library has no volleyball moves, so
+passes, spikes and serves borrow the closest motions it has; the mapping is
+`Clip::source` in `crates/client/src/characters.rs`.
+
 ## Next milestones
 
 1. Tune the feel until hitting is fun.
-2. Networking (lightyear): the server runs the sim; clients send inputs.
+2. Networking (renet): the server runs the sim; clients send inputs.
 3. Superpowers.
 4. 3v3, rotations, better bots.

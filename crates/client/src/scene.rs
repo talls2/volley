@@ -1,10 +1,11 @@
-//! The 3D view: court, net, players and ball, placed from the simulation each frame.
+//! The 3D view: court, net and ball, placed from the simulation each frame.
+//! Players are in `characters`.
 
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::prelude::*;
+use volley_sim::Sim;
 use volley_sim::court::{ATTACK_LINE, BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HALF_WIDTH, NET_HEIGHT, RUNOFF};
-use volley_sim::{PLAYER_HEIGHT, PLAYER_RADIUS, Sim};
 
 use crate::Match;
 
@@ -13,21 +14,13 @@ pub const TEAM_COLORS: [Color; 2] = [Color::srgb(0.9, 0.3, 0.3), Color::srgb(0.3
 pub fn plugin(app: &mut App) {
     app.insert_resource(ClearColor(Color::srgb(0.07, 0.08, 0.11)))
         .add_systems(Startup, spawn_scene)
-        .add_systems(Update, (place_players, place_ball, draw_ball_guides));
+        .add_systems(Update, (place_ball, draw_ball_guides));
 }
-
-#[derive(Component)]
-struct PlayerView(usize);
 
 #[derive(Component)]
 struct BallView;
 
-fn spawn_scene(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    game: Res<Match>,
-) {
+fn spawn_scene(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
     // Nearly overhead, so shadows land close to what casts them.
     commands.spawn((
         DirectionalLight { shadow_maps_enabled: true, ..default() },
@@ -81,17 +74,6 @@ fn spawn_scene(
         ));
     }
 
-    let body = meshes.add(Capsule3d::new(PLAYER_RADIUS, PLAYER_HEIGHT - 2.0 * PLAYER_RADIUS));
-    let team_materials = TEAM_COLORS.map(|color| materials.add(color));
-    for (i, player) in game.current.players.iter().enumerate() {
-        commands.spawn((
-            PlayerView(i),
-            Mesh3d(body.clone()),
-            MeshMaterial3d(team_materials[player.team].clone()),
-            Transform::default(),
-        ));
-    }
-
     commands.spawn((
         BallView,
         Mesh3d(meshes.add(Sphere::new(BALL_RADIUS))),
@@ -112,12 +94,6 @@ pub fn player_feet(game: &Match, time: &Time<Fixed>, player: usize) -> Vec3 {
     match blend(game, time) {
         Some(alpha) => position(&game.previous).lerp(position(&game.current), alpha),
         None => position(&game.current),
-    }
-}
-
-fn place_players(game: Res<Match>, time: Res<Time<Fixed>>, mut views: Query<(&PlayerView, &mut Transform)>) {
-    for (view, mut transform) in &mut views {
-        transform.translation = player_feet(&game, &time, view.0) + Vec3::Y * PLAYER_HEIGHT / 2.0;
     }
 }
 

@@ -45,15 +45,15 @@ pub struct Player {
     /// Position of the feet.
     pub position: Vec3,
     pub vertical_velocity: f32,
-    /// Latest movement input; also where hits are aimed.
-    pub aim: Vec2,
+    /// Where the player's next hit goes, from their latest input.
+    pub aim: Option<Vec2>,
     pub dive: Option<Dive>,
     pending_hit: Option<(HitRequest, u32)>,
 }
 
 impl Player {
     pub fn new(team: usize, position: Vec3) -> Self {
-        Self { team, position, vertical_velocity: 0.0, aim: Vec2::ZERO, dive: None, pending_hit: None }
+        Self { team, position, vertical_velocity: 0.0, aim: None, dive: None, pending_hit: None }
     }
 
     pub fn grounded(&self) -> bool {
@@ -100,6 +100,7 @@ impl Player {
             self.dive = None;
         }
 
+        self.aim = input.aim;
         let mut dove = false;
         if input.dive && self.dive.is_none() && self.grounded() && !serving {
             let toward_ball = Vec2::new(ball.x - self.position.x, ball.z - self.position.z);
@@ -125,7 +126,6 @@ impl Player {
             }
         } else {
             let movement = input.movement.clamp_length_max(1.0);
-            self.aim = movement;
             self.position.x += movement.x * RUN_SPEED * DT;
             self.position.z += movement.y * RUN_SPEED * DT;
             if input.jump && self.grounded() {

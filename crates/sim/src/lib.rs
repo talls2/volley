@@ -13,7 +13,7 @@ pub use ball::{Ball, Flight};
 pub use glam::{Vec2, Vec3};
 pub use player::{Dive, HitRequest, Player};
 
-use court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT, NET_HALF_WIDTH};
+use court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT, NET_HALF_WIDTH, RUNOFF};
 
 pub const TICK_HZ: u32 = 60;
 pub const DT: f32 = 1.0 / TICK_HZ as f32;
@@ -23,28 +23,36 @@ const MAX_TOUCHES: u32 = 3;
 const TOUCH_LOCKOUT_TICKS: u32 = 10;
 const POINT_PAUSE_TICKS: u32 = 90;
 
-// Flight times per kind of hit. Shorter = faster and flatter.
-const SERVE_SECONDS: f32 = 1.6;
-const PASS_SECONDS: f32 = 1.6;
-/// A dig is a scramble, so it goes up higher, giving teammates time to get there.
-const DIG_SECONDS: f32 = 1.9;
-const LOB_SECONDS: f32 = 1.35;
-const SPIKE_SECONDS: f32 = 0.5;
-
-/// Default distance past the net that shots over it aim for. Spikes aim deep:
+/// Default distance past the net for unaimed shots over it. Spikes go deep:
 /// their flat path would otherwise catch the net unless hit from right beside it.
-const OVER_DEPTH: f32 = HALF_LENGTH * 0.5;
+pub(crate) const OVER_DEPTH: f32 = HALF_LENGTH * 0.5;
 const SPIKE_DEPTH: f32 = HALF_LENGTH * 0.6;
-/// Where a team's first touch goes: mid-court, for a teammate to set.
+/// Default spot for a team's first touch: mid-court, for a teammate to set.
 const RECEIVE_DEPTH: f32 = 3.0;
-/// Where a set goes: close to the net, for a teammate to spike.
-const SET_DEPTH: f32 = 1.3;
+/// Default spot for a set: close to the net, for a teammate to spike.
+pub(crate) const SET_DEPTH: f32 = 1.3;
+
+/// Seconds a hit takes to travel `distance` meters: a base plus a little per
+/// meter, so short shots are quick and flat and long ones stay playable.
+fn flight_seconds(kind: HitKind, distance: f32) -> f32 {
+    match kind {
+        HitKind::Serve => 0.9 + 0.035 * distance,
+        HitKind::Spike => 0.3 + 0.02 * distance,
+        HitKind::Lob => 0.8 + 0.035 * distance,
+        HitKind::Pass => 1.2 + 0.05 * distance,
+        // A dig is a scramble, so it goes up higher, giving teammates time to get there.
+        HitKind::Dig => 1.5 + 0.05 * distance,
+    }
+}
 
 /// One player's controls for one tick. Buttons mean "pressed this tick", not "held".
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PlayerInput {
-    /// World-space XZ direction, length at most 1. Also aims hits.
+    /// World-space XZ direction, length at most 1.
     pub movement: Vec2,
+    /// The spot on the floor (world XZ) to send the next hit to. `None` uses
+    /// the default spot for that kind of hit.
+    pub aim: Option<Vec2>,
     pub jump: bool,
     pub pass: bool,
     pub spike: bool,
@@ -93,7 +101,8 @@ pub enum Event {
     Dove { player: usize },
     Touched { player: usize, kind: HitKind },
     HitNet { at: Vec3 },
-    Landed { at: Vec3, inside: bool },
+    /// `velocity` is the ball's as it hit the floor.
+    Landed { at: Vec3, velocity: Vec3, inside: bool },
     Point { team: usize, reason: PointReason },
 }
 
@@ -237,15 +246,43 @@ impl Sim {
         self.ball = Ball::Held { by: server };
     }
 
+    /// What `player` would do if they hit the ball right now: the kind of hit and
+    /// where it would land. For showing an aim marker; changes nothing.
+    pub fn preview_hit(&self, player: usize) -> (HitKind, Vec3) {
+        let p = &self.players[player];
+        let request = if p.grounded() { HitRequest::Pass } else { HitRequest::Spike };
+        let touches = self.team_touches(p.team) + 1;
+        let (kind, flight) = self.plan_hit(player, Some(request), touches, self.ball_position());
+        (kind, flight.landing_point())
+    }
+
+    /// The hit `hitter` makes from `from`, given their request and the team's
+    /// touch count including this one.
+    fn plan_hit(&self, hitter: usize, request: Option<HitRequest>, touches: u32, from: Vec3) -> (HitKind, Flight) {
+        let player = &self.players[hitter];
+        let team = player.team;
+        let (kind, target) = if self.ball == (Ball::Held { by: hitter }) {
+            (HitKind::Serve, over_net_target(team, player.aim, OVER_DEPTH))
+        } else if request == Some(HitRequest::Spike) && !player.grounded() {
+            (HitKind::Spike, over_net_target(team, player.aim, SPIKE_DEPTH))
+        } else if touches >= MAX_TOUCHES {
+            (HitKind::Lob, over_net_target(team, player.aim, OVER_DEPTH))
+        } else {
+            let depth = if touches == 1 { RECEIVE_DEPTH } else { SET_DEPTH };
+            let kind = if player.lunging(self.tick) { HitKind::Dig } else { HitKind::Pass };
+            (kind, own_side_target(team, player.aim, depth))
+        };
+        let seconds = flight_seconds(kind, from.with_y(0.0).distance(target.with_y(0.0)));
+        (kind, Flight::to_target(from, target, seconds, self.tick))
+    }
+
     fn update_serve(&mut self, server: usize, events: &mut Vec<Event>) {
         if self.players[server].take_hit(self.tick).is_none() {
             return;
         }
-        let player = &self.players[server];
-        let origin = held_ball_position(player);
-        let target = opponent_target(player.team, player.aim, OVER_DEPTH);
-        self.touches = Touches { team: player.team, count: 1, last: Some(server) };
-        self.launch(server, HitKind::Serve, Flight::to_target(origin, target, SERVE_SECONDS, self.tick), events);
+        let (kind, flight) = self.plan_hit(server, None, 1, held_ball_position(&self.players[server]));
+        self.touches = Touches { team: self.players[server].team, count: 1, last: Some(server) };
+        self.launch(server, kind, flight, events);
     }
 
     fn update_flight(&mut self, flight: Flight, events: &mut Vec<Event>) {
@@ -273,7 +310,7 @@ impl Sim {
         if now >= landing {
             let at = flight.landing_point();
             let inside = court::is_inside(at);
-            events.push(Event::Landed { at, inside });
+            events.push(Event::Landed { at, velocity: flight.velocity_at_time(landing), inside });
             if inside {
                 self.award_point(1 - court::half_owner(at.x), PointReason::LandedIn, at, events);
             } else {
@@ -302,8 +339,7 @@ impl Sim {
 
     fn touch(&mut self, hitter: usize, ball: Vec3, events: &mut Vec<Event>) {
         let request = self.players[hitter].take_hit(self.tick);
-        let player = self.players[hitter];
-        let team = player.team;
+        let team = self.players[hitter].team;
 
         if self.touches.team != team {
             self.touches = Touches { team, count: 0, last: None };
@@ -319,20 +355,8 @@ impl Sim {
             return;
         }
 
-        let (kind, target, seconds) = if request == Some(HitRequest::Spike) && !player.grounded() {
-            (HitKind::Spike, opponent_target(team, player.aim, SPIKE_DEPTH), SPIKE_SECONDS)
-        } else if self.touches.count == MAX_TOUCHES {
-            (HitKind::Lob, opponent_target(team, player.aim, OVER_DEPTH), LOB_SECONDS)
-        } else {
-            let depth = if self.touches.count == 1 { RECEIVE_DEPTH } else { SET_DEPTH };
-            let target = own_side_target(team, player.aim, depth);
-            if player.lunging(self.tick) {
-                (HitKind::Dig, target, DIG_SECONDS)
-            } else {
-                (HitKind::Pass, target, PASS_SECONDS)
-            }
-        };
-        self.launch(hitter, kind, Flight::to_target(ball, target, seconds, self.tick), events);
+        let (kind, flight) = self.plan_hit(hitter, request, self.touches.count, ball);
+        self.launch(hitter, kind, flight, events);
     }
 
     fn launch(&mut self, hitter: usize, kind: HitKind, flight: Flight, events: &mut Vec<Event>) {
@@ -358,20 +382,22 @@ fn held_ball_position(player: &Player) -> Vec3 {
     player.position + Vec3::new(-court::side(player.team) * 0.35, 1.9, 0.0)
 }
 
-/// A spot `depth` meters past the net in the opponent's court, moved around by `aim`.
-fn opponent_target(team: usize, aim: Vec2, depth: f32) -> Vec3 {
-    let (min_x, max_x) = court::x_range(1 - team, 1.0, HALF_LENGTH - 0.5);
-    let x = (-court::side(team) * depth + aim.x * HALF_LENGTH * 0.35).clamp(min_x, max_x);
-    let z = (aim.y * HALF_WIDTH * 0.75).clamp(-HALF_WIDTH + 0.3, HALF_WIDTH - 0.3);
-    Vec3::new(x, BALL_RADIUS, z)
+/// Where a shot over the net lands: the aimed spot, kept on the opponents'
+/// side, or `depth` past the net if unaimed. Aiming outside the lines lands out.
+fn over_net_target(team: usize, aim: Option<Vec2>, depth: f32) -> Vec3 {
+    let spot = aim.unwrap_or(Vec2::new(-court::side(team) * depth, 0.0));
+    let (min_x, max_x) = court::x_range(1 - team, 1.0, HALF_LENGTH + RUNOFF);
+    let max_z = HALF_WIDTH + RUNOFF;
+    Vec3::new(spot.x.clamp(min_x, max_x), BALL_RADIUS, spot.y.clamp(-max_z, max_z))
 }
 
-/// A spot `depth` meters from the net on your own side, for a teammate's next touch.
-fn own_side_target(team: usize, aim: Vec2, depth: f32) -> Vec3 {
-    let (min_x, max_x) = court::x_range(team, 0.8, HALF_LENGTH - 1.0);
-    let x = (court::side(team) * depth + aim.x * 2.0).clamp(min_x, max_x);
-    let z = (aim.y * HALF_WIDTH * 0.4).clamp(-HALF_WIDTH + 1.0, HALF_WIDTH - 1.0);
-    Vec3::new(x, BALL_RADIUS, z)
+/// Where a pass lands: the aimed spot, kept inside your own court, or `depth`
+/// from the net if unaimed.
+fn own_side_target(team: usize, aim: Option<Vec2>, depth: f32) -> Vec3 {
+    let spot = aim.unwrap_or(Vec2::new(court::side(team) * depth, 0.0));
+    let (min_x, max_x) = court::x_range(team, 0.8, HALF_LENGTH - 0.5);
+    let max_z = HALF_WIDTH - 0.5;
+    Vec3::new(spot.x.clamp(min_x, max_x), BALL_RADIUS, spot.y.clamp(-max_z, max_z))
 }
 
 #[cfg(test)]

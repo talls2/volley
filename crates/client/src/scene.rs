@@ -4,17 +4,17 @@
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::prelude::*;
-use volley_sim::Sim;
-use volley_sim::court::{ATTACK_LINE, BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HALF_WIDTH, NET_HEIGHT, RUNOFF};
+use volley_sim::{Ball, Event, Sim};
+use volley_sim::court::{self, ATTACK_LINE, BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HALF_WIDTH, NET_HEIGHT, RUNOFF};
 
-use crate::Match;
+use crate::{Match, SimEvent};
 
 pub const TEAM_COLORS: [Color; 2] = [Color::srgb(0.9, 0.3, 0.3), Color::srgb(0.3, 0.5, 0.95)];
 
 pub fn plugin(app: &mut App) {
     app.insert_resource(ClearColor(Color::srgb(0.07, 0.08, 0.11)))
         .add_systems(Startup, spawn_scene)
-        .add_systems(Update, (place_ball, draw_ball_guides));
+        .add_systems(Update, ((start_bounce, place_ball).chain(), draw_ball_guides));
 }
 
 #[derive(Component)]
@@ -36,7 +36,8 @@ fn spawn_scene(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mat
     };
 
     // Free zone, court and lines, each a little above the last.
-    let free_zone = Vec3::new(2.0 * (HALF_LENGTH + RUNOFF + 2.0), 0.02, 2.0 * (HALF_WIDTH + RUNOFF + 2.0));
+    // Arena floor, wide enough that bouncing balls stay on it.
+    let free_zone = Vec3::new(2.0 * (HALF_LENGTH + RUNOFF + 15.0), 0.02, 2.0 * (HALF_WIDTH + RUNOFF + 15.0));
     flat_box(free_zone, Vec3::new(0.0, -0.03, 0.0), Color::srgb(0.18, 0.36, 0.5));
     flat_box(Vec3::new(2.0 * HALF_LENGTH, 0.02, 2.0 * HALF_WIDTH), Vec3::new(0.0, -0.01, 0.0), Color::srgb(0.85, 0.52, 0.28));
     let line = 0.08;
@@ -97,8 +98,63 @@ pub fn player_feet(game: &Match, time: &Time<Fixed>, player: usize) -> Vec3 {
     }
 }
 
-fn place_ball(game: Res<Match>, time: Res<Time<Fixed>>, mut ball: Single<&mut Transform, With<BallView>>) {
-    ball.translation = match blend(&game, &time) {
+/// A landed ball bouncing and rolling to a stop. Only for show: the rally
+/// ended when it first touched the floor.
+#[derive(Resource)]
+struct Bounce {
+    rally: u32,
+    position: Vec3,
+    velocity: Vec3,
+}
+
+/// Fraction of vertical speed a bounce keeps.
+const BOUNCE_RESTITUTION: f32 = 0.6;
+/// Fraction of horizontal speed a bounce keeps.
+const BOUNCE_GRIP: f32 = 0.55;
+/// How quickly a rolling ball slows, per second.
+const ROLLING_FRICTION: f32 = 1.5;
+
+fn start_bounce(mut commands: Commands, game: Res<Match>, mut events: MessageReader<SimEvent>) {
+    for SimEvent(event) in events.read() {
+        if let Event::Landed { at, velocity, .. } = *event {
+            let velocity = bounced(velocity);
+            commands.insert_resource(Bounce { rally: game.current.rally, position: at, velocity });
+        }
+    }
+}
+
+fn bounced(velocity: Vec3) -> Vec3 {
+    Vec3::new(velocity.x * BOUNCE_GRIP, -velocity.y * BOUNCE_RESTITUTION, velocity.z * BOUNCE_GRIP)
+}
+
+fn place_ball(
+    game: Res<Match>,
+    fixed: Res<Time<Fixed>>,
+    time: Res<Time>,
+    bounce: Option<ResMut<Bounce>>,
+    mut ball: Single<&mut Transform, With<BallView>>,
+) {
+    if let Some(mut bounce) = bounce
+        && bounce.rally == game.current.rally
+        && matches!(game.current.ball, Ball::Dead { .. })
+    {
+        let dt = time.delta_secs();
+        bounce.velocity.y -= court::BALL_GRAVITY * dt;
+        let step = bounce.velocity * dt;
+        bounce.position += step;
+        if bounce.position.y < BALL_RADIUS {
+            bounce.position.y = BALL_RADIUS;
+            bounce.velocity = if bounce.velocity.y < -0.5 { bounced(bounce.velocity) } else { bounce.velocity.with_y(0.0) };
+        }
+        if bounce.velocity.y == 0.0 {
+            let slow = (1.0 - ROLLING_FRICTION * dt).max(0.0);
+            bounce.velocity.x *= slow;
+            bounce.velocity.z *= slow;
+        }
+        ball.translation = bounce.position;
+        return;
+    }
+    ball.translation = match blend(&game, &fixed) {
         Some(alpha) => game.previous.ball_position().lerp(game.current.ball_position(), alpha),
         None => game.current.ball_position(),
     };

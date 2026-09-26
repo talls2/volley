@@ -7,8 +7,10 @@ use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 
+use volley_sim::{Ball, court};
+
 use crate::Match;
-use crate::input::LOCAL_TEAM;
+use crate::input::{self, LOCAL_TEAM};
 use crate::scene::player_feet;
 
 const DISTANCE: f32 = 6.0;
@@ -17,8 +19,10 @@ const LOOK_HEIGHT: f32 = 2.6;
 /// How much of a jump the camera follows; less keeps the view steady.
 const JUMP_FOLLOW: f32 = 0.35;
 const MOUSE_SENSITIVITY: f32 = 0.003;
-/// Radians per second at full stick.
-const STICK_SPEED: f32 = 3.0;
+/// Radians per second at full stick. Up and down is slower because it sets how
+/// far hits go.
+const STICK_YAW_SPEED: f32 = 3.0;
+const STICK_PITCH_SPEED: f32 = 1.0;
 /// Below zero the camera drops under the look point, to look up at high balls.
 const MIN_PITCH: f32 = -0.35;
 const MAX_PITCH: f32 = 1.2;
@@ -26,7 +30,7 @@ const MAX_PITCH: f32 = 1.2;
 pub fn plugin(app: &mut App) {
     app.insert_resource(CameraRig::facing_net(LOCAL_TEAM))
         .add_systems(Startup, spawn_camera)
-        .add_systems(Update, (grab_cursor, turn, follow).chain());
+        .add_systems(Update, (face_net_each_rally, grab_cursor, turn, follow).chain());
 }
 
 #[derive(Resource)]
@@ -39,7 +43,8 @@ pub struct CameraRig {
 
 impl CameraRig {
     fn facing_net(team: usize) -> Self {
-        Self { yaw: if team == 0 { 0.0 } else { PI }, pitch: 0.25 }
+        // Tilted so the aim starts about mid-way into the other court from home.
+        Self { yaw: if team == 0 { 0.0 } else { PI }, pitch: 0.2 }
     }
 
     /// Horizontal facing as world (x, z).
@@ -57,6 +62,23 @@ impl CameraRig {
 
 fn spawn_camera(mut commands: Commands) {
     commands.spawn(Camera3d::default());
+}
+
+/// Every rally starts facing the net. When serving, the camera also tilts so the
+/// aim starts mid-way into the other court: the aim line passes through the
+/// look point, so it meets the floor `LOOK_HEIGHT / tan(pitch)` beyond the player.
+fn face_net_each_rally(game: Res<Match>, mut rig: ResMut<CameraRig>, mut rally: Local<u32>) {
+    if *rally == game.current.rally {
+        return;
+    }
+    *rally = game.current.rally;
+    *rig = CameraRig::facing_net(LOCAL_TEAM);
+    let local = game.current.player_index(LOCAL_TEAM, 0);
+    if game.current.ball == (Ball::Held { by: local }) {
+        let target_x = -court::side(LOCAL_TEAM) * court::HALF_LENGTH * 0.5;
+        let distance = (target_x - game.current.players[local].position.x).abs();
+        rig.pitch = LOOK_HEIGHT.atan2(distance);
+    }
 }
 
 /// Click to capture the mouse for looking around; Esc gives it back.
@@ -86,11 +108,11 @@ fn turn(
     if cursor.grab_mode != CursorGrabMode::None {
         delta += mouse.delta * MOUSE_SENSITIVITY;
     }
-    if let Some(pad) = gamepads.iter().next() {
-        let stick = pad.right_stick();
-        if stick.length() > 0.2 {
-            delta += Vec2::new(stick.x, -stick.y) * STICK_SPEED * time.delta_secs();
-        }
+    for pad in &gamepads {
+        let tilt = input::stick(pad.right_stick());
+        // Squaring the tilt keeps small movements slow, for fine aiming.
+        let curved = tilt * tilt.length();
+        delta += Vec2::new(curved.x * STICK_YAW_SPEED, -curved.y * STICK_PITCH_SPEED) * time.delta_secs();
     }
     rig.yaw = (rig.yaw + delta.x).rem_euclid(2.0 * PI);
     rig.pitch = (rig.pitch + delta.y).clamp(MIN_PITCH, MAX_PITCH);

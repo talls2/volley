@@ -28,25 +28,31 @@ variables cargo sets, so launching the binary directly won't load the characters
 
 ## Controls
 
-| | Keyboard & mouse | Gamepad |
+| | Keyboard & mouse | Xbox controller |
 |---|---|---|
-| Look | Mouse (click the window to capture it, Esc to release) | Right stick |
+| Look and aim | Mouse (click the window to capture it, Esc to release) | Right stick |
 | Move | W A S D | Left stick |
-| Jump | Space | A / Cross |
-| Pass / serve | Q | X / Square |
-| Spike (in the air) | E | B / Circle |
-| Dive | Left Shift | Y / Triangle |
-| Let a bot play for you | 1 | |
+| Jump | Space | A |
+| Pass / serve | Q | RB (or X) |
+| Spike (in the air) | E | RT (or Y) |
+| Dive | Left Shift | LT (or B) |
+| Let a bot play for you | 1 | View |
+
+On a controller, hits are on the bumpers and triggers so your right thumb can
+stay on the stick and keep aiming. The on-screen help switches to controller
+buttons when you use one.
 
 You play Red with a bot teammate. The camera follows you from behind, and movement
 is relative to where it faces. The court is a third bigger than a real one (24 x 12 m).
 
-- **Serving:** press pass. Movement keys aim it.
+- **Aiming:** hits go where the center of the screen points. Turn to pick a direction; look higher to hit farther. The yellow ring on the floor shows where your next hit lands (red means out). Passes stay on your side; serves, spikes and third touches go over.
+- **Serving:** press pass. Each rally starts with the camera facing the net and the aim mid-way into the other court.
 - **Pass:** your team's first touch goes mid-court, the second is a set near the net, and the third goes over automatically.
 - **No touching twice in a row:** pass to your teammate, then go spike their set.
-- **Spike:** jump, then spike when the ball is in reach. Movement keys aim it.
+- **Spike:** jump, then spike when the ball is in reach.
+- **Shot speed follows distance:** short shots are quick and flat, long ones take longer. A short spike from far off the net will hit the net.
 - **Dive:** lunges toward where you're moving (or at the ball), reaching balls near the floor. You're on the ground for a moment afterwards.
-- The white rings mark where the ball will land.
+- The white rings mark where the ball will land if nobody touches it.
 - Presses count for a few frames early, so you don't need frame-perfect timing.
 
 ## Art

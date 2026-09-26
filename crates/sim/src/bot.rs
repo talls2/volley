@@ -5,13 +5,21 @@
 use glam::{Vec2, Vec3};
 
 use crate::player::{DIVE_LUNGE_TICKS, DIVE_SPEED, JUMP_SPEED, PLAYER_GRAVITY, RUN_SPEED};
-use crate::{Ball, DT, Flight, PlayerInput, SPIKE_DEPTH, Sim, TICK_HZ, court, opponent_target};
+use crate::court::{HALF_LENGTH, HALF_WIDTH};
+use crate::{Ball, DT, Flight, OVER_DEPTH, PlayerInput, SET_DEPTH, Sim, TICK_HZ, court};
 
 /// How long a bot waits before serving.
 const SERVE_DELAY_TICKS: u32 = TICK_HZ;
-/// How long after each hit a bot takes to react, like a person. Without it bots
-/// return everything, including spikes, and rallies never end.
+/// How long after each hit a bot takes to react, like a person. Fast balls
+/// take longer to read. Without this bots return every spike and rallies never end.
 const REACTION_TICKS: u32 = 15;
+/// Fast balls take this long plus up to `REACTION_SPREAD_TICKS` more, varying
+/// ball to ball like a person's would; a fixed delay makes every spike either
+/// always dug or never dug.
+const FAST_BALL_REACTION_TICKS: u32 = 18;
+const REACTION_SPREAD_TICKS: u32 = 7;
+/// Balls faster than this (m/s, as hit) count as fast: spikes, mostly.
+const FAST_BALL_SPEED: f32 = 15.0;
 /// Ball height (center) a bot meets a pass at.
 const PASS_HEIGHT: f32 = 1.2;
 /// Ball height a bot spikes at: near the top of its reach when jumping.
@@ -31,12 +39,13 @@ pub fn input_for(sim: &Sim, me: usize) -> PlayerInput {
         Ball::Held { by } if by == me => {
             if sim.tick >= sim.rally_start_tick + SERVE_DELAY_TICKS {
                 // Vary serves between left, middle and right.
-                input.movement = Vec2::new(0.0, (sim.rally % 3) as f32 - 1.0);
+                let z = ((sim.rally % 3) as f32 - 1.0) * HALF_WIDTH * 0.6;
+                input.aim = Some(Vec2::new(-side * OVER_DEPTH, z));
                 input.pass = true;
             }
             return input;
         }
-        Ball::InFlight(flight) if sim.tick >= flight.start_tick + REACTION_TICKS => {
+        Ball::InFlight(flight) if sim.tick >= flight.start_tick + reaction_ticks(&flight) => {
             let attack = sim.team_touches(team) == 2 && attack_point(&flight, team).is_some();
             let meet_at = if attack { SPIKE_HEIGHT } else { PASS_HEIGHT };
             let intercept = flight
@@ -68,13 +77,33 @@ pub fn input_for(sim: &Sim, me: usize) -> PlayerInput {
     input
 }
 
+fn reaction_ticks(flight: &Flight) -> u32 {
+    if flight.velocity.length() > FAST_BALL_SPEED {
+        // The hit's start tick stands in for randomness, keeping the simulation deterministic.
+        FAST_BALL_REACTION_TICKS + flight.start_tick % REACTION_SPREAD_TICKS
+    } else {
+        REACTION_TICKS
+    }
+}
+
+/// Whether the ball is close enough to press for a hit. Presses are held for a
+/// few ticks, so pressing a little early connects the moment the ball arrives;
+/// waiting for "in reach right now" is always a tick late and misses balls that
+/// are only briefly in reach.
+fn ball_close(sim: &Sim, me: usize, flight: &Flight) -> bool {
+    let player = &sim.players[me];
+    let ball = flight.position_at(sim.tick);
+    let horizontal = Vec2::new(ball.x - player.position.x, ball.z - player.position.z).length();
+    horizontal < 1.8 && ball.y - player.position.y < 3.2
+}
+
 fn pass(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32) -> PlayerInput {
     let player = &sim.players[me];
     let mut input = PlayerInput::default();
-    let ball_now = flight.position_at(sim.tick);
-    if player.can_reach(ball_now, sim.tick) {
-        // Standing still keeps the pass on its default target.
+    if ball_close(sim, me, flight) {
         input.pass = true;
+        input.aim = pass_aim(sim, me);
+        input.movement = (to_ball / 0.5).clamp_length_max(1.0);
         return input;
     }
     let distance = to_ball.length();
@@ -92,17 +121,19 @@ fn pass(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32)
 fn spike(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32) -> PlayerInput {
     let player = &sim.players[me];
     let mut input = PlayerInput::default();
+    // Keep steering under the ball, in the air too.
+    input.movement = (to_ball / 0.4).clamp_length_max(1.0);
     if !player.grounded() {
-        if player.can_reach(flight.position_at(sim.tick), sim.tick) {
+        if ball_close(sim, me, flight) {
             input.spike = true;
-            input.movement = spike_aim(sim, player.team);
+            input.aim = Some(spike_aim(sim, player.team));
         }
         return input;
     }
-    input.movement = (to_ball / 0.4).clamp_length_max(1.0);
-    // Leave the ground so the top of the jump meets the ball.
+    // Leave the ground so the top of the jump meets the ball. Steering in the
+    // air covers the last couple of meters.
     let rise_time = JUMP_SPEED / PLAYER_GRAVITY;
-    input.jump = to_ball.length() < 1.2 && seconds_left <= rise_time;
+    input.jump = to_ball.length() < 2.5 && seconds_left <= rise_time;
     input
 }
 
@@ -113,6 +144,17 @@ fn attack_point(flight: &Flight, team: usize) -> Option<Vec3> {
     (court::side(team) * at.x > 0.0 && at.x.abs() < SPIKE_RANGE).then_some(at)
 }
 
+/// A set goes to the net in front of a teammate, so they can spike it. Other
+/// passes go to the default spot.
+fn pass_aim(sim: &Sim, me: usize) -> Option<Vec2> {
+    let team = sim.players[me].team;
+    if sim.team_touches(team) != 1 {
+        return None;
+    }
+    let attacker = (0..sim.config.players_per_team).map(|slot| sim.player_index(team, slot)).find(|&i| i != me)?;
+    Some(Vec2::new(court::side(team) * SET_DEPTH, sim.players[attacker].position.z))
+}
+
 /// Aim for open court: rank nine spots across the opponents' half by distance
 /// from the nearest defender, and pick one of the best three. Always picking the
 /// very best would make every spike unreturnable.
@@ -120,12 +162,14 @@ fn spike_aim(sim: &Sim, team: usize) -> Vec2 {
     let defenders: Vec<Vec3> = (0..sim.config.players_per_team)
         .map(|slot| sim.players[sim.player_index(1 - team, slot)].position)
         .collect();
-    let openness = |aim: Vec2| {
-        let target = opponent_target(team, aim, SPIKE_DEPTH);
-        defenders.iter().map(|d| d.with_y(0.0).distance(target.with_y(0.0))).fold(f32::MAX, f32::min)
+    let openness = |spot: Vec2| {
+        defenders.iter().map(|d| Vec2::new(d.x, d.z).distance(spot)).fold(f32::MAX, f32::min)
     };
-    let mut aims: Vec<Vec2> =
-        [-1.0, 0.0, 1.0].into_iter().flat_map(|x| [-1.0, 0.0, 1.0].map(|z| Vec2::new(x, z))).collect();
+    let side = court::side(team);
+    let mut aims: Vec<Vec2> = [0.35, 0.6, 0.85]
+        .into_iter()
+        .flat_map(|depth| [-0.7, 0.0, 0.7].map(|z| Vec2::new(-side * depth * HALF_LENGTH, z * HALF_WIDTH)))
+        .collect();
     aims.sort_by(|&a, &b| openness(b).total_cmp(&openness(a)));
     // The tick stands in for randomness, keeping the simulation deterministic.
     aims[sim.tick as usize % 3]

@@ -2,6 +2,7 @@
 //! the match at a fixed rate and draws the result. No gameplay rules live here;
 //! they're all in `volley_sim`.
 
+mod aim;
 mod camera;
 mod characters;
 mod hud;
@@ -33,7 +34,7 @@ fn main() {
         .insert_resource(Time::<Fixed>::from_hz(TICK_HZ as f64))
         .insert_resource(Match { previous: sim.clone(), current: sim })
         .add_message::<SimEvent>()
-        .add_plugins((input::plugin, camera::plugin, scene::plugin, characters::plugin, hud::plugin))
+        .add_plugins((input::plugin, camera::plugin, aim::plugin, scene::plugin, characters::plugin, hud::plugin))
         .add_systems(FixedUpdate, step_match)
         .run();
 }

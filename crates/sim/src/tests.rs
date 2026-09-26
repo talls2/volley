@@ -67,9 +67,46 @@ fn low_ball_hits_the_net_and_drops_back() {
 fn spike_from_a_set_clears_the_net() {
     // Roughly where a jumping player meets a set.
     let contact = Vec3::new(-1.8, 3.1, 0.0);
-    let flight = Flight::to_target(contact, opponent_target(0, Vec2::ZERO, SPIKE_DEPTH), SPIKE_SECONDS, 0);
+    let target = over_net_target(0, None, SPIKE_DEPTH);
+    let seconds = flight_seconds(HitKind::Spike, contact.with_y(0.0).distance(target.with_y(0.0)));
+    let flight = Flight::to_target(contact, target, seconds, 0);
     let crossing = flight.position_at_time(flight.net_crossing_time().unwrap());
     assert!(crossing.y > NET_HEIGHT + BALL_RADIUS, "crossed at {}", crossing.y);
+}
+
+#[test]
+fn aimed_hits_land_where_aimed() {
+    let mut sim = Sim::new(MatchConfig::default());
+    let hitter = sim.player_index(0, 0);
+    let from = Vec3::new(-2.0, 3.0, 0.0);
+    // Not holding it to serve.
+    sim.ball = Ball::Dead { at: from };
+
+    let spot = Vec2::new(7.0, -4.0);
+    sim.players[hitter].position.y = 1.0;
+    sim.players[hitter].aim = Some(spot);
+    let (kind, flight) = sim.plan_hit(hitter, Some(HitRequest::Spike), 3, from);
+    assert_eq!(kind, HitKind::Spike);
+    assert!(Vec2::new(flight.landing_point().x, flight.landing_point().z).distance(spot) < 1e-3);
+
+    let teammate_spot = Vec2::new(-2.0, 3.5);
+    sim.players[hitter].position.y = 0.0;
+    sim.players[hitter].aim = Some(teammate_spot);
+    let (kind, flight) = sim.plan_hit(hitter, Some(HitRequest::Pass), 1, from);
+    assert_eq!(kind, HitKind::Pass);
+    assert!(Vec2::new(flight.landing_point().x, flight.landing_point().z).distance(teammate_spot) < 1e-3);
+}
+
+#[test]
+fn passes_stay_on_your_side() {
+    let target = own_side_target(0, Some(Vec2::new(8.0, 20.0)), SET_DEPTH);
+    assert!(target.x < 0.0 && court::is_inside(target), "{target}");
+}
+
+#[test]
+fn aiming_out_lands_out() {
+    let target = over_net_target(0, Some(Vec2::new(HALF_LENGTH + 2.0, 0.0)), OVER_DEPTH);
+    assert!(!court::is_inside(target), "{target}");
 }
 
 #[test]
@@ -115,16 +152,34 @@ fn cannot_dive_in_the_air() {
 #[test]
 fn bots_play_real_rallies() {
     let mut sim = Sim::new(MatchConfig::default());
-    let events = run_bots(&mut sim, 90 * TICK_HZ);
-    let returns = count(&events, |e| matches!(e, Event::Touched { kind: HitKind::Pass | HitKind::Dig, .. }));
+    let mut last_team = None;
+    let mut unforced_errors = 0;
+    let mut events = Vec::new();
+    for _ in 0..300 * TICK_HZ {
+        let inputs = bot_inputs(&sim);
+        for event in sim.step(&inputs) {
+            match event {
+                Event::Touched { player, .. } => last_team = Some(sim.players[player].team),
+                // Dropped on their own side after touching it: a fumble, not a point won by the other team.
+                Event::Landed { at, inside, .. } if inside && Some(court::half_owner(at.x)) == last_team => {
+                    unforced_errors += 1;
+                }
+                _ => {}
+            }
+            events.push(event);
+        }
+    }
     let spikes = count(&events, |e| matches!(e, Event::Touched { kind: HitKind::Spike, .. }));
     let points = count(&events, |e| matches!(e, Event::Point { .. }));
     let faults = count(&events, |e| {
         matches!(e, Event::Point { reason: PointReason::DoubleTouch | PointReason::TooManyTouches, .. })
     });
-    assert!(returns >= 20, "only {returns} passes in 90 s");
-    assert!(spikes >= 5, "only {spikes} spikes in 90 s");
-    assert!(points >= 5, "only {points} points in 90 s");
+    // One point every 5 to 20 seconds: rallies end, but not instantly.
+    assert!((15..=60).contains(&points), "{points} points in 5 minutes");
+    // Spikes win some points and get dug on others.
+    let spikes_per_point = spikes as f32 / points as f32;
+    assert!((1.2..=4.0).contains(&spikes_per_point), "{spikes_per_point:.2} spikes per point");
+    assert!(unforced_errors * 10 <= points, "{unforced_errors} fumbles in {points} points");
     assert_eq!(faults, 0, "bots broke touch rules");
 }
 

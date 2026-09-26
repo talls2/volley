@@ -1,9 +1,12 @@
-//! Keyboard and gamepad → `PlayerInput` for the local player. Everyone else is a bot.
+//! Keyboard, mouse and gamepad → `PlayerInput` for the local player. Everyone
+//! else is a bot.
 
 use bevy::ecs::system::SystemParam;
+use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use volley_sim::{PlayerInput, Sim, bot};
 
+use crate::aim;
 use crate::camera::CameraRig;
 
 /// The local player is this team's first player.
@@ -12,11 +15,12 @@ pub const LOCAL_TEAM: usize = 0;
 pub fn plugin(app: &mut App) {
     app.init_resource::<Presses>()
         .init_resource::<LocalDriver>()
+        .init_resource::<ActiveDevice>()
         .add_systems(
             RunFixedMainLoop,
             record_presses.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
         )
-        .add_systems(Update, toggle_driver);
+        .add_systems(Update, (toggle_driver, track_active_device));
 }
 
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Default)]
@@ -25,6 +29,14 @@ pub enum LocalDriver {
     Human,
     /// A bot plays for you, so you can watch.
     Bot,
+}
+
+/// What the player last used, so help text can show the right buttons.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ActiveDevice {
+    #[default]
+    Keyboard,
+    Gamepad,
 }
 
 pub struct Keys {
@@ -51,10 +63,40 @@ pub const KEYS: Keys = Keys {
     toggle_bot: KeyCode::Digit1,
 };
 
-const JUMP_BUTTON: GamepadButton = GamepadButton::South;
-const PASS_BUTTON: GamepadButton = GamepadButton::West;
-const SPIKE_BUTTON: GamepadButton = GamepadButton::East;
-const DIVE_BUTTON: GamepadButton = GamepadButton::North;
+pub struct Buttons {
+    pub jump: &'static [GamepadButton],
+    pub pass: &'static [GamepadButton],
+    pub spike: &'static [GamepadButton],
+    pub dive: &'static [GamepadButton],
+    pub toggle_bot: GamepadButton,
+}
+
+/// Hits are on the triggers and bumpers, pressed with index fingers, so the
+/// right thumb can stay on the stick and keep aiming. Face buttons do the same
+/// for anyone who prefers them.
+pub const BUTTONS: Buttons = Buttons {
+    jump: &[GamepadButton::South],
+    // RB, X
+    pass: &[GamepadButton::RightTrigger, GamepadButton::West],
+    // RT, Y
+    spike: &[GamepadButton::RightTrigger2, GamepadButton::North],
+    // LT, B
+    dive: &[GamepadButton::LeftTrigger2, GamepadButton::East],
+    // View / Back
+    toggle_bot: GamepadButton::Select,
+};
+
+/// Stick tilt below this is ignored, so a resting or worn stick doesn't drift.
+const STICK_DEADZONE: f32 = 0.2;
+
+/// A stick's tilt with the deadzone removed, rescaled so it still reaches 1.
+pub fn stick(raw: Vec2) -> Vec2 {
+    let tilt = raw.length();
+    if tilt < STICK_DEADZONE {
+        return Vec2::ZERO;
+    }
+    raw / tilt * ((tilt - STICK_DEADZONE) / (1.0 - STICK_DEADZONE)).min(1.0)
+}
 
 /// Button presses seen since the last simulation tick.
 ///
@@ -69,18 +111,39 @@ struct Presses {
     dive: bool,
 }
 
+/// Every connected gamepad controls the local player. The Mac can report extra
+/// devices as gamepads, and listening to all of them means the real one always works.
 fn record_presses(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mut presses: ResMut<Presses>) {
-    let pad = gamepads.iter().next();
-    let pressed = |key, button| keys.just_pressed(key) || pad.is_some_and(|pad| pad.just_pressed(button));
-    presses.jump |= pressed(KEYS.jump, JUMP_BUTTON);
-    presses.pass |= pressed(KEYS.pass, PASS_BUTTON);
-    presses.spike |= pressed(KEYS.spike, SPIKE_BUTTON);
-    presses.dive |= pressed(KEYS.dive, DIVE_BUTTON);
+    let pressed = |key, buttons: &[GamepadButton]| {
+        keys.just_pressed(key) || gamepads.iter().any(|pad| pad.any_just_pressed(buttons.iter().copied()))
+    };
+    presses.jump |= pressed(KEYS.jump, BUTTONS.jump);
+    presses.pass |= pressed(KEYS.pass, BUTTONS.pass);
+    presses.spike |= pressed(KEYS.spike, BUTTONS.spike);
+    presses.dive |= pressed(KEYS.dive, BUTTONS.dive);
 }
 
-fn toggle_driver(keys: Res<ButtonInput<KeyCode>>, mut driver: ResMut<LocalDriver>) {
-    if keys.just_pressed(KEYS.toggle_bot) {
+fn toggle_driver(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mut driver: ResMut<LocalDriver>) {
+    if keys.just_pressed(KEYS.toggle_bot) || gamepads.iter().any(|pad| pad.just_pressed(BUTTONS.toggle_bot)) {
         *driver = if *driver == LocalDriver::Human { LocalDriver::Bot } else { LocalDriver::Human };
+    }
+}
+
+fn track_active_device(
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<AccumulatedMouseMotion>,
+    gamepads: Query<&Gamepad>,
+    mut device: ResMut<ActiveDevice>,
+) {
+    let pad_used = gamepads.iter().any(|pad| {
+        pad.get_just_pressed().next().is_some()
+            || stick(pad.left_stick()) != Vec2::ZERO
+            || stick(pad.right_stick()) != Vec2::ZERO
+    });
+    if pad_used {
+        device.set_if_neq(ActiveDevice::Gamepad);
+    } else if keys.get_just_pressed().next().is_some() || mouse.delta != Vec2::ZERO {
+        device.set_if_neq(ActiveDevice::Keyboard);
     }
 }
 
@@ -91,6 +154,7 @@ pub struct Controls<'w, 's> {
     presses: ResMut<'w, Presses>,
     driver: Res<'w, LocalDriver>,
     camera: Res<'w, CameraRig>,
+    camera_transform: Query<'w, 's, &'static Transform, With<Camera3d>>,
 }
 
 impl Controls<'_, '_> {
@@ -101,6 +165,7 @@ impl Controls<'_, '_> {
         if *self.driver == LocalDriver::Human {
             inputs[sim.player_index(LOCAL_TEAM, 0)] = PlayerInput {
                 movement: self.camera.to_world(self.movement()),
+                aim: self.camera_transform.single().ok().map(aim::floor_point),
                 jump: presses.jump,
                 pass: presses.pass,
                 spike: presses.spike,
@@ -115,13 +180,8 @@ impl Controls<'_, '_> {
         let axis = |negative, positive| {
             f32::from(u8::from(self.keys.pressed(positive))) - f32::from(u8::from(self.keys.pressed(negative)))
         };
-        let mut movement = Vec2::new(axis(KEYS.left, KEYS.right), axis(KEYS.back, KEYS.forward));
-        if let Some(pad) = self.gamepads.iter().next() {
-            let stick = pad.left_stick();
-            if stick.length() > 0.2 {
-                movement += stick;
-            }
-        }
-        movement.clamp_length_max(1.0)
+        let keys = Vec2::new(axis(KEYS.left, KEYS.right), axis(KEYS.back, KEYS.forward));
+        let sticks: Vec2 = self.gamepads.iter().map(|pad| stick(pad.left_stick())).sum();
+        (keys + sticks).clamp_length_max(1.0)
     }
 }

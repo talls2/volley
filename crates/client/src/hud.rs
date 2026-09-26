@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use volley_sim::court::TEAM_NAMES;
 use volley_sim::{Event, Phase, PointReason};
 
-use crate::input::{LOCAL_TEAM, LocalDriver};
+use crate::input::{ActiveDevice, LOCAL_TEAM, LocalDriver};
 use crate::scene::TEAM_COLORS;
 use crate::{Match, SimEvent};
 
@@ -80,16 +80,27 @@ fn announce_points(
     }
 }
 
-fn update_controls_help(driver: Res<LocalDriver>, mut help: Single<&mut Text, With<ControlsHelp>>) {
-    if !driver.is_changed() {
+fn update_controls_help(
+    driver: Res<LocalDriver>,
+    device: Res<ActiveDevice>,
+    mut help: Single<&mut Text, With<ControlsHelp>>,
+) {
+    if !driver.is_changed() && !device.is_changed() {
         return;
     }
     let you = TEAM_NAMES[LOCAL_TEAM];
-    help.0 = match *driver {
-        LocalDriver::Human => format!(
-            "You are {you}. Click to look with the mouse, Esc to release it.\n\
+    help.0 = match (*driver, *device) {
+        (LocalDriver::Human, ActiveDevice::Keyboard) => format!(
+            "You are {you}. Click to look with the mouse, Esc to release it. Hits go where you look:\n\
+             the yellow ring shows where (red = out). Look higher to hit farther.\n\
              WASD move | Space jump | Q pass / serve | E spike (in the air) | Shift dive | 1 let a bot play",
         ),
-        LocalDriver::Bot => format!("A bot is playing {you}. Press 1 to take over."),
+        (LocalDriver::Human, ActiveDevice::Gamepad) => format!(
+            "You are {you}. Right stick looks and aims: hits go where you look, the yellow ring shows\n\
+             where (red = out). Look higher to hit farther.\n\
+             Left stick move | A jump | RB pass / serve | RT spike (in the air) | LT dive | View let a bot play",
+        ),
+        (LocalDriver::Bot, ActiveDevice::Keyboard) => format!("A bot is playing {you}. Press 1 to take over."),
+        (LocalDriver::Bot, ActiveDevice::Gamepad) => format!("A bot is playing {you}. Press View to take over."),
     };
 }

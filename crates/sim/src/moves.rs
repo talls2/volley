@@ -160,6 +160,8 @@ pub struct Kit {
     pub name: &'static str,
     pub run_speed: f32,
     pub jump_speed: f32,
+    /// Speed of a dash's burst along the ground.
+    pub dash_speed: f32,
     pub moves: &'static [MoveId],
 }
 
@@ -182,5 +184,6 @@ pub const ALL_ROUNDER: Kit = Kit {
     name: "All-rounder",
     run_speed: 6.5,
     jump_speed: 7.0,
+    dash_speed: 11.0,
     moves: &[MoveId::Pass, MoveId::Spike, MoveId::Dive, MoveId::FootSave],
 };

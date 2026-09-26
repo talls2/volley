@@ -1,5 +1,5 @@
-//! Sand kicked up where the ball lands, where a dive hits the floor, and where
-//! players land from jumps.
+//! Sand kicked up where the ball lands, where a dive hits the floor, where a
+//! dash pushes off, and where players land from jumps.
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
@@ -86,6 +86,8 @@ fn kick_up_sand(
             Event::Landed { at, velocity, .. } => puff(at, 40, (velocity.length() * 0.15).clamp(1.5, 3.5)),
             Event::MoveStarted { player, id: MoveId::Dive } => pending.0.push((now + DIVE_IMPACT_SECONDS, player)),
             Event::MoveStarted { player, id: MoveId::FootSave } => pending.0.push((now + KICK_IMPACT_SECONDS, player)),
+            // Sand sprays back off the pushing foot.
+            Event::Dashed { player } => puff(game.current.players[player].position, 30, 1.9),
             _ => {}
         }
     }

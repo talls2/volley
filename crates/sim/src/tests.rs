@@ -582,3 +582,110 @@ fn ball_behind_the_head_gets_a_bicycle_kick() {
 fn run_bots_idle(sim: &mut Sim, ticks: u32) -> Vec<Event> {
     (0..ticks).flat_map(|_| sim.step(&idle(sim))).collect()
 }
+
+
+/// Team 0's first player, alone on an empty court with the ball out of play.
+fn lone_player() -> (Sim, usize) {
+    let mut sim = Sim::new(MatchConfig::default());
+    let player = sim.player_index(0, 0);
+    sim.players[player].position = Vec3::new(-6.0, 0.0, 0.0);
+    sim.ball = Ball::Dead { at: Vec3::new(5.0, 0.1, 0.0) };
+    (sim, player)
+}
+
+/// How high `player` gets if they jump now, given `inputs` for the rest of the jump.
+fn jump_apex(sim: &mut Sim, player: usize, after: impl Fn(u32) -> PlayerInput) -> f32 {
+    let mut input = PlayerInput { jump: true, ..after(0) };
+    let mut apex: f32 = 0.0;
+    for tick in 1..=TICK_HZ {
+        let mut inputs = idle(sim);
+        inputs[player] = input;
+        sim.step(&inputs);
+        apex = apex.max(sim.players[player].position.y);
+        input = after(tick);
+    }
+    apex
+}
+
+#[test]
+fn running_jumps_go_higher() {
+    let (mut standing, player) = lone_player();
+    let standing_apex = jump_apex(&mut standing, player, |_| PlayerInput::default());
+
+    let (mut running, _) = lone_player();
+    let run = PlayerInput { movement: Vec2::X, ..default() };
+    for _ in 0..30 {
+        let mut inputs = idle(&running);
+        inputs[player] = run;
+        running.step(&inputs);
+    }
+    let running_apex = jump_apex(&mut running, player, |_| run);
+    assert!(running_apex > standing_apex * 1.25, "{running_apex} vs {standing_apex}");
+}
+
+#[test]
+fn letting_go_early_is_a_short_hop() {
+    let (mut full, player) = lone_player();
+    let full_apex = jump_apex(&mut full, player, |_| PlayerInput::default());
+    let (mut hop, _) = lone_player();
+    let hop_apex = jump_apex(&mut hop, player, |tick| PlayerInput { jump_released: tick == 3, ..default() });
+    assert!(hop_apex < full_apex * 0.75, "{hop_apex} vs {full_apex}");
+    // Letting go on the way down changes nothing.
+    let (mut late, _) = lone_player();
+    let late_apex = jump_apex(&mut late, player, |tick| PlayerInput { jump_released: tick == 30, ..default() });
+    assert_eq!(late_apex, full_apex);
+}
+
+#[test]
+fn dash_bursts_then_cools_down() {
+    let (mut sim, player) = lone_player();
+    let dash = PlayerInput { dash: true, movement: Vec2::Y, ..default() };
+    let mut inputs = idle(&sim);
+    inputs[player] = dash;
+    let events = sim.step(&inputs);
+    assert!(events.contains(&Event::Dashed { player }));
+    for _ in 0..player::DASH_TICKS {
+        sim.step(&idle(&sim));
+    }
+    let covered = sim.players[player].position.z;
+    assert!(covered > 1.8, "dashed only {covered} m");
+
+    // Too soon for another.
+    let mut inputs = idle(&sim);
+    inputs[player] = dash;
+    assert!(!sim.step(&inputs).contains(&Event::Dashed { player }));
+    for _ in 0..TICK_HZ {
+        sim.step(&idle(&sim));
+    }
+    let mut inputs = idle(&sim);
+    inputs[player] = dash;
+    assert!(sim.step(&inputs).contains(&Event::Dashed { player }), "ready again");
+}
+
+#[test]
+fn fast_landings_skid() {
+    /// How far the player slides after landing from a jump taken at `speed`
+    /// (away from the net), letting go of the stick.
+    fn slide(speed: f32) -> f32 {
+        let (mut sim, player) = lone_player();
+        let run = Vec2::new(-speed / 6.5, 0.0);
+        sim.players[player].velocity = run * 6.5;
+        let mut inputs = idle(&sim);
+        inputs[player] = PlayerInput { jump: true, movement: run, ..default() };
+        sim.step(&inputs);
+        while !sim.players[player].grounded() {
+            let mut inputs = idle(&sim);
+            inputs[player].movement = run;
+            sim.step(&inputs);
+        }
+        let landed = sim.players[player].position.x;
+        for _ in 0..TICK_HZ {
+            sim.step(&idle(&sim));
+        }
+        landed - sim.players[player].position.x
+    }
+    // Grip comes back after the skid, so it slides a bit farther than a normal stop.
+    let normal_stop = 6.5 * 6.5 / (2.0 * 55.0);
+    assert!(slide(6.5) > normal_stop * 1.4, "slid {}", slide(6.5));
+    assert!(slide(2.0) < 2.0 * 2.0 / (2.0 * 55.0) + 0.05, "slow landings don't skid");
+}

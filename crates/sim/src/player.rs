@@ -14,6 +14,19 @@ const STEER_RANGE: f32 = 3.0;
 const STEER_ACCELERATION: f32 = 35.0;
 /// Steering aims to close the gap in about this long.
 const STEER_SECONDS: f32 = 0.15;
+/// A running jump goes higher: takeoff speed grows by up to this fraction at
+/// full running speed, about a third more height.
+const APPROACH_BONUS: f32 = 0.15;
+/// Letting go of jump while still rising cuts the climb to this speed: tap for
+/// a short hop, hold for a full jump.
+const SHORT_HOP_SPEED: f32 = 3.5;
+/// A dash lasts this long, and can't be repeated until this long after it starts.
+pub(crate) const DASH_TICKS: u32 = 11;
+const DASH_COOLDOWN_TICKS: u32 = 40;
+/// Landing faster than this (m/s, horizontally) skids in the sand: less grip for a moment.
+const SKID_SPEED: f32 = 3.0;
+const SKID_TICKS: u32 = 9;
+const SKID_ACCELERATION: f32 = 18.0;
 /// Stronger than real gravity so jumps feel snappy. Apex ≈ 1.2 m.
 pub(crate) const PLAYER_GRAVITY: f32 = 20.0;
 
@@ -86,6 +99,27 @@ pub struct Player {
     pub action: Option<Action>,
     /// Hands raised to block, until landing.
     pub(crate) hands_up: bool,
+    /// The dash underway, or the last one.
+    pub dash: Option<Dash>,
+    /// Rising from a jump, which letting go of jump can cut short.
+    rising: bool,
+    /// Skidding on landing until this tick.
+    skid_until: u32,
+}
+
+/// A quick burst along the ground.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Dash {
+    pub start_tick: u32,
+    /// World XZ, unit length.
+    pub direction: Vec2,
+}
+
+/// What a tick of input started.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Started {
+    pub(crate) move_id: Option<MoveId>,
+    pub(crate) dash: bool,
 }
 
 impl Player {
@@ -100,7 +134,28 @@ impl Player {
             aim: None,
             action: None,
             hands_up: false,
+            dash: None,
+            rising: false,
+            skid_until: 0,
         }
+    }
+
+    /// How fast a jump leaves the ground right now: faster with a run-up.
+    pub fn takeoff_speed(&self) -> f32 {
+        let approach = (self.velocity.length() / self.kit.run_speed).min(1.0);
+        self.kit.jump_speed * (1.0 + APPROACH_BONUS * approach)
+    }
+
+    /// Whether a dash is bursting along at `tick`.
+    pub fn dashing(&self, tick: u32) -> bool {
+        self.dash.is_some_and(|dash| tick < dash.start_tick + DASH_TICKS)
+    }
+
+    /// Whether a dash could start at `tick`: on the ground, off cooldown, and
+    /// not in the middle of a committed move.
+    pub fn can_dash(&self, tick: u32) -> bool {
+        let rested = self.dash.is_none_or(|dash| tick >= dash.start_tick + DASH_COOLDOWN_TICKS);
+        rested && self.grounded() && !self.action.is_some_and(|action| action.committed())
     }
 
     pub fn grounded(&self) -> bool {
@@ -164,9 +219,9 @@ impl Player {
         *self = Player { kit: self.kit, ..Self::new(self.team, self.side, position) };
     }
 
-    /// Applies one tick of input. Returns a move that just started (not one
-    /// merely re-pressed). A server holding the ball must stay behind the end line.
-    pub(crate) fn update(&mut self, input: &PlayerInput, tick: u32, serving: bool, ball: Vec3) -> Option<MoveId> {
+    /// Applies one tick of input. Returns what it started: a move (not one
+    /// merely re-pressed), a dash. A server holding the ball must stay behind the end line.
+    pub(crate) fn update(&mut self, input: &PlayerInput, tick: u32, serving: bool, ball: Vec3) -> Started {
         if self.action.is_some_and(|action| action.phase(tick).is_none()) {
             self.action = None;
         }
@@ -181,7 +236,7 @@ impl Player {
             }
         }
 
-        let mut started = None;
+        let mut started = Started::default();
         let presses = [(input.dive, Button::Dive), (input.kick, Button::Kick), (input.spike, Button::Spike), (input.pass, Button::Pass)];
         for (pressed, button) in presses {
             if !pressed || committed || (serving && button != Button::Pass) {
@@ -199,9 +254,20 @@ impl Player {
                 .normalize();
             self.action = Some(Action { id, start_tick: tick, direction, spent: false });
             if !repressed {
-                started = Some(id);
+                started.move_id = Some(id);
             }
             break;
+        }
+
+        let toward_ball = Vec2::new(ball.x - self.position.x, ball.z - self.position.z);
+        if input.dash && !serving && self.can_dash(tick) {
+            let direction = [input.movement, toward_ball]
+                .into_iter()
+                .find(|d| d.length() > 0.1)
+                .unwrap_or(Vec2::new(-self.side, 0.0))
+                .normalize();
+            self.dash = Some(Dash { start_tick: tick, direction });
+            started.dash = true;
         }
 
         let phase = self.action.and_then(|action| action.phase(tick).map(|phase| (action, phase)));
@@ -211,16 +277,29 @@ impl Player {
             }
             Some((action, MovePhase::Recovery)) if action.id.spec().recovery > 0 => self.velocity = Vec2::ZERO,
             _ => {
+                let running = input.movement.clamp_length_max(1.0) * self.kit.run_speed;
                 let (wanted, acceleration) = match self.steering(tick, ball) {
                     Some(to_spot) => ((to_spot / STEER_SECONDS).clamp_length_max(self.kit.run_speed), STEER_ACCELERATION),
-                    None if self.grounded() => (input.movement.clamp_length_max(1.0) * self.kit.run_speed, ACCELERATION),
-                    None => (input.movement.clamp_length_max(1.0) * self.kit.run_speed, AIR_ACCELERATION),
+                    None if !self.grounded() => (running, AIR_ACCELERATION),
+                    None if tick < self.skid_until => (running, SKID_ACCELERATION),
+                    None => (running, ACCELERATION),
                 };
                 self.velocity = move_towards(self.velocity, wanted, acceleration * DT);
+                if let Some(dash) = self.dash.filter(|_| self.dashing(tick)) {
+                    self.velocity = dash.direction * self.kit.dash_speed;
+                }
                 if input.jump && self.grounded() {
-                    self.vertical_velocity = self.kit.jump_speed;
+                    self.vertical_velocity = self.takeoff_speed();
+                    self.rising = true;
+                    // Jumping ends a dash's burst but keeps its speed, for a flying approach.
+                    if self.dashing(tick) {
+                        self.dash = self.dash.map(|dash| Dash { start_tick: tick.saturating_sub(DASH_TICKS), ..dash });
+                    }
                 }
             }
+        }
+        if input.jump_released && self.rising && self.vertical_velocity > SHORT_HOP_SPEED {
+            self.vertical_velocity = SHORT_HOP_SPEED;
         }
         self.position.x += self.velocity.x * DT;
         self.position.z += self.velocity.y * DT;
@@ -245,10 +324,16 @@ impl Player {
         if !self.grounded() || self.vertical_velocity > 0.0 {
             self.vertical_velocity -= PLAYER_GRAVITY * DT;
             self.position.y += self.vertical_velocity * DT;
+            if self.vertical_velocity <= 0.0 {
+                self.rising = false;
+            }
             if self.position.y <= 0.0 {
                 self.position.y = 0.0;
                 self.vertical_velocity = 0.0;
                 self.hands_up = false;
+                if self.velocity.length() > SKID_SPEED {
+                    self.skid_until = tick + SKID_TICKS;
+                }
                 // Air moves last until landing.
                 if self.action.is_some_and(|action| action.id.spec().stance == Stance::Air) {
                     self.action = None;

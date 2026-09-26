@@ -14,7 +14,7 @@ mod player;
 pub use ball::{Ball, Flight};
 pub use glam::{Vec2, Vec3};
 pub use moves::{Kit, Move, MoveId};
-pub use player::{Action, MovePhase, Player};
+pub use player::{Action, Dash, MovePhase, Player};
 
 use moves::Touch;
 use court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT, NET_HALF_WIDTH, RUNOFF};
@@ -59,10 +59,14 @@ pub struct PlayerInput {
     /// the default spot for that kind of hit.
     pub aim: Option<Vec2>,
     pub jump: bool,
+    /// Jump was let go: a jump still rising is cut short into a hop.
+    pub jump_released: bool,
     pub pass: bool,
     pub spike: bool,
     pub dive: bool,
     pub kick: bool,
+    /// A quick burst along the ground, toward `movement`.
+    pub dash: bool,
 }
 
 /// Players per team and the scoring rules. The defaults are beach volleyball's.
@@ -160,6 +164,7 @@ pub enum PointReason {
 pub enum Event {
     /// A move began: a press, a dive, a foot save.
     MoveStarted { player: usize, id: MoveId },
+    Dashed { player: usize },
     /// `quality`: how cleanly an attack was hit, from 0 to 1. Other hits are 1.
     Touched { player: usize, kind: HitKind, quality: f32 },
     /// A block at the net. `stuffed`: sent straight back down on the attackers;
@@ -263,8 +268,12 @@ impl Sim {
         let ball = self.ball_position();
         for (i, input) in inputs.iter().enumerate() {
             let serving = self.ball == Ball::Held { by: i };
-            if let Some(id) = self.players[i].update(input, self.tick, serving, ball) {
+            let started = self.players[i].update(input, self.tick, serving, ball);
+            if let Some(id) = started.move_id {
                 events.push(Event::MoveStarted { player: i, id });
+            }
+            if started.dash {
+                events.push(Event::Dashed { player: i });
             }
         }
 

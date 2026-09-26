@@ -9,7 +9,7 @@ fn default<T: Default>() -> T {
 }
 
 use crate::moves::MoveId;
-use crate::player::{BLOCK_DISTANCE, PLAYER_GRAVITY};
+use crate::player::{BLOCK_DISTANCE, DASH_TICKS, PLAYER_GRAVITY, Player};
 use crate::court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT};
 use crate::{Ball, DT, Flight, HitKind, OVER_DEPTH, PlayerInput, SET_DEPTH, Sim, TICK_HZ, dice, flight_seconds};
 
@@ -131,8 +131,12 @@ fn pass(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32)
         input.movement = (to_ball / 0.5).clamp_length_max(1.0);
         return input;
     }
-    // Can't run there in time: stick a foot out, or dive, if that would get it.
+    // Can't run there in time: dash, if a burst would get there; else stick a
+    // foot out, or dive, if that would get it.
     let run_reach = player.kit.run_speed * seconds_left.max(0.0);
+    if to_ball.length() > run_reach + 0.3 && player.can_dash(sim.tick) && to_ball.length() < dash_reach(player, seconds_left) {
+        return PlayerInput { dash: true, movement: to_ball.normalize_or_zero(), ..input };
+    }
     if to_ball.length() > run_reach + 0.3 && player.grounded() {
         if would_connect(sim, me, flight, MoveId::FootSave, direction) {
             return PlayerInput { kick: true, movement: direction, ..input };
@@ -143,6 +147,12 @@ fn pass(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32)
     }
     input.movement = (to_ball / 0.5).clamp_length_max(1.0);
     input
+}
+
+/// How far a dash now and running after it covers in `seconds`.
+fn dash_reach(player: &Player, seconds: f32) -> f32 {
+    let burst = DASH_TICKS as f32 * DT;
+    player.kit.dash_speed * seconds.min(burst) + player.kit.run_speed * (seconds - burst).max(0.0)
 }
 
 /// Whether starting move `id` now, lunging toward `direction`, would touch
@@ -169,7 +179,7 @@ fn spike(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32
     }
     // Leave the ground so the top of the jump meets the ball. The armed
     // attack's steering covers the last couple of meters.
-    let rise_time = player.kit.jump_speed / PLAYER_GRAVITY;
+    let rise_time = player.takeoff_speed() / PLAYER_GRAVITY;
     input.jump = to_ball.length() < 2.5 && seconds_left <= rise_time;
     input
 }

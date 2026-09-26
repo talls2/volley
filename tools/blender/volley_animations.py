@@ -424,6 +424,42 @@ CLIPS = [
         ],
     ),
     dict(
+        # Just left the ground: legs finishing their push, arms driving up from behind.
+        name="Takeoff",
+        keys=[
+            (0.0, {**airborne(0.0), "foot_l": at(-0.1, -0.05, 0.03), "foot_r": at(0.1, -0.08, 0.03),
+                   "hips_rot": rot(pitch=8), "spine": rot(pitch=10), "head": rot(pitch=-10),
+                   "hand_l": at(-0.3, -0.4, 0.95), "hand_r": at(0.3, -0.4, 0.95),
+                   "elbow_l": at(-0.6, 0.4, 1.4), "elbow_r": at(0.6, 0.4, 1.4)}),
+            (0.12, {"hips_rot": rot(pitch=-2), "spine": rot(pitch=-6), "head": rot(pitch=-12),
+                    "hand_l": at(-0.3, 0.35, 1.65), "hand_r": at(0.3, 0.35, 1.65),
+                    "elbow_l": at(-0.8, -0.2, 1.3), "elbow_r": at(0.8, -0.2, 1.3),
+                    "foot_l": at(-0.12, -0.02, 0.15), "foot_r": at(0.12, -0.1, 0.12)}),
+            (0.35, {**airborne(0.35), "spine": rot(pitch=0), "head": rot(pitch=-8),
+                    "hand_l": at(-0.4, 0.2, 1.35), "hand_r": at(0.4, 0.2, 1.35),
+                    "elbow_l": at(-0.9, -0.3, 1.2), "elbow_r": at(0.9, -0.3, 1.2)}),
+        ],
+    ),
+    dict(
+        # A burst along the sand: low, driving off the back foot, arms pumping.
+        name="Dash",
+        keys=[
+            (0.0, ready_pose()),
+            (0.06, {**ready_pose(dip=0.12), "hips": at(0, 0.1, -0.3), "hips_rot": rot(pitch=24), "spine": rot(pitch=14),
+                    "head": rot(pitch=-30),
+                    "foot_l": at(-0.14, 0.5, ANKLE_HEIGHT), "knee_l": at(-0.2, 2.0, 0.6), "foot_rot_l": rot(),
+                    "foot_r": at(0.14, -0.55, 0.22), "knee_r": at(0.2, 2.0, 0.3), "foot_rot_r": rot(pitch=45),
+                    "hand_r": at(0.22, 0.5, 1.15), "elbow_r": at(0.5, -0.3, 0.6),
+                    "hand_l": at(-0.3, -0.4, 0.8), "elbow_l": at(-0.5, 0.3, 1.2)}),
+            (0.18, {"hips": at(0, 0.1, -0.24),
+                    "foot_r": at(0.14, 0.45, ANKLE_HEIGHT), "foot_rot_r": rot(), "knee_r": at(0.2, 2.0, 0.6),
+                    "foot_l": at(-0.14, -0.45, 0.25), "foot_rot_l": rot(pitch=45), "knee_l": at(-0.2, 2.0, 0.3),
+                    "hand_l": at(-0.22, 0.5, 1.15), "elbow_l": at(-0.5, -0.3, 0.6),
+                    "hand_r": at(0.3, -0.4, 0.8), "elbow_r": at(0.5, 0.3, 1.2)}),
+            (0.34, ready_pose()),
+        ],
+    ),
+    dict(
         name="Cheer_Loop",
         loop=True,
         keys=[

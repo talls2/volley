@@ -49,6 +49,7 @@ pub struct Keys {
     pub spike: KeyCode,
     pub dive: KeyCode,
     pub kick: KeyCode,
+    pub dash: KeyCode,
     pub toggle_bot: KeyCode,
 }
 
@@ -62,6 +63,7 @@ pub const KEYS: Keys = Keys {
     spike: KeyCode::KeyE,
     dive: KeyCode::ShiftLeft,
     kick: KeyCode::KeyF,
+    dash: KeyCode::KeyC,
     toggle_bot: KeyCode::Digit1,
 };
 
@@ -71,6 +73,7 @@ pub struct Buttons {
     pub spike: &'static [GamepadButton],
     pub dive: &'static [GamepadButton],
     pub kick: &'static [GamepadButton],
+    pub dash: &'static [GamepadButton],
     pub toggle_bot: GamepadButton,
 }
 
@@ -87,6 +90,8 @@ pub const BUTTONS: Buttons = Buttons {
     dive: &[GamepadButton::LeftTrigger2, GamepadButton::East],
     // LB
     kick: &[GamepadButton::LeftTrigger],
+    // Left stick click: the thumb is already there, moving.
+    dash: &[GamepadButton::LeftThumb],
     // View / Back
     toggle_bot: GamepadButton::Select,
 };
@@ -111,10 +116,12 @@ pub fn stick(raw: Vec2) -> Vec2 {
 #[derive(Resource, Default)]
 struct Presses {
     jump: bool,
+    jump_released: bool,
     pass: bool,
     spike: bool,
     dive: bool,
     kick: bool,
+    dash: bool,
 }
 
 /// Every connected gamepad controls the local player. The Mac can report extra
@@ -124,10 +131,13 @@ fn record_presses(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mu
         keys.just_pressed(key) || gamepads.iter().any(|pad| pad.any_just_pressed(buttons.iter().copied()))
     };
     presses.jump |= pressed(KEYS.jump, BUTTONS.jump);
+    presses.jump_released |= keys.just_released(KEYS.jump)
+        || gamepads.iter().any(|pad| pad.any_just_released(BUTTONS.jump.iter().copied()));
     presses.pass |= pressed(KEYS.pass, BUTTONS.pass);
     presses.spike |= pressed(KEYS.spike, BUTTONS.spike);
     presses.dive |= pressed(KEYS.dive, BUTTONS.dive);
     presses.kick |= pressed(KEYS.kick, BUTTONS.kick);
+    presses.dash |= pressed(KEYS.dash, BUTTONS.dash);
 }
 
 fn toggle_driver(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mut driver: ResMut<LocalDriver>) {
@@ -174,10 +184,12 @@ impl Controls<'_, '_> {
                 movement: self.camera.to_world(self.movement()),
                 aim: self.camera_transform.single().ok().map(aim::floor_point),
                 jump: presses.jump,
+                jump_released: presses.jump_released,
                 pass: presses.pass,
                 spike: presses.spike,
                 dive: presses.dive,
                 kick: presses.kick,
+                dash: presses.dash,
             };
         }
         inputs

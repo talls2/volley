@@ -32,7 +32,8 @@ variables cargo sets, so launching the binary directly won't load the characters
 |---|---|---|
 | Look and aim | Mouse (click the window to capture it, Esc to release) | Right stick |
 | Move | W A S D | Left stick |
-| Jump | Space | A |
+| Jump (hold for full height) | Space | A |
+| Dash | C | Left stick click |
 | Pass / serve / block | Q | RB (or X) |
 | Attack (in the air) | E | RT (or Y) |
 | Dive | Left Shift | LT (or B) |
@@ -47,6 +48,7 @@ buttons when you use one.
 You play Red with a bot teammate. The camera follows you from behind, and movement
 is relative to where it faces. The court is a third bigger than a real one (24 x 12 m).
 
+- **Movement:** a running jump goes about a third higher than a standing one, so run in to attack. Tap jump for a short hop, hold it for the full jump. **Dash** bursts about two meters along the sand toward where you're moving (you can hit or jump out of it; jumping out keeps its speed for a flying approach) and then needs a moment to recharge. Landing fast skids a little in the sand.
 - **Aiming:** hits go where the center of the screen points. Turn to pick a direction; look higher to hit farther. The yellow ring on the floor shows where your next hit lands (red means out). Passes stay on your side; serves, spikes and third touches go over.
 - **Serving:** press pass. Each rally starts with the camera facing the net and the aim mid-way into the other court.
 - **Pass:** your team's first touch goes mid-court, the second is a set near the net, and the third goes over automatically.
@@ -75,14 +77,15 @@ the air, its windup, active and recovery time, where it can reach the ball,
 any lunge, and what a touch does (keep it for a teammate, or attack over the
 net), how accurately, and how long it hangs. Attacks pick their technique and
 contact quality in `crates/sim/src/attack.rs`. A *kit* is a set of moves plus
-stats like run speed and jump height. Everyone uses the All-rounder kit for
+stats like run speed, jump height and dash speed. Everyone uses the All-rounder kit for
 now; heroes will each be a kit with their own special moves.
 
 ## Art and sound
 
 Placeholder characters are the free Quaternius packs, and running, jumping and
 landing come from its animation library. The volleyball moves (ready stance,
-bump, set, spike, volley and bicycle kicks, serve, block, dive, foot save, cheer)
+takeoff, dash, bump, set, spike, volley and bicycle kicks, serve, block, dive,
+foot save, cheer)
 are our own, authored for the same skeleton by a Blender script:
 
     ~/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \

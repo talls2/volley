@@ -110,6 +110,9 @@ fn play_game_sounds(
                 play(&mut commands, next(&sounds.step, &mut turn), 1.0, Some(game.current.players[player].position));
             }
             Event::MoveStarted { .. } => {}
+            Event::Dashed { player } => {
+                play(&mut commands, next(&sounds.step, &mut turn), 0.8, Some(game.current.players[player].position));
+            }
             Event::Point { .. } => {
                 play(&mut commands, &sounds.whistle, 0.5, None);
                 // Big cheers for attacks; polite applause for the rest.

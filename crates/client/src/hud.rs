@@ -171,12 +171,14 @@ fn update_controls_help(
         (LocalDriver::Human, ActiveDevice::Keyboard) => format!(
             "You are {you}. Click to look with the mouse, Esc to release it. Hits go where you look:\n\
              the yellow ring shows where (red = out). Look higher to hit farther.\n\
-             WASD move | Space jump | Q pass / serve (at the net: block) | E attack (in the air: spike, volley or bicycle kick) | Shift dive | F foot save | P pause | 1 let a bot play",
+             WASD move | C dash | Space jump (hold for full height; run in to jump higher) | Q pass / serve (at the net: block)\n\
+             E attack (in the air: spike, volley or bicycle kick) | Shift dive | F foot save | P pause | 1 let a bot play",
         ),
         (LocalDriver::Human, ActiveDevice::Gamepad) => format!(
             "You are {you}. Right stick looks and aims: hits go where you look, the yellow ring shows\n\
              where (red = out). Look higher to hit farther.\n\
-             Left stick move | A jump | RB pass / serve (at the net: block) | RT attack (in the air: spike, volley or bicycle kick) | LT dive | LB foot save | Menu pause | View let a bot play",
+             Left stick move (click to dash) | A jump (hold for full height; run in to jump higher) | RB pass / serve (at the net: block)\n\
+             RT attack (in the air: spike, volley or bicycle kick) | LT dive | LB foot save | Menu pause | View let a bot play",
         ),
         (LocalDriver::Bot, ActiveDevice::Keyboard) => format!("A bot is playing {you}. Press 1 to take over."),
         (LocalDriver::Bot, ActiveDevice::Gamepad) => format!("A bot is playing {you}. Press View to take over."),

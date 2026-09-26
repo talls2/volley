@@ -84,8 +84,11 @@ enum Clip {
     Idle,
     Jog,
     Sprint,
+    /// Just left the ground, arms driving up.
+    Takeoff,
     Airborne,
     Land,
+    Dash,
     /// Knees bent, ready to move: standing still during a rally.
     Ready,
     Bump,
@@ -109,12 +112,14 @@ struct Swing {
 }
 
 impl Clip {
-    const ALL: [Clip; 16] = [
+    const ALL: [Clip; 18] = [
         Clip::Idle,
         Clip::Jog,
         Clip::Sprint,
+        Clip::Takeoff,
         Clip::Airborne,
         Clip::Land,
+        Clip::Dash,
         Clip::Ready,
         Clip::Bump,
         Clip::Set,
@@ -136,6 +141,8 @@ impl Clip {
             Clip::Sprint => (QUATERNIUS, "Sprint_Loop"),
             Clip::Airborne => (QUATERNIUS, "Jump_Loop"),
             Clip::Land => (QUATERNIUS, "Jump_Land"),
+            Clip::Takeoff => (VOLLEY, "Takeoff"),
+            Clip::Dash => (VOLLEY, "Dash"),
             Clip::Ready => (VOLLEY, "Ready_Loop"),
             Clip::Bump => (VOLLEY, "Bump"),
             Clip::Set => (VOLLEY, "Set"),
@@ -191,7 +198,10 @@ impl Clip {
     /// Moves started by the game rather than by running and jumping. Takeoffs and
     /// landings never cut these short.
     fn is_game_action(self) -> bool {
-        !matches!(self, Clip::Idle | Clip::Ready | Clip::Jog | Clip::Sprint | Clip::Airborne | Clip::Land)
+        !matches!(
+            self,
+            Clip::Idle | Clip::Ready | Clip::Jog | Clip::Sprint | Clip::Takeoff | Clip::Airborne | Clip::Land | Clip::Dash
+        )
     }
 }
 
@@ -487,6 +497,14 @@ fn react_to_events(
                         }
                     }
                 }
+                Event::Dashed { player } if player == me => {
+                    if let Some(dash) = game.current.players[me].dash {
+                        character.face = Some((dash.direction, face_until));
+                    }
+                    if !character.action.is_some_and(Clip::is_game_action) {
+                        character.start(Clip::Dash, None);
+                    }
+                }
                 Event::Point { team, .. } if team == game.current.players[me].team => {
                     character.start(Clip::Celebrate, None);
                 }
@@ -561,10 +579,8 @@ fn animate_characters(
         let airborne = !me.grounded();
         if airborne != character.airborne {
             character.airborne = airborne;
-            // Takeoffs go straight to the airborne pose: the library's takeoff
-            // crouches, which only looks right before leaving the ground.
-            if !airborne && !character.action.is_some_and(Clip::is_game_action) {
-                character.start(Clip::Land, None);
+            if !character.action.is_some_and(Clip::is_game_action) && !me.blocking() {
+                character.start(if airborne { Clip::Takeoff } else { Clip::Land }, None);
             }
         }
         if me.blocking() && character.action != Some(Clip::Block) {

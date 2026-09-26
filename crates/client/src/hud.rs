@@ -13,6 +13,9 @@ pub fn plugin(app: &mut App) {
         .add_systems(Update, (update_score, announce_points, update_controls_help));
 }
 
+/// Keeps text readable over bright sand and sky.
+const SHADOW: TextShadow = TextShadow { offset: Vec2::new(2.0, 2.0), color: Color::srgba(0.0, 0.0, 0.0, 0.7) };
+
 #[derive(Component)]
 struct ScoreText;
 
@@ -34,15 +37,16 @@ fn spawn_hud(mut commands: Commands) {
             ..default()
         },
         children![
-            (ScoreText, Text::default(), TextFont { font_size: FontSize::Px(44.0), ..default() }),
-            (Announcement, Text::default(), TextFont { font_size: FontSize::Px(22.0), ..default() }),
+            (ScoreText, Text::default(), TextFont { font_size: FontSize::Px(44.0), ..default() }, SHADOW),
+            (Announcement, Text::default(), TextFont { font_size: FontSize::Px(22.0), ..default() }, SHADOW),
         ],
     ));
     commands.spawn((
         ControlsHelp,
         Text::default(),
         TextFont { font_size: FontSize::Px(14.0), ..default() },
-        TextColor(Color::srgb(0.8, 0.8, 0.85)),
+        TextColor(Color::srgb(0.95, 0.95, 0.97)),
+        SHADOW,
         Node {
             position_type: PositionType::Absolute,
             left: Val::Px(14.0),

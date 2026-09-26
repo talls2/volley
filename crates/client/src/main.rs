@@ -3,8 +3,10 @@
 //! they're all in `volley_sim`.
 
 mod aim;
+mod audio;
 mod camera;
 mod characters;
+mod effects;
 mod hud;
 mod input;
 mod scene;
@@ -35,7 +37,17 @@ fn main() {
         .insert_resource(Time::<Fixed>::from_hz(TICK_HZ as f64))
         .insert_resource(Match { previous: sim.clone(), current: sim })
         .add_message::<SimEvent>()
-        .add_plugins((input::plugin, camera::plugin, aim::plugin, scene::plugin, trail::plugin, characters::plugin, hud::plugin))
+        .add_plugins((
+            input::plugin,
+            camera::plugin,
+            aim::plugin,
+            scene::plugin,
+            trail::plugin,
+            effects::plugin,
+            characters::plugin,
+            audio::plugin,
+            hud::plugin,
+        ))
         .add_systems(FixedUpdate, step_match)
         .run();
 }

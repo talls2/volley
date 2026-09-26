@@ -61,7 +61,17 @@ impl CameraRig {
 }
 
 fn spawn_camera(mut commands: Commands) {
-    commands.spawn(Camera3d::default());
+    commands.spawn((
+        Camera3d::default(),
+        // Positional sound is heard from here.
+        SpatialListener::new(0.3),
+        // Sea haze: the far ocean fades into the sky.
+        DistanceFog {
+            color: Color::srgb(0.75, 0.86, 0.96),
+            falloff: FogFalloff::Linear { start: 60.0, end: 260.0 },
+            ..default()
+        },
+    ));
 }
 
 /// Every rally starts facing the net. When serving, the camera also tilts so the

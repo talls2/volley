@@ -7,7 +7,8 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace.dependencies]
-bevy = "0.19.1"
+# FLAC for sounds that aren't shipped as OGG; JPEG for photo textures.
+bevy = { version = "0.19.1", features = ["flac", "jpeg"] }
 glam = "0.32.1"
 
 # Bevy is very slow unoptimized. Optimize dependencies fully and our own code lightly,

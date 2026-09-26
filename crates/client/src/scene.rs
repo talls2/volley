@@ -1,55 +1,98 @@
-//! The 3D view: court, net and ball, placed from the simulation each frame.
-//! Players are in `characters`.
+//! The 3D view: the beach, court, net and ball, placed from the simulation
+//! each frame. Players are in `characters`.
 
 use std::f32::consts::FRAC_PI_2;
 
+use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
+use bevy::math::Affine2;
 use bevy::prelude::*;
 use volley_sim::{Ball, Event, Sim};
-use volley_sim::court::{self, ATTACK_LINE, BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HALF_WIDTH, NET_HEIGHT, RUNOFF};
+use volley_sim::court::{self, BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HALF_WIDTH, NET_HEIGHT};
 
 use crate::{Match, SimEvent};
 
 pub const TEAM_COLORS: [Color; 2] = [Color::srgb(0.9, 0.3, 0.3), Color::srgb(0.3, 0.5, 0.95)];
 
 pub fn plugin(app: &mut App) {
-    app.insert_resource(ClearColor(Color::srgb(0.07, 0.08, 0.11)))
+    app.insert_resource(ClearColor(SKY))
         .add_systems(Startup, spawn_scene)
+        .add_systems(Update, generate_mipmaps.run_if(resource_exists::<NeedsMipmaps>))
         .add_systems(Update, ((start_bounce, place_ball).chain(), draw_ball_guides));
 }
 
 #[derive(Component)]
 pub struct BallView;
 
-fn spawn_scene(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
-    // Nearly overhead, so shadows land close to what casts them.
+/// The beach: a sand floor, an ocean around it, sky and haze.
+const SAND_SIZE: f32 = 90.0;
+/// Real-world size of one tile of the sand texture.
+const SAND_TILE: f32 = 1.5;
+const LINE_COLOR: Color = Color::srgb(0.1, 0.35, 0.85);
+const SKY: Color = Color::srgb(0.55, 0.78, 0.97);
+
+fn spawn_scene(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    assets: Res<AssetServer>,
+) {
+    // Warm sun, nearly overhead so shadows land close to what casts them, and
+    // bluish sky light filling the shadows.
     commands.spawn((
-        DirectionalLight { shadow_maps_enabled: true, ..default() },
+        DirectionalLight { color: Color::srgb(1.0, 0.95, 0.85), illuminance: 11_000.0, shadow_maps_enabled: true, ..default() },
         Transform::from_xyz(2.0, 10.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
+    commands.insert_resource(GlobalAmbientLight { color: Color::srgb(0.7, 0.8, 1.0), brightness: 600.0, ..default() });
 
-    let mut flat_box = |size: Vec3, at: Vec3, color: Color| {
-        commands.spawn((
-            Mesh3d(meshes.add(Cuboid::from_size(size))),
-            MeshMaterial3d(materials.add(color)),
-            Transform::from_translation(at),
-        ));
+    let repeating = |settings: &mut ImageLoaderSettings| {
+        settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+            address_mode_u: ImageAddressMode::Repeat,
+            address_mode_v: ImageAddressMode::Repeat,
+            anisotropy_clamp: 16,
+            ..ImageSamplerDescriptor::linear()
+        });
     };
+    let sand_color = assets.load_builder().with_settings(repeating).load("textures/sand_01_diff_2k.jpg");
+    let sand_normal = assets.load_builder().with_settings(move |settings: &mut ImageLoaderSettings| {
+        repeating(settings);
+        settings.is_srgb = false;
+    }).load("textures/sand_01_nor_gl_2k.jpg");
+    commands.insert_resource(NeedsMipmaps(vec![sand_color.id(), sand_normal.id()]));
+    commands.spawn((
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(SAND_SIZE, SAND_SIZE))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color_texture: Some(sand_color),
+            normal_map_texture: Some(sand_normal),
+            perceptual_roughness: 0.95,
+            reflectance: 0.2,
+            uv_transform: Affine2::from_scale(Vec2::splat(SAND_SIZE / SAND_TILE)),
+            ..default()
+        })),
+    ));
+    commands.spawn((
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(800.0, 800.0))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(0.05, 0.33, 0.42),
+            perceptual_roughness: 0.2,
+            reflectance: 0.6,
+            ..default()
+        })),
+        Transform::from_xyz(0.0, -0.25, 0.0),
+    ));
 
-    // Free zone, court and lines, each a little above the last.
-    // Arena floor, wide enough that bouncing balls stay on it.
-    let free_zone = Vec3::new(2.0 * (HALF_LENGTH + RUNOFF + 15.0), 0.02, 2.0 * (HALF_WIDTH + RUNOFF + 15.0));
-    flat_box(free_zone, Vec3::new(0.0, -0.03, 0.0), Color::srgb(0.18, 0.36, 0.5));
-    flat_box(Vec3::new(2.0 * HALF_LENGTH, 0.02, 2.0 * HALF_WIDTH), Vec3::new(0.0, -0.01, 0.0), Color::srgb(0.85, 0.52, 0.28));
+    // Boundary straps: beach courts have no center or attack lines.
     let line = 0.08;
-    let white = Color::WHITE;
-    for z in [-HALF_WIDTH, HALF_WIDTH] {
-        flat_box(Vec3::new(2.0 * HALF_LENGTH + line, 0.01, line), Vec3::new(0.0, 0.005, z), white);
-    }
-    for x in [-HALF_LENGTH, -ATTACK_LINE, 0.0, ATTACK_LINE, HALF_LENGTH] {
-        flat_box(Vec3::new(line, 0.01, 2.0 * HALF_WIDTH), Vec3::new(x, 0.005, 0.0), white);
+    let strap = materials.add(LINE_COLOR);
+    for (size, at) in [
+        (Vec3::new(2.0 * HALF_LENGTH + line, 0.01, line), Vec3::new(0.0, 0.005, -HALF_WIDTH)),
+        (Vec3::new(2.0 * HALF_LENGTH + line, 0.01, line), Vec3::new(0.0, 0.005, HALF_WIDTH)),
+        (Vec3::new(line, 0.01, 2.0 * HALF_WIDTH), Vec3::new(-HALF_LENGTH, 0.005, 0.0)),
+        (Vec3::new(line, 0.01, 2.0 * HALF_WIDTH), Vec3::new(HALF_LENGTH, 0.005, 0.0)),
+    ] {
+        commands.spawn((Mesh3d(meshes.add(Cuboid::from_size(size))), MeshMaterial3d(strap.clone()), Transform::from_translation(at)));
     }
 
-    // Net: a translucent mesh with a white top band, between two posts.
+    // Net: a translucent mesh with a blue top band, between padded posts.
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(0.02, 1.0, 2.0 * NET_HALF_WIDTH))),
         MeshMaterial3d(materials.add(StandardMaterial {
@@ -61,18 +104,17 @@ fn spawn_scene(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mat
     ));
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(0.04, 0.07, 2.0 * NET_HALF_WIDTH))),
-        MeshMaterial3d(materials.add(Color::WHITE)),
+        MeshMaterial3d(materials.add(LINE_COLOR)),
         Transform::from_xyz(0.0, NET_HEIGHT - 0.035, 0.0),
     ));
     let post_height = NET_HEIGHT + 0.1;
-    let post = meshes.add(Cylinder::new(0.06, post_height));
-    let post_material = materials.add(Color::srgb(0.75, 0.75, 0.8));
+    let post = meshes.add(Cylinder::new(0.05, post_height));
+    let post_material = materials.add(Color::srgb(0.85, 0.85, 0.88));
+    let pad = meshes.add(Cylinder::new(0.12, 1.8));
+    let pad_material = materials.add(LINE_COLOR);
     for z in [-NET_HALF_WIDTH - 0.1, NET_HALF_WIDTH + 0.1] {
-        commands.spawn((
-            Mesh3d(post.clone()),
-            MeshMaterial3d(post_material.clone()),
-            Transform::from_xyz(0.0, post_height / 2.0, z),
-        ));
+        commands.spawn((Mesh3d(post.clone()), MeshMaterial3d(post_material.clone()), Transform::from_xyz(0.0, post_height / 2.0, z)));
+        commands.spawn((Mesh3d(pad.clone()), MeshMaterial3d(pad_material.clone()), Transform::from_xyz(0.0, 0.9, z)));
     }
 
     commands.spawn((
@@ -170,5 +212,47 @@ fn draw_ball_guides(game: Res<Match>, ball: Single<&Transform, With<BallView>>, 
         let at = landing.with_y(0.02);
         gizmos.circle(Isometry3d::new(at, flat), 0.5, Color::WHITE);
         gizmos.circle(Isometry3d::new(at, flat), 0.25, Color::WHITE);
+    }
+}
+
+/// Textures that should get mipmaps once loaded.
+#[derive(Resource)]
+struct NeedsMipmaps(Vec<AssetId<Image>>);
+
+/// JPGs load without mipmaps, the smaller copies a GPU samples when a texture
+/// is far away. Without them fine repeating detail like sand shimmers into
+/// noise at a distance, so they're built here by averaging 2x2 blocks.
+fn generate_mipmaps(mut commands: Commands, mut pending: ResMut<NeedsMipmaps>, mut images: ResMut<Assets<Image>>) {
+    pending.0.retain(|&id| {
+        let Some(mut image) = images.get_mut(id) else {
+            return true;
+        };
+        let (mut width, mut height) = (image.width() as usize, image.height() as usize);
+        let Some(data) = image.data.as_mut() else {
+            return false;
+        };
+        let bytes_per_pixel = data.len() / (width * height);
+        let mut level = data.clone();
+        let mut levels = 1;
+        while width > 1 && height > 1 {
+            let (next_width, next_height) = (width / 2, height / 2);
+            let mut next = vec![0u8; next_width * next_height * bytes_per_pixel];
+            for y in 0..next_height {
+                for x in 0..next_width {
+                    for c in 0..bytes_per_pixel {
+                        let at = |dx: usize, dy: usize| level[((2 * y + dy) * width + 2 * x + dx) * bytes_per_pixel + c] as u32;
+                        next[(y * next_width + x) * bytes_per_pixel + c] = ((at(0, 0) + at(1, 0) + at(0, 1) + at(1, 1)) / 4) as u8;
+                    }
+                }
+            }
+            data.extend_from_slice(&next);
+            (level, width, height) = (next, next_width, next_height);
+            levels += 1;
+        }
+        image.texture_descriptor.mip_level_count = levels;
+        false
+    });
+    if pending.0.is_empty() {
+        commands.remove_resource::<NeedsMipmaps>();
     }
 }

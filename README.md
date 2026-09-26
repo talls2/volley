@@ -1,6 +1,6 @@
 # Volley
 
-3v3 online volleyball with superpowers, built with Rust and Bevy.
+3v3 online beach volleyball with superpowers, built with Rust and Bevy.
 
 Right now it's a local 2v2 against bots: you and a bot teammate against two bots.
 The goal of this stage is polished normal volleyball, Mario Tennis style, before
@@ -57,13 +57,16 @@ is relative to where it faces. The court is a third bigger than a real one (24 x
 - The white rings mark where the ball will land if nobody touches it.
 - Presses count for a few frames early, so you don't need frame-perfect timing.
 
-## Art
+## Art and sound
 
-Placeholder characters and animations by [Quaternius](https://quaternius.com), CC0:
-the free versions of Universal Base Characters and Universal Animation Library
-(licenses in `crates/client/assets`). The library has no volleyball moves, so
-passes, spikes and serves borrow the closest motions it has; the mapping is
-`Clip::source` in `crates/client/src/characters.rs`.
+Placeholder characters and animations are the free Quaternius packs; the library
+has no volleyball moves, so passes, spikes and serves borrow the closest motions
+it has (`Clip::source` in `crates/client/src/characters.rs`), and blocking arms
+are posed in code. The sand is a photo-scanned Poly Haven texture; sounds are
+Kenney impacts, recorded ocean waves, a crowd, and a whistle synthesized for the
+game. Every source and license is in
+[`crates/client/assets/CREDITS.md`](crates/client/assets/CREDITS.md). The crowd
+recordings are CC BY 4.0 and need their credit kept when the game ships.
 
 ## Next milestones
 

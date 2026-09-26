@@ -20,6 +20,9 @@ const SHADOW: TextShadow = TextShadow { offset: Vec2::new(2.0, 2.0), color: Colo
 struct ScoreText;
 
 #[derive(Component)]
+struct SetText;
+
+#[derive(Component)]
 struct Announcement;
 
 #[derive(Component)]
@@ -38,6 +41,7 @@ fn spawn_hud(mut commands: Commands) {
         },
         children![
             (ScoreText, Text::default(), TextFont { font_size: FontSize::Px(44.0), ..default() }, SHADOW),
+            (SetText, Text::default(), TextFont { font_size: FontSize::Px(18.0), ..default() }, SHADOW),
             (Announcement, Text::default(), TextFont { font_size: FontSize::Px(22.0), ..default() }, SHADOW),
         ],
     ));
@@ -56,9 +60,16 @@ fn spawn_hud(mut commands: Commands) {
     ));
 }
 
-fn update_score(game: Res<Match>, mut text: Single<&mut Text, With<ScoreText>>) {
-    let [red, blue] = game.current.score;
-    text.0 = format!("{}  {red} : {blue}  {}", TEAM_NAMES[0], TEAM_NAMES[1]);
+fn update_score(
+    game: Res<Match>,
+    mut score: Single<&mut Text, (With<ScoreText>, Without<SetText>)>,
+    mut set: Single<&mut Text, (With<SetText>, Without<ScoreText>)>,
+) {
+    let sim = &game.current;
+    let [red, blue] = sim.score;
+    score.0 = format!("{}  {red} : {blue}  {}", TEAM_NAMES[0], TEAM_NAMES[1]);
+    let [red_sets, blue_sets] = sim.sets;
+    set.0 = format!("Set {} (to {})  |  sets {red_sets} : {blue_sets}", sim.set, sim.points_to_win_set());
 }
 
 /// How long a mid-rally callout, like a block, stays up.
@@ -83,6 +94,13 @@ fn announce_points(
                     PointReason::DoubleTouch => "double touch",
                 };
                 text.0 = format!("Point {}: {why}", TEAM_NAMES[team]);
+                color.0 = TEAM_COLORS[team];
+                *callout_until = None;
+            }
+            Event::SidesSwitched => text.0.push_str("  |  Switch sides"),
+            Event::SetWon { team } => {
+                let [red, blue] = game.current.sets;
+                text.0 = format!("{} wins set {}!", TEAM_NAMES[team], red + blue);
                 color.0 = TEAM_COLORS[team];
                 *callout_until = None;
             }
@@ -117,12 +135,12 @@ fn update_controls_help(
         (LocalDriver::Human, ActiveDevice::Keyboard) => format!(
             "You are {you}. Click to look with the mouse, Esc to release it. Hits go where you look:\n\
              the yellow ring shows where (red = out). Look higher to hit farther.\n\
-             WASD move | Space jump | Q pass / serve (at the net: block) | E spike (in the air) | Shift dive | 1 let a bot play",
+             WASD move | Space jump | Q pass / serve (at the net: block) | E spike (in the air) | Shift dive | P pause | 1 let a bot play",
         ),
         (LocalDriver::Human, ActiveDevice::Gamepad) => format!(
             "You are {you}. Right stick looks and aims: hits go where you look, the yellow ring shows\n\
              where (red = out). Look higher to hit farther.\n\
-             Left stick move | A jump | RB pass / serve (at the net: block) | RT spike (in the air) | LT dive | View let a bot play",
+             Left stick move | A jump | RB pass / serve (at the net: block) | RT spike (in the air) | LT dive | Menu pause | View let a bot play",
         ),
         (LocalDriver::Bot, ActiveDevice::Keyboard) => format!("A bot is playing {you}. Press 1 to take over."),
         (LocalDriver::Bot, ActiveDevice::Gamepad) => format!("A bot is playing {you}. Press View to take over."),

@@ -10,7 +10,7 @@ use volley_sim::{Event, MatchConfig, Sim, TICK_HZ, bot};
 fn main() {
     let players_per_team =
         std::env::args().nth(1).and_then(|n| n.parse().ok()).unwrap_or(MatchConfig::default().players_per_team);
-    let mut sim = Sim::new(MatchConfig { players_per_team });
+    let mut sim = Sim::new(MatchConfig::with_players(players_per_team));
     println!("volley server: {players_per_team}v{players_per_team} bots at {TICK_HZ} Hz (Ctrl-C to stop)");
 
     let tick = Duration::from_secs(1) / TICK_HZ;

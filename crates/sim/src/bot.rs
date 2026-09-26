@@ -10,7 +10,7 @@ fn default<T: Default>() -> T {
 
 use crate::player::{BLOCK_DISTANCE, DIVE_LUNGE_TICKS, DIVE_SPEED, JUMP_SPEED, PLAYER_GRAVITY, RUN_SPEED};
 use crate::court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT};
-use crate::{Ball, DT, Flight, HitKind, OVER_DEPTH, PlayerInput, SET_DEPTH, Sim, TICK_HZ, court, flight_seconds};
+use crate::{Ball, DT, Flight, HitKind, OVER_DEPTH, PlayerInput, SET_DEPTH, Sim, TICK_HZ, flight_seconds};
 
 /// How long a bot waits before serving.
 const SERVE_DELAY_TICKS: u32 = TICK_HZ;
@@ -41,7 +41,7 @@ pub fn input_for(sim: &Sim, me: usize) -> PlayerInput {
     let player = &sim.players[me];
     let mut input = PlayerInput::default();
     let team = player.team;
-    let side = court::side(team);
+    let side = sim.side(team);
 
     match sim.ball {
         Ball::Held { by } if by == me => {
@@ -54,12 +54,12 @@ pub fn input_for(sim: &Sim, me: usize) -> PlayerInput {
             return input;
         }
         Ball::InFlight(flight) if sim.tick >= flight.start_tick + reaction_ticks(&flight) => {
-            let attack = sim.team_touches(team) == 2 && attack_point(&flight, team).is_some();
+            let attack = sim.team_touches(team) == 2 && attack_point(&flight, side).is_some();
             let meet_at = if attack { SPIKE_HEIGHT } else { PASS_HEIGHT };
             let intercept = flight
                 .descending_time_at_height(meet_at)
                 .map(|t| (t, flight.position_at_time(t)))
-                .filter(|(_, at)| court::half_owner(at.x) == team);
+                .filter(|(_, at)| sim.team_on(at.x) == team);
             if let Some((time, at)) = intercept
                 && chaser(sim, team, at) == Some(me)
             {
@@ -159,7 +159,7 @@ fn spike(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32
 fn block(sim: &Sim, me: usize) -> Option<PlayerInput> {
     let Ball::InFlight(flight) = sim.ball else { return None };
     let player = &sim.players[me];
-    let side = court::side(player.team);
+    let side = sim.side(player.team);
     // Already up: keep drifting to the net with hands up until landing,
     // instead of chasing the spike and leaving the block.
     if player.blocking() {
@@ -175,7 +175,7 @@ fn block(sim: &Sim, me: usize) -> Option<PlayerInput> {
     let (attack_z, until_spike) = match sim.team_touches(attackers) {
         1 => (sim.players[sim.last_toucher(attackers)?].position.z, None),
         2 => {
-            let attack = attack_point(&flight, attackers)?;
+            let attack = attack_point(&flight, sim.side(attackers))?;
             (attack.z, Some(flight.descending_time_at_height(SPIKE_HEIGHT)? - flight.elapsed(sim.tick)))
         }
         _ => return None,
@@ -215,14 +215,14 @@ fn incoming_attack(sim: &Sim, team: usize) -> Option<Vec3> {
     if sim.team_touches(attackers) != 2 {
         return None;
     }
-    attack_point(&flight, attackers)
+    attack_point(&flight, sim.side(attackers))
 }
 
 /// Where a spike would be hit, if the ball comes down close enough to the net.
-fn attack_point(flight: &Flight, team: usize) -> Option<Vec3> {
+fn attack_point(flight: &Flight, side: f32) -> Option<Vec3> {
     let t = flight.descending_time_at_height(SPIKE_HEIGHT)?;
     let at = flight.position_at_time(t);
-    (court::side(team) * at.x > 0.0 && at.x.abs() < SPIKE_RANGE).then_some(at)
+    (side * at.x > 0.0 && at.x.abs() < SPIKE_RANGE).then_some(at)
 }
 
 /// A set goes to the net in front of a teammate, so they can spike it. Other
@@ -233,7 +233,7 @@ fn pass_aim(sim: &Sim, me: usize) -> Option<Vec2> {
         return None;
     }
     let attacker = (0..sim.config.players_per_team).map(|slot| sim.player_index(team, slot)).find(|&i| i != me)?;
-    Some(Vec2::new(court::side(team) * SET_DEPTH, sim.players[attacker].position.z))
+    Some(Vec2::new(sim.side(team) * SET_DEPTH, sim.players[attacker].position.z))
 }
 
 /// Aim for open court, around any block: rank nine spots across the opponents'
@@ -266,7 +266,7 @@ fn spike_aim(sim: &Sim, team: usize, from: Vec3) -> Vec2 {
             (true, false) => open,
         }
     };
-    let side = court::side(team);
+    let side = sim.side(team);
     let mut aims: Vec<Vec2> = [0.35, 0.6, 0.85]
         .into_iter()
         .flat_map(|depth| [-0.7, 0.0, 0.7].map(|z| Vec2::new(-side * depth * HALF_LENGTH, z * HALF_WIDTH)))

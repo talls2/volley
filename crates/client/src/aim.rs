@@ -43,7 +43,7 @@ fn draw_aim_marker(game: Res<Match>, driver: Res<LocalDriver>, mut gizmos: Gizmo
     let yours = match sim.ball {
         Ball::Held { by } => by == me,
         Ball::InFlight(flight) => {
-            court::half_owner(flight.landing_point().x) == LOCAL_TEAM && !sim.must_not_touch(me)
+            sim.team_on(flight.landing_point().x) == LOCAL_TEAM && !sim.must_not_touch(me)
         }
         Ball::Dead { .. } => false,
     };

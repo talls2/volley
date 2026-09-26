@@ -113,6 +113,9 @@ fn play_game_sounds(
                 let crowd = if *last_hit == Some(HitKind::Spike) { &sounds.roar } else { &sounds.cheer };
                 play(&mut commands, crowd, 0.45, None);
             }
+            Event::SetWon { .. } => play(&mut commands, &sounds.roar, 0.6, None),
+            Event::MatchWon { .. } => play(&mut commands, &sounds.roar, 0.9, None),
+            Event::SidesSwitched => {}
         }
     }
 }

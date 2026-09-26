@@ -8,6 +8,7 @@ mod camera;
 mod characters;
 mod effects;
 mod feel;
+mod flow;
 mod hud;
 mod input;
 mod scene;
@@ -46,11 +47,12 @@ fn main() {
             trail::plugin,
             effects::plugin,
             feel::plugin,
+            flow::plugin,
             characters::plugin,
             audio::plugin,
             hud::plugin,
         ))
-        .add_systems(FixedUpdate, step_match)
+        .add_systems(FixedUpdate, step_match.run_if(in_state(flow::Screen::Playing)))
         .run();
 }
 

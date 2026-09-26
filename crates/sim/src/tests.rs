@@ -67,7 +67,7 @@ fn low_ball_hits_the_net_and_drops_back() {
 fn spike_from_a_set_clears_the_net() {
     // Roughly where a jumping player meets a set.
     let contact = Vec3::new(-1.8, 3.1, 0.0);
-    let target = over_net_target(0, None, SPIKE_DEPTH);
+    let target = over_net_target(-1.0, None, SPIKE_DEPTH);
     let seconds = flight_seconds(HitKind::Spike, contact.with_y(0.0).distance(target.with_y(0.0)));
     let flight = Flight::to_target(contact, target, seconds, 0);
     let crossing = flight.position_at_time(flight.net_crossing_time().unwrap());
@@ -99,13 +99,13 @@ fn aimed_hits_land_where_aimed() {
 
 #[test]
 fn passes_stay_on_your_side() {
-    let target = own_side_target(0, Some(Vec2::new(8.0, 20.0)), SET_DEPTH);
+    let target = own_side_target(-1.0, Some(Vec2::new(8.0, 20.0)), SET_DEPTH);
     assert!(target.x < 0.0 && court::is_inside(target), "{target}");
 }
 
 #[test]
 fn aiming_out_lands_out() {
-    let target = over_net_target(0, Some(Vec2::new(HALF_LENGTH + 2.0, 0.0)), OVER_DEPTH);
+    let target = over_net_target(-1.0, Some(Vec2::new(HALF_LENGTH + 2.0, 0.0)), OVER_DEPTH);
     assert!(!court::is_inside(target), "{target}");
 }
 
@@ -242,7 +242,7 @@ fn bots_play_real_rallies() {
                     last_team = Some(sim.players[player].team);
                 }
                 // Dropped on their own side after touching it: a fumble, not a point won by the other team.
-                Event::Landed { at, inside, .. } if inside && Some(court::half_owner(at.x)) == last_team => {
+                Event::Landed { at, inside, .. } if inside && Some(sim.team_on(at.x)) == last_team => {
                     unforced_errors += 1;
                 }
                 _ => {}
@@ -267,7 +267,7 @@ fn bots_play_real_rallies() {
 #[test]
 fn one_and_three_a_side_bots_play() {
     for players_per_team in [1, 3] {
-        let mut sim = Sim::new(MatchConfig { players_per_team });
+        let mut sim = Sim::new(MatchConfig::with_players(players_per_team));
         let events = run_bots(&mut sim, 60 * TICK_HZ);
         let touches = count(&events, |e| matches!(e, Event::Touched { .. }));
         assert!(touches >= 20, "{players_per_team}v{players_per_team}: only {touches} touches");
@@ -286,4 +286,71 @@ fn same_inputs_give_same_match() {
 
 fn default<T: Default>() -> T {
     T::default()
+}
+
+/// Gives `team` the next point without playing it out.
+fn give_point(sim: &mut Sim, team: usize) -> Vec<Event> {
+    let mut events = Vec::new();
+    sim.award_point(team, PointReason::LandedIn, Vec3::ZERO, &mut events);
+    if matches!(sim.phase, Phase::PointScored { .. }) {
+        sim.start_rally();
+    }
+    events
+}
+
+#[test]
+fn a_set_goes_to_21_won_by_two() {
+    let mut sim = Sim::new(MatchConfig::default());
+    for _ in 0..20 {
+        give_point(&mut sim, 0);
+        give_point(&mut sim, 1);
+    }
+    assert_eq!(sim.score, [20, 20]);
+    give_point(&mut sim, 0);
+    assert_eq!((sim.score, sim.sets), ([21, 20], [0, 0]), "21-20 isn't a win");
+    let events = give_point(&mut sim, 0);
+    assert!(events.contains(&Event::SetWon { team: 0 }));
+    assert_eq!((sim.score, sim.sets, sim.set), ([0, 0], [1, 0], 2));
+}
+
+#[test]
+fn teams_switch_sides_every_seven_points() {
+    let mut sim = Sim::new(MatchConfig::default());
+    let red_side = sim.side(0);
+    for point in 1..=7 {
+        let events = give_point(&mut sim, point % 2);
+        assert_eq!(events.contains(&Event::SidesSwitched), point == 7, "after point {point}");
+    }
+    assert_eq!(sim.side(0), -red_side);
+    assert_eq!(sim.side(1), red_side);
+    // Players line up on their team's new side, and play still works.
+    let red = sim.player_index(0, 0);
+    assert_eq!(court::half_of(sim.players[red].position.x), sim.side(0));
+    let mut sim = sim;
+    let events = run_bots(&mut sim, 20 * TICK_HZ);
+    assert!(events.iter().any(|e| matches!(e, Event::Touched { kind: HitKind::Pass, .. })));
+}
+
+#[test]
+fn two_sets_win_the_match_and_the_decider_goes_to_15() {
+    let mut sim = Sim::new(MatchConfig::default());
+    for _ in 0..21 {
+        give_point(&mut sim, 0);
+    }
+    for _ in 0..21 {
+        give_point(&mut sim, 1);
+    }
+    assert!(sim.deciding_set());
+    assert_eq!(sim.points_to_win_set(), 15);
+    let mut events = Vec::new();
+    for _ in 0..15 {
+        events = give_point(&mut sim, 1);
+    }
+    assert!(events.contains(&Event::MatchWon { team: 1 }));
+    assert_eq!(sim.phase, Phase::MatchOver { winner: 1 });
+    // Nothing moves once it's over.
+    let before = sim.clone();
+    let inputs = bot_inputs(&sim);
+    sim.step(&inputs);
+    assert_eq!(sim.players, before.players);
 }

@@ -22,6 +22,7 @@ const MAX_TOUCHES: u32 = 3;
 /// After a touch nobody can touch the ball for this long, so one swing never counts twice.
 const TOUCH_LOCKOUT_TICKS: u32 = 10;
 const POINT_PAUSE_TICKS: u32 = 90;
+const SET_PAUSE_TICKS: u32 = 240;
 
 /// Default distance past the net for unaimed shots over it. Spikes go deep:
 /// their flat path would otherwise catch the net unless hit from right beside it.
@@ -59,14 +60,36 @@ pub struct PlayerInput {
     pub dive: bool,
 }
 
+/// Players per team and the scoring rules. The defaults are beach volleyball's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MatchConfig {
     pub players_per_team: usize,
+    /// Points to win a set, and the deciding set. Either way, by two.
+    pub set_points: u32,
+    pub deciding_set_points: u32,
+    pub sets_to_win: u32,
+    /// Teams switch sides every this many points, and more often in the deciding set.
+    pub switch_every: u32,
+    pub deciding_switch_every: u32,
 }
 
 impl Default for MatchConfig {
     fn default() -> Self {
-        Self { players_per_team: 2 }
+        Self {
+            players_per_team: 2,
+            set_points: 21,
+            deciding_set_points: 15,
+            sets_to_win: 2,
+            switch_every: 7,
+            deciding_switch_every: 5,
+        }
+    }
+}
+
+impl MatchConfig {
+    /// The defaults with a different team size.
+    pub fn with_players(players_per_team: usize) -> Self {
+        Self { players_per_team, ..Self::default() }
     }
 }
 
@@ -74,6 +97,7 @@ impl Default for MatchConfig {
 pub enum Phase {
     Rally,
     PointScored { resume_tick: u32 },
+    MatchOver { winner: usize },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,6 +131,10 @@ pub enum Event {
     /// `velocity` is the ball's as it hit the floor.
     Landed { at: Vec3, velocity: Vec3, inside: bool },
     Point { team: usize, reason: PointReason },
+    /// The teams will switch sides before the next rally.
+    SidesSwitched,
+    SetWon { team: usize },
+    MatchWon { team: usize },
 }
 
 /// Touches by the team currently in possession.
@@ -124,7 +152,12 @@ pub struct Sim {
     /// Team 0's players first, then team 1's.
     pub players: Vec<Player>,
     pub ball: Ball,
+    /// Points in the current set.
     pub score: [u32; 2],
+    /// Sets won.
+    pub sets: [u32; 2],
+    /// The set being played, from 1.
+    pub set: u32,
     pub phase: Phase,
     /// Increments each rally, so observers can tell a reset from movement.
     pub rally: u32,
@@ -136,12 +169,20 @@ pub struct Sim {
     touch_lockout_until: u32,
     /// The kind of the latest hit.
     last_hit: Option<HitKind>,
+    /// Each team's half: -1 or +1.
+    sides: [f32; 2],
+    /// Switch sides when the next rally starts.
+    switch_pending: bool,
 }
 
 impl Sim {
     pub fn new(config: MatchConfig) -> Self {
+        let sides = [-1.0, 1.0];
         let players = (0..2 * config.players_per_team)
-            .map(|i| Player::new(i / config.players_per_team, Vec3::ZERO))
+            .map(|i| {
+                let team = i / config.players_per_team;
+                Player::new(team, sides[team], Vec3::ZERO)
+            })
             .collect();
         let mut sim = Self {
             config,
@@ -149,6 +190,8 @@ impl Sim {
             players,
             ball: Ball::Dead { at: Vec3::ZERO },
             score: [0, 0],
+            sets: [0, 0],
+            set: 1,
             phase: Phase::Rally,
             rally: 0,
             rally_start_tick: 0,
@@ -157,6 +200,8 @@ impl Sim {
             touches: Touches { team: 0, count: 0, last: None },
             touch_lockout_until: 0,
             last_hit: None,
+            sides,
+            switch_pending: false,
         };
         sim.start_rally();
         sim
@@ -167,6 +212,9 @@ impl Sim {
         assert_eq!(inputs.len(), self.players.len(), "one input per player");
         let mut events = Vec::new();
         self.tick += 1;
+        if matches!(self.phase, Phase::MatchOver { .. }) {
+            return events;
+        }
 
         if let Phase::PointScored { resume_tick } = self.phase
             && self.tick >= resume_tick
@@ -206,6 +254,26 @@ impl Sim {
         }
     }
 
+    /// The half `team` plays on: -1 or +1.
+    pub fn side(&self, team: usize) -> f32 {
+        self.sides[team]
+    }
+
+    /// The team playing on the half that `x` is in.
+    pub fn team_on(&self, x: f32) -> usize {
+        if court::half_of(x) == self.sides[0] { 0 } else { 1 }
+    }
+
+    /// Whether this is the last possible set.
+    pub fn deciding_set(&self) -> bool {
+        self.set == 2 * self.config.sets_to_win - 1
+    }
+
+    /// Points needed to win the current set, by two.
+    pub fn points_to_win_set(&self) -> u32 {
+        if self.deciding_set() { self.config.deciding_set_points } else { self.config.set_points }
+    }
+
     /// Whether the rules forbid `player` from touching the ball next: nobody touches
     /// twice in a row, except a player with no teammates to pass to.
     pub fn must_not_touch(&self, player: usize) -> bool {
@@ -237,7 +305,7 @@ impl Sim {
         } else {
             HALF_WIDTH * (slot as f32 / (per_team - 1) as f32 - 0.5)
         };
-        Vec3::new(court::side(self.players[player].team) * HALF_LENGTH * 0.5, 0.0, z)
+        Vec3::new(self.side(self.players[player].team) * HALF_LENGTH * 0.5, 0.0, z)
     }
 
     fn start_rally(&mut self) {
@@ -247,14 +315,19 @@ impl Sim {
         self.touches = Touches { team: self.serving_team, count: 0, last: None };
         self.touch_lockout_until = 0;
         self.last_hit = None;
+        if self.switch_pending {
+            self.switch_pending = false;
+            self.sides = [self.sides[1], self.sides[0]];
+        }
 
         for i in 0..self.players.len() {
+            self.players[i].side = self.side(self.players[i].team);
             let home = self.home_position(i);
             self.players[i].reset(home);
         }
 
         let server = self.player_index(self.serving_team, self.serve_rotation[self.serving_team]);
-        self.players[server].position = Vec3::new(court::side(self.serving_team) * (HALF_LENGTH + 1.0), 0.0, 0.0);
+        self.players[server].position = Vec3::new(self.side(self.serving_team) * (HALF_LENGTH + 1.0), 0.0, 0.0);
         self.ball = Ball::Held { by: server };
     }
 
@@ -272,17 +345,17 @@ impl Sim {
     /// touch count including this one.
     fn plan_hit(&self, hitter: usize, request: Option<HitRequest>, touches: u32, from: Vec3) -> (HitKind, Flight) {
         let player = &self.players[hitter];
-        let team = player.team;
+        let side = player.side;
         let (kind, target) = if self.ball == (Ball::Held { by: hitter }) {
-            (HitKind::Serve, over_net_target(team, player.aim, OVER_DEPTH))
+            (HitKind::Serve, over_net_target(side, player.aim, OVER_DEPTH))
         } else if request == Some(HitRequest::Spike) && !player.grounded() {
-            (HitKind::Spike, over_net_target(team, player.aim, SPIKE_DEPTH))
+            (HitKind::Spike, over_net_target(side, player.aim, SPIKE_DEPTH))
         } else if touches >= MAX_TOUCHES {
-            (HitKind::Lob, over_net_target(team, player.aim, OVER_DEPTH))
+            (HitKind::Lob, over_net_target(side, player.aim, OVER_DEPTH))
         } else {
             let depth = if touches == 1 { RECEIVE_DEPTH } else { SET_DEPTH };
             let kind = if player.lunging(self.tick) { HitKind::Dig } else { HitKind::Pass };
-            (kind, own_side_target(team, player.aim, depth))
+            (kind, own_side_target(side, player.aim, depth))
         };
         let seconds = flight_seconds(kind, from.with_y(0.0).distance(target.with_y(0.0)));
         (kind, Flight::to_target(from, target, seconds, self.tick))
@@ -339,7 +412,7 @@ impl Sim {
             let inside = court::is_inside(at);
             events.push(Event::Landed { at, velocity: flight.velocity_at_time(landing), inside });
             if inside {
-                self.award_point(1 - court::half_owner(at.x), PointReason::LandedIn, at, events);
+                self.award_point(1 - self.team_on(at.x), PointReason::LandedIn, at, events);
             } else {
                 self.award_point(1 - self.touches.team, PointReason::LandedOut, at, events);
             }
@@ -394,7 +467,7 @@ impl Sim {
             return None;
         }
         // The team on the side the ball is heading into.
-        let defending = if velocity.x > 0.0 { 1 } else { 0 };
+        let defending = self.team_on(velocity.x);
         let contacts = (0..self.players.len())
             .filter(|&i| self.players[i].team == defending)
             .filter_map(|i| self.players[i].block_contact(at).map(|stuffed| (i, stuffed)));
@@ -417,29 +490,53 @@ impl Sim {
             self.serve_rotation[team] = (self.serve_rotation[team] + 1) % self.config.players_per_team;
         }
         self.ball = Ball::Dead { at: ball_at.with_y(BALL_RADIUS) };
-        self.phase = Phase::PointScored { resume_tick: self.tick + POINT_PAUSE_TICKS };
         events.push(Event::Point { team, reason });
+
+        let other = 1 - team;
+        let mut pause = POINT_PAUSE_TICKS;
+        if self.score[team] >= self.points_to_win_set() && self.score[team] >= self.score[other] + 2 {
+            self.sets[team] += 1;
+            events.push(Event::SetWon { team });
+            if self.sets[team] == self.config.sets_to_win {
+                self.phase = Phase::MatchOver { winner: team };
+                events.push(Event::MatchWon { team });
+                return;
+            }
+            self.set += 1;
+            self.score = [0, 0];
+            // The team that lost the set serves first in the next.
+            self.serving_team = other;
+            pause = SET_PAUSE_TICKS;
+        } else {
+            let every = if self.deciding_set() { self.config.deciding_switch_every } else { self.config.switch_every };
+            if (self.score[0] + self.score[1]) % every == 0 {
+                self.switch_pending = true;
+                events.push(Event::SidesSwitched);
+            }
+        }
+        self.phase = Phase::PointScored { resume_tick: self.tick + pause };
     }
 }
 
 fn held_ball_position(player: &Player) -> Vec3 {
-    player.position + Vec3::new(-court::side(player.team) * 0.35, 1.9, 0.0)
+    player.position + Vec3::new(-player.side * 0.35, 1.9, 0.0)
 }
 
-/// Where a shot over the net lands: the aimed spot, kept on the opponents'
-/// side, or `depth` past the net if unaimed. Aiming outside the lines lands out.
-fn over_net_target(team: usize, aim: Option<Vec2>, depth: f32) -> Vec3 {
-    let spot = aim.unwrap_or(Vec2::new(-court::side(team) * depth, 0.0));
-    let (min_x, max_x) = court::x_range(1 - team, 1.0, HALF_LENGTH + RUNOFF);
+/// Where a shot over the net from the half at `side` lands: the aimed spot, kept
+/// on the other half, or `depth` past the net if unaimed. Aiming outside the
+/// lines lands out.
+pub(crate) fn over_net_target(side: f32, aim: Option<Vec2>, depth: f32) -> Vec3 {
+    let spot = aim.unwrap_or(Vec2::new(-side * depth, 0.0));
+    let (min_x, max_x) = court::x_range(-side, 1.0, HALF_LENGTH + RUNOFF);
     let max_z = HALF_WIDTH + RUNOFF;
     Vec3::new(spot.x.clamp(min_x, max_x), BALL_RADIUS, spot.y.clamp(-max_z, max_z))
 }
 
-/// Where a pass lands: the aimed spot, kept inside your own court, or `depth`
-/// from the net if unaimed.
-fn own_side_target(team: usize, aim: Option<Vec2>, depth: f32) -> Vec3 {
-    let spot = aim.unwrap_or(Vec2::new(court::side(team) * depth, 0.0));
-    let (min_x, max_x) = court::x_range(team, 0.8, HALF_LENGTH - 0.5);
+/// Where a pass on the half at `side` lands: the aimed spot, kept inside that
+/// half, or `depth` from the net if unaimed.
+fn own_side_target(side: f32, aim: Option<Vec2>, depth: f32) -> Vec3 {
+    let spot = aim.unwrap_or(Vec2::new(side * depth, 0.0));
+    let (min_x, max_x) = court::x_range(side, 0.8, HALF_LENGTH - 0.5);
     let max_z = HALF_WIDTH - 0.5;
     Vec3::new(spot.x.clamp(min_x, max_x), BALL_RADIUS, spot.y.clamp(-max_z, max_z))
 }

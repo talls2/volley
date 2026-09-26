@@ -32,7 +32,8 @@ const SHAKE_OFFSET: f32 = 0.25;
 const SHAKE_ROLL: f32 = 0.03;
 
 pub fn plugin(app: &mut App) {
-    app.insert_resource(CameraRig::facing_net(LOCAL_TEAM))
+    // Red starts on the negative-x half.
+    app.insert_resource(CameraRig::facing_net(-1.0))
         .add_systems(Startup, spawn_camera)
         .add_systems(Update, (face_net_each_rally, grab_cursor, turn, follow).chain());
 }
@@ -46,9 +47,10 @@ pub struct CameraRig {
 }
 
 impl CameraRig {
-    fn facing_net(team: usize) -> Self {
+    /// Facing the net from the half at `side`.
+    fn facing_net(side: f32) -> Self {
         // Tilted so the aim starts about mid-way into the other court from home.
-        Self { yaw: if team == 0 { 0.0 } else { PI }, pitch: 0.2 }
+        Self { yaw: if side < 0.0 { 0.0 } else { PI }, pitch: 0.2 }
     }
 
     /// Horizontal facing as world (x, z).
@@ -86,10 +88,11 @@ fn face_net_each_rally(game: Res<Match>, mut rig: ResMut<CameraRig>, mut rally: 
         return;
     }
     *rally = game.current.rally;
-    *rig = CameraRig::facing_net(LOCAL_TEAM);
+    let side = game.current.side(LOCAL_TEAM);
+    *rig = CameraRig::facing_net(side);
     let local = game.current.player_index(LOCAL_TEAM, 0);
     if game.current.ball == (Ball::Held { by: local }) {
-        let target_x = -court::side(LOCAL_TEAM) * court::HALF_LENGTH * 0.5;
+        let target_x = -side * court::HALF_LENGTH * 0.5;
         let distance = (target_x - game.current.players[local].position.x).abs();
         rig.pitch = LOOK_HEIGHT.atan2(distance);
     }

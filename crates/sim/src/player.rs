@@ -57,6 +57,8 @@ pub struct Dive {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Player {
     pub team: usize,
+    /// The half this player's team is on: -1 or +1.
+    pub side: f32,
     /// Position of the feet.
     pub position: Vec3,
     pub vertical_velocity: f32,
@@ -71,8 +73,8 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(team: usize, position: Vec3) -> Self {
-        Self { team, position, vertical_velocity: 0.0, velocity: Vec2::ZERO, aim: None, dive: None, hands_up: false, pending_hit: None }
+    pub fn new(team: usize, side: f32, position: Vec3) -> Self {
+        Self { team, side, position, vertical_velocity: 0.0, velocity: Vec2::ZERO, aim: None, dive: None, hands_up: false, pending_hit: None }
     }
 
     pub fn grounded(&self) -> bool {
@@ -93,7 +95,7 @@ impl Player {
         let horizontal = Vec2::new(ball.x - self.position.x, ball.z - self.position.z).length();
         let height = ball.y - self.position.y;
         // No reaching across the net into the other half.
-        let on_our_side = court::side(self.team) * ball.x > -court::BALL_RADIUS;
+        let on_our_side = self.side * ball.x > -court::BALL_RADIUS;
         horizontal <= radius && (low..=high).contains(&height) && on_our_side
     }
 
@@ -123,7 +125,7 @@ impl Player {
     }
 
     pub(crate) fn reset(&mut self, position: Vec3) {
-        *self = Self::new(self.team, position);
+        *self = Self::new(self.team, self.side, position);
     }
 
     /// Applies one tick of input and returns whether a dive started. A server
@@ -140,7 +142,7 @@ impl Player {
             let direction = [input.movement, toward_ball]
                 .into_iter()
                 .find(|d| d.length() > 0.1)
-                .unwrap_or(Vec2::new(-court::side(self.team), 0.0))
+                .unwrap_or(Vec2::new(-self.side, 0.0))
                 .normalize();
             self.dive = Some(Dive { direction, start_tick: tick });
             // Diving is how you dig: it passes any ball that comes in reach during the lunge.
@@ -150,7 +152,7 @@ impl Player {
             self.pending_hit = Some((HitRequest::Spike, tick + HIT_BUFFER_TICKS));
         } else if input.pass {
             let at_net = self.position.x.abs() < BLOCK_DISTANCE;
-            let ball_across = court::side(self.team) * ball.x < 0.0;
+            let ball_across = self.side * ball.x < 0.0;
             if at_net && ball_across && self.dive.is_none() {
                 // Block: hands up, jumping first if still on the ground.
                 self.hands_up = true;
@@ -175,9 +177,9 @@ impl Player {
         self.position.z += self.velocity.y * DT;
 
         let (min_x, max_x) = if serving {
-            court::x_range(self.team, HALF_LENGTH + 0.3, HALF_LENGTH + RUNOFF)
+            court::x_range(self.side, HALF_LENGTH + 0.3, HALF_LENGTH + RUNOFF)
         } else {
-            court::x_range(self.team, 0.4, HALF_LENGTH + RUNOFF)
+            court::x_range(self.side, 0.4, HALF_LENGTH + RUNOFF)
         };
         let max_z = HALF_WIDTH + RUNOFF;
         let unclamped = self.position;

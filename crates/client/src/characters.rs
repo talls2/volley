@@ -18,7 +18,7 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy::world_serialization::WorldInstanceReady;
 use volley_sim::court::BALL_RADIUS;
-use volley_sim::{Ball, DT, Event, HitKind, HitRequest, Phase, Sim, court};
+use volley_sim::{Ball, DT, Event, HitKind, HitRequest, Phase, Sim};
 
 use crate::input::LOCAL_TEAM;
 use crate::scene::{TEAM_COLORS, player_feet};
@@ -260,7 +260,7 @@ fn spawn_characters(mut commands: Commands, assets: Res<AssetServer>, game: Res<
     for (index, player) in game.current.players.iter().enumerate() {
         let model = assets.load(GltfAssetLabel::Scene(0).from_asset(LOOKS[index % LOOKS.len()].body));
         // Start out facing the net.
-        let yaw = -court::side(player.team) * FRAC_PI_2;
+        let yaw = -player.side * FRAC_PI_2;
         commands
             .spawn((
                 Character::new(index, yaw),
@@ -421,7 +421,7 @@ fn place_characters(
             _ if character.winding_up => to_ball,
             // Square to the net, hands up.
             _ if game.current.players[character.index].blocking() => {
-                Vec2::new(-court::side(game.current.players[character.index].team), 0.0)
+                Vec2::new(-game.current.players[character.index].side, 0.0)
             }
             _ if velocity.length() > JOG_SPEED => velocity,
             _ => to_ball,
@@ -584,7 +584,7 @@ fn arm_goal(sim: &Sim, index: usize) -> Option<(ArmGoal, f32)> {
         return None;
     }
     let ball = sim.ball_position();
-    if court::side(me.team) * ball.x < -BALL_RADIUS {
+    if me.side * ball.x < -BALL_RADIUS {
         return None;
     }
     let chest = me.position + Vec3::Y * CHEST_HEIGHT;

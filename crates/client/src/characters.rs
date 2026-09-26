@@ -17,7 +17,8 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy::world_serialization::WorldInstanceReady;
-use volley_sim::{Ball, DT, Event, HitKind, HitRequest, Phase, court};
+use volley_sim::court::BALL_RADIUS;
+use volley_sim::{Ball, DT, Event, HitKind, HitRequest, Phase, Sim, court};
 
 use crate::input::LOCAL_TEAM;
 use crate::scene::{TEAM_COLORS, player_feet};
@@ -64,7 +65,7 @@ pub fn plugin(app: &mut App) {
             ),
         )
         // Overrides the animated arms, so it runs once the animation has been applied.
-        .add_systems(PostUpdate, raise_arms_to_block.after(TransformSystems::Propagate));
+        .add_systems(PostUpdate, pose_arms.after(TransformSystems::Propagate));
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -195,8 +196,9 @@ struct Character {
     face: Option<(Vec2, f32)>,
     /// Each arm's upper arm, forearm and hand bones, for posing arms in code.
     arms: Vec<[Entity; 3]>,
-    /// How far the arms are raised for a block, 0 to 1.
-    arms_up: f32,
+    /// Where posed arms point, and how strongly (0 to 1) they're posed.
+    arm_goal: ArmGoal,
+    arm_weight: f32,
 }
 
 impl Character {
@@ -214,7 +216,8 @@ impl Character {
             yaw,
             face: None,
             arms: Vec::new(),
-            arms_up: 0.0,
+            arm_goal: ArmGoal::Block,
+            arm_weight: 0.0,
         }
     }
 
@@ -552,15 +555,55 @@ fn draw_team_markers(game: Res<Match>, characters: Query<(&Character, &Transform
     }
 }
 
-/// How quickly arms go up for a block and come back down, per second.
-const ARMS_UP_SPEED: f32 = 12.0;
+/// How quickly posed arms blend in and out, per second.
+const ARM_BLEND_SPEED: f32 = 12.0;
+/// Arms start reaching for a ball this close to the chest, and reach fully
+/// once it's within `FULL_REACH`.
+const REACH_START: f32 = 2.6;
+const FULL_REACH: f32 = 1.2;
+const CHEST_HEIGHT: f32 = 1.3;
 
-/// The free animation library has no block, so blocking arms are posed in code:
-/// after the animation has placed the skeleton, each arm is turned to point up
-/// and a little forward over the net, with the elbow straightened. This works
-/// on the final bone positions, so everything below the upper arm (forearm,
-/// hand, fingers) is repositioned to follow.
-fn raise_arms_to_block(
+/// Where posed arms point.
+#[derive(Clone, Copy, PartialEq)]
+enum ArmGoal {
+    /// Both arms straight up over the net.
+    Block,
+    /// Toward the ball: both arms (a bump, or a set overhead), or just the
+    /// hitting arm for a spike.
+    Reach { ball: Vec3, both_arms: bool },
+}
+
+/// How a player's arms should be posed right now, and how strongly.
+fn arm_goal(sim: &Sim, index: usize) -> Option<(ArmGoal, f32)> {
+    let me = &sim.players[index];
+    if me.blocking() {
+        return Some((ArmGoal::Block, 1.0));
+    }
+    // Reach for a ball on our side that we're allowed to play.
+    if !matches!(sim.ball, Ball::InFlight(_)) || sim.must_not_touch(index) {
+        return None;
+    }
+    let ball = sim.ball_position();
+    if court::side(me.team) * ball.x < -BALL_RADIUS {
+        return None;
+    }
+    let chest = me.position + Vec3::Y * CHEST_HEIGHT;
+    let distance = ball.distance(chest);
+    if distance > REACH_START {
+        return None;
+    }
+    let closeness = ((REACH_START - distance) / (REACH_START - FULL_REACH)).clamp(0.0, 1.0);
+    let spiking = !me.grounded() && ball.y > chest.y + 0.5;
+    Some((ArmGoal::Reach { ball, both_arms: !spiking }, closeness))
+}
+
+/// The free animation library has no bump, set or block, so arms are posed in
+/// code: after the animation has placed the skeleton, arms are turned to point
+/// up for a block or at the ball as it comes in, with the elbows straightened.
+/// Both arms converging on a low ball makes a bump; on a high one, a set. This
+/// works on the final bone positions, so everything below the upper arm
+/// (forearm, hand, fingers) is repositioned to follow.
+fn pose_arms(
     game: Res<Match>,
     time: Res<Time>,
     mut characters: Query<(&mut Character, &Transform)>,
@@ -569,25 +612,39 @@ fn raise_arms_to_block(
     mut globals: Query<&mut GlobalTransform>,
 ) {
     for (mut character, body) in &mut characters {
-        let target = if game.current.players[character.index].blocking() { 1.0 } else { 0.0 };
-        let step = ARMS_UP_SPEED * time.delta_secs();
-        character.arms_up += (target - character.arms_up).clamp(-step, step);
-        let weight = character.arms_up;
+        // Keep the last goal while blending out, so arms ease back from where they were.
+        let target = match arm_goal(&game.current, character.index) {
+            Some((goal, strength)) => {
+                character.arm_goal = goal;
+                strength
+            }
+            None => 0.0,
+        };
+        let step = ARM_BLEND_SPEED * time.delta_secs();
+        character.arm_weight += (target - character.arm_weight).clamp(-step, step);
+        let weight = character.arm_weight;
         if weight <= 0.0 {
             continue;
         }
         let forward = body.rotation * Vec3::Z;
-        let up = (Vec3::Y + forward * 0.25).normalize();
-        for &[upper, lower, hand] in &character.arms {
-            // Turn the upper arm, then the forearm, so each points up: a bone
-            // points toward the next one down the arm.
+        for (side, &[upper, lower, hand]) in character.arms.iter().enumerate() {
+            // Arms are stored left, right; a spike swings only the right.
+            if matches!(character.arm_goal, ArmGoal::Reach { both_arms: false, .. }) && side == 0 {
+                continue;
+            }
+            // Turn the upper arm, then the forearm: a bone points toward the
+            // next one down the arm.
             for (bone, child) in [(upper, lower), (lower, hand)] {
                 let (Ok(global), Ok(child_local)) = (globals.get(bone).copied(), locals.get(child)) else {
                     continue;
                 };
                 let (scale, rotation, translation) = global.to_scale_rotation_translation();
+                let aim = match character.arm_goal {
+                    ArmGoal::Block => (Vec3::Y + forward * 0.25).normalize(),
+                    ArmGoal::Reach { ball, .. } => (ball - translation).normalize_or_zero(),
+                };
                 let pointing = (rotation * child_local.translation).normalize_or_zero();
-                let turn = Quat::IDENTITY.slerp(Quat::from_rotation_arc(pointing, up), weight);
+                let turn = Quat::IDENTITY.slerp(Quat::from_rotation_arc(pointing, aim), weight);
                 let posed = GlobalTransform::from(Transform { translation, rotation: turn * rotation, scale });
                 follow_parent(bone, posed, &locals, &children, &mut globals);
             }

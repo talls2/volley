@@ -4,6 +4,10 @@ use crate::court::{self, HALF_LENGTH, HALF_WIDTH, RUNOFF};
 use crate::{DT, PlayerInput};
 
 pub(crate) const RUN_SPEED: f32 = 6.5;
+/// How quickly players speed up and slow down, in m/s². On the ground they reach
+/// running speed or stop in about an eighth of a second; in the air they steer less.
+const ACCELERATION: f32 = 55.0;
+const AIR_ACCELERATION: f32 = 15.0;
 /// Stronger than real gravity so jumps feel snappy. Apex ≈ 1.2 m.
 pub(crate) const PLAYER_GRAVITY: f32 = 20.0;
 pub(crate) const JUMP_SPEED: f32 = 7.0;
@@ -56,6 +60,8 @@ pub struct Player {
     /// Position of the feet.
     pub position: Vec3,
     pub vertical_velocity: f32,
+    /// Horizontal velocity as world (x, z).
+    pub velocity: Vec2,
     /// Where the player's next hit goes, from their latest input.
     pub aim: Option<Vec2>,
     pub dive: Option<Dive>,
@@ -66,7 +72,7 @@ pub struct Player {
 
 impl Player {
     pub fn new(team: usize, position: Vec3) -> Self {
-        Self { team, position, vertical_velocity: 0.0, aim: None, dive: None, hands_up: false, pending_hit: None }
+        Self { team, position, vertical_velocity: 0.0, velocity: Vec2::ZERO, aim: None, dive: None, hands_up: false, pending_hit: None }
     }
 
     pub fn grounded(&self) -> bool {
@@ -156,18 +162,17 @@ impl Player {
         }
 
         if let Some(dive) = self.dive {
-            if self.lunging(tick) {
-                self.position.x += dive.direction.x * DIVE_SPEED * DT;
-                self.position.z += dive.direction.y * DIVE_SPEED * DT;
-            }
+            self.velocity = if self.lunging(tick) { dive.direction * DIVE_SPEED } else { Vec2::ZERO };
         } else {
-            let movement = input.movement.clamp_length_max(1.0);
-            self.position.x += movement.x * RUN_SPEED * DT;
-            self.position.z += movement.y * RUN_SPEED * DT;
+            let wanted = input.movement.clamp_length_max(1.0) * RUN_SPEED;
+            let acceleration = if self.grounded() { ACCELERATION } else { AIR_ACCELERATION };
+            self.velocity = move_towards(self.velocity, wanted, acceleration * DT);
             if input.jump && self.grounded() {
                 self.vertical_velocity = JUMP_SPEED;
             }
         }
+        self.position.x += self.velocity.x * DT;
+        self.position.z += self.velocity.y * DT;
 
         let (min_x, max_x) = if serving {
             court::x_range(self.team, HALF_LENGTH + 0.3, HALF_LENGTH + RUNOFF)
@@ -175,8 +180,16 @@ impl Player {
             court::x_range(self.team, 0.4, HALF_LENGTH + RUNOFF)
         };
         let max_z = HALF_WIDTH + RUNOFF;
+        let unclamped = self.position;
         self.position.x = self.position.x.clamp(min_x, max_x);
         self.position.z = self.position.z.clamp(-max_z, max_z);
+        // Running into the net or the edge of the sand stops you.
+        if self.position.x != unclamped.x {
+            self.velocity.x = 0.0;
+        }
+        if self.position.z != unclamped.z {
+            self.velocity.y = 0.0;
+        }
 
         if !self.grounded() || self.vertical_velocity > 0.0 {
             self.vertical_velocity -= PLAYER_GRAVITY * DT;
@@ -189,4 +202,10 @@ impl Player {
         }
         dove
     }
+}
+
+/// `from` moved toward `to` by at most `step`.
+fn move_towards(from: Vec2, to: Vec2, step: f32) -> Vec2 {
+    let delta = to - from;
+    if delta.length() <= step { to } else { from + delta.normalize() * step }
 }

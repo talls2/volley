@@ -7,6 +7,7 @@ mod audio;
 mod camera;
 mod characters;
 mod effects;
+mod feel;
 mod hud;
 mod input;
 mod scene;
@@ -44,6 +45,7 @@ fn main() {
             scene::plugin,
             trail::plugin,
             effects::plugin,
+            feel::plugin,
             characters::plugin,
             audio::plugin,
             hud::plugin,

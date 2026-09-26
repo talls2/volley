@@ -10,6 +10,7 @@ use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use volley_sim::{Ball, court};
 
 use crate::Match;
+use crate::feel::Shake;
 use crate::input::{self, LOCAL_TEAM};
 use crate::scene::player_feet;
 
@@ -26,6 +27,9 @@ const STICK_PITCH_SPEED: f32 = 1.0;
 /// Below zero the camera drops under the look point, to look up at high balls.
 const MIN_PITCH: f32 = -0.35;
 const MAX_PITCH: f32 = 1.2;
+/// At full shake: how far the camera moves (m) and tilts (radians).
+const SHAKE_OFFSET: f32 = 0.25;
+const SHAKE_ROLL: f32 = 0.03;
 
 pub fn plugin(app: &mut App) {
     app.insert_resource(CameraRig::facing_net(LOCAL_TEAM))
@@ -132,6 +136,8 @@ fn follow(
     rig: Res<CameraRig>,
     game: Res<Match>,
     time: Res<Time<Fixed>>,
+    real: Res<Time<Real>>,
+    shake: Res<Shake>,
     mut camera: Single<&mut Transform, With<Camera3d>>,
 ) {
     let local = game.current.player_index(LOCAL_TEAM, 0);
@@ -140,5 +146,17 @@ fn follow(
     let forward = rig.forward();
     let back = -Vec3::new(forward.x, 0.0, forward.y) * rig.pitch.cos();
     let position = look_at + (back + Vec3::Y * rig.pitch.sin()) * DISTANCE;
-    **camera = Transform::from_translation(position).looking_at(look_at, Vec3::Y);
+    let mut transform = Transform::from_translation(position).looking_at(look_at, Vec3::Y);
+
+    // Shake: smooth wobble from mixed sine waves, on real time so it keeps
+    // moving through a hit-stop.
+    let strength = shake.0 * shake.0;
+    if strength > 0.0 {
+        let t = real.elapsed_secs();
+        let wobble = |a: f32, b: f32| (t * a).sin() * 0.6 + (t * b).sin() * 0.4;
+        let offset = transform.rotation * Vec3::new(wobble(37.0, 53.0), wobble(41.0, 29.0), 0.0) * SHAKE_OFFSET;
+        transform.translation += offset * strength;
+        transform.rotate_local_z(wobble(23.0, 47.0) * SHAKE_ROLL * strength);
+    }
+    **camera = transform;
 }

@@ -18,7 +18,7 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy::world_serialization::WorldInstanceReady;
 use volley_sim::court::BALL_RADIUS;
-use volley_sim::{Ball, DT, Event, HitKind, MoveId, MovePhase, Phase, Sim};
+use volley_sim::{Ball, DT, Event, HitKind, MoveId, MovePhase, Phase, Sim, attack};
 
 use crate::input::LOCAL_TEAM;
 use crate::scene::{TEAM_COLORS, player_feet};
@@ -44,16 +44,27 @@ const LOOKS: [Look; 2] = [
         hair_color: Color::srgb(0.12, 0.1, 0.09),
     },
 ];
-const ANIMATION_LIBRARY: &str = "animations/UAL1_Standard.glb";
+/// Quaternius's general library, and our volleyball moves made for its skeleton
+/// (see `tools/blender/volley_animations.py`).
+const ANIMATION_LIBRARIES: [&str; 2] = ["animations/UAL1_Standard.glb", "animations/Volley.glb"];
+const QUATERNIUS: usize = 0;
+const VOLLEY: usize = 1;
 
+/// Blend time into and out of moves, and between running speeds and standing,
+/// which differ more and change more often.
 const BLEND: Duration = Duration::from_millis(150);
+const GAIT_BLEND: Duration = Duration::from_millis(250);
 /// Radians per second.
 const TURN_SPEED: f32 = 10.0;
-const JOG_SPEED: f32 = 0.4;
-const SPRINT_SPEED: f32 = 4.0;
+/// Ground speeds (m/s) to start jogging or sprinting, and lower ones to stop, so
+/// a player hovering around one speed doesn't flicker between animations.
+const JOG_SPEED: f32 = 0.8;
+const STOP_JOG_SPEED: f32 = 0.3;
+const SPRINT_SPEED: f32 = 4.5;
+const STOP_SPRINT_SPEED: f32 = 3.5;
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Startup, (load_animation_library, spawn_characters))
+    app.add_systems(Startup, (load_animation_libraries, spawn_characters))
         .add_systems(
             Update,
             (
@@ -73,14 +84,19 @@ enum Clip {
     Idle,
     Jog,
     Sprint,
-    JumpStart,
     Airborne,
     Land,
-    Pass,
+    /// Knees bent, ready to move: standing still during a rally.
+    Ready,
+    Bump,
+    Set,
     Spike,
+    VolleyKick,
+    BicycleKick,
     Serve,
+    Block,
     Dive,
-    Kick,
+    FootSave,
     Celebrate,
 }
 
@@ -93,81 +109,121 @@ struct Swing {
 }
 
 impl Clip {
-    const ALL: [Clip; 12] = [
+    const ALL: [Clip; 16] = [
         Clip::Idle,
         Clip::Jog,
         Clip::Sprint,
-        Clip::JumpStart,
         Clip::Airborne,
         Clip::Land,
-        Clip::Pass,
+        Clip::Ready,
+        Clip::Bump,
+        Clip::Set,
         Clip::Spike,
+        Clip::VolleyKick,
+        Clip::BicycleKick,
         Clip::Serve,
+        Clip::Block,
         Clip::Dive,
-        Clip::Kick,
+        Clip::FootSave,
         Clip::Celebrate,
     ];
 
-    /// The animation's name in the library. The free library has no volleyball
-    /// moves, so hits borrow the closest motion it does have.
-    fn source(self) -> &'static str {
+    /// The library the animation is in, and its name there.
+    fn source(self) -> (usize, &'static str) {
         match self {
-            Clip::Idle => "Idle_Loop",
-            Clip::Jog => "Jog_Fwd_Loop",
-            Clip::Sprint => "Sprint_Loop",
-            Clip::JumpStart => "Jump_Start",
-            Clip::Airborne => "Jump_Loop",
-            Clip::Land => "Jump_Land",
-            // One arm sweeps up and forward from the waist.
-            Clip::Pass => "Spell_Simple_Enter",
-            // Hand high and back, then down across the body.
-            Clip::Spike => "Sword_Attack",
-            Clip::Serve => "Punch_Cross",
-            // Launches forward, hits the floor, rolls back up.
-            Clip::Dive => "Roll",
-            // A low crouch; the kicking leg is posed in code toward the ball.
-            Clip::Kick => "Crouch_Idle_Loop",
-            Clip::Celebrate => "Dance_Loop",
+            Clip::Idle => (QUATERNIUS, "Idle_Loop"),
+            Clip::Jog => (QUATERNIUS, "Jog_Fwd_Loop"),
+            Clip::Sprint => (QUATERNIUS, "Sprint_Loop"),
+            Clip::Airborne => (QUATERNIUS, "Jump_Loop"),
+            Clip::Land => (QUATERNIUS, "Jump_Land"),
+            Clip::Ready => (VOLLEY, "Ready_Loop"),
+            Clip::Bump => (VOLLEY, "Bump"),
+            Clip::Set => (VOLLEY, "Set"),
+            Clip::Spike => (VOLLEY, "Spike"),
+            Clip::VolleyKick => (VOLLEY, "Volley_Kick"),
+            Clip::BicycleKick => (VOLLEY, "Bicycle_Kick"),
+            Clip::Serve => (VOLLEY, "Serve"),
+            Clip::Block => (VOLLEY, "Block"),
+            Clip::Dive => (VOLLEY, "Dive"),
+            Clip::FootSave => (VOLLEY, "Foot_Save"),
+            Clip::Celebrate => (VOLLEY, "Cheer_Loop"),
         }
     }
 
     fn looping(self) -> bool {
-        matches!(self, Clip::Idle | Clip::Jog | Clip::Sprint | Clip::Airborne | Clip::Celebrate)
+        matches!(self, Clip::Idle | Clip::Ready | Clip::Jog | Clip::Sprint | Clip::Airborne | Clip::Celebrate)
     }
 
-    /// Playback speed. The landing and roll are sped up to fit the game's quicker jumps and dives.
+    /// Playback speed. The landing is sped up to fit the game's quicker jumps;
+    /// our own clips are timed for the game already.
     fn speed(self) -> f32 {
         match self {
-            Clip::Land | Clip::Dive => 1.6,
-            Clip::Spike => 1.2,
+            Clip::Land => 1.6,
             _ => 1.0,
         }
     }
 
-    /// Timings measured from the clips' hand positions.
+    /// Timings of the hits, as authored in `tools/blender/volley_animations.py`.
     fn swing(self) -> Option<Swing> {
         match self {
-            Clip::Pass => Some(Swing { wind_up: 0.2, contact: 0.4 }),
-            Clip::Spike => Some(Swing { wind_up: 0.26, contact: 0.35 }),
-            Clip::Serve => Some(Swing { wind_up: 0.17, contact: 0.25 }),
+            Clip::Bump | Clip::Set => Some(Swing { wind_up: 0.15, contact: 0.25 }),
+            Clip::Spike => Some(Swing { wind_up: 0.24, contact: 0.32 }),
+            Clip::VolleyKick => Some(Swing { wind_up: 0.1, contact: 0.18 }),
+            Clip::BicycleKick => Some(Swing { wind_up: 0.12, contact: 0.24 }),
+            Clip::Serve => Some(Swing { wind_up: 0.0, contact: 0.22 }),
             _ => None,
         }
+    }
+
+    /// The attack clip for a technique.
+    fn attack(kind: HitKind) -> Clip {
+        match kind {
+            HitKind::Volley => Clip::VolleyKick,
+            HitKind::Bicycle => Clip::BicycleKick,
+            _ => Clip::Spike,
+        }
+    }
+
+    fn is_attack(self) -> bool {
+        matches!(self, Clip::Spike | Clip::VolleyKick | Clip::BicycleKick)
     }
 
     /// Moves started by the game rather than by running and jumping. Takeoffs and
     /// landings never cut these short.
     fn is_game_action(self) -> bool {
-        matches!(self, Clip::Pass | Clip::Spike | Clip::Serve | Clip::Dive | Clip::Kick | Clip::Celebrate)
+        !matches!(self, Clip::Idle | Clip::Ready | Clip::Jog | Clip::Sprint | Clip::Airborne | Clip::Land)
     }
 }
 
-/// How fast a wind-up plays on its way to the held pose.
+/// A pass meets balls above this height (over the feet) with a set, lower ones with a bump.
+const SET_HEIGHT: f32 = 1.45;
+/// How far ahead to look at the ball when picking how a hit will meet it.
+const LOOKAHEAD_TICKS: u32 = 8;
+
+/// How `player` will meet the ball with the hit it's winding up: the clip for
+/// where the ball will be in a moment.
+fn hit_clip(sim: &Sim, player: usize, id: MoveId) -> Clip {
+    let me = &sim.players[player];
+    let ball = match sim.ball {
+        Ball::InFlight(flight) => flight.position_at(sim.tick + LOOKAHEAD_TICKS),
+        _ => sim.ball_position(),
+    };
+    match id {
+        MoveId::Spike => Clip::attack(attack::best_technique(me, ball).0),
+        _ if ball.y - me.position.y > SET_HEIGHT => Clip::Set,
+        _ => Clip::Bump,
+    }
+}
+
+/// How fast a wind-up plays on its way to the held pose, and how fast a held
+/// hit plays through to contact once it connects, to catch up with the ball.
 const WIND_UP_SPEED: f32 = 2.0;
+const CATCH_UP_SPEED: f32 = 2.5;
 /// How long a player keeps facing where they sent the ball, or where they dove.
 const FACE_SECONDS: f32 = 0.6;
 
 #[derive(Resource)]
-struct AnimationLibrary(Handle<Gltf>);
+struct AnimationLibraries(Vec<Handle<Gltf>>);
 
 #[derive(Resource)]
 struct Animations {
@@ -191,8 +247,12 @@ struct Character {
     seek: Option<f32>,
     /// A pressed hit is winding up or holding, waiting for the ball.
     winding_up: bool,
-    /// The held hit connected: jump to contact and follow through.
+    /// The held hit connected: play through to contact and follow through.
     release: bool,
+    /// Playing fast from a held wind-up until this contact time, in clip seconds.
+    catch_up_to: Option<f32>,
+    /// Running, jogging or standing, as last chosen.
+    gait: Clip,
     airborne: bool,
     /// Facing, as a rotation about the vertical axis. 0 faces +z.
     yaw: f32,
@@ -200,36 +260,15 @@ struct Character {
     face: Option<(Vec2, f32)>,
     /// Each arm's upper arm, forearm and hand bones, for posing arms in code.
     arms: Vec<[Entity; 3]>,
-    /// Where posed arms point, and how strongly (0 to 1) they're posed.
-    arm_goal: ArmGoal,
+    /// The ball posed arms reach for, and how strongly (0 to 1) they're posed.
+    arm_goal: Vec3,
     arm_weight: f32,
     /// The right leg's thigh, calf and foot bones, for foot saves.
     leg: Option<[Entity; 3]>,
     /// Where the posed leg points, and how strongly (0 to 1) it's posed.
     leg_goal: Vec3,
     leg_weight: f32,
-    /// An attack kicked in the air, while it plays out.
-    air_kick: Option<AirKick>,
 }
-
-/// A volley or bicycle kick: the leg swings through where the ball was met,
-/// and a bicycle kick flips the body back.
-#[derive(Clone, Copy)]
-struct AirKick {
-    contact: Vec3,
-    bicycle: bool,
-    /// When it connected, in `Time::elapsed_secs`.
-    start: f32,
-}
-
-/// How long an air kick's leg stays posed...
-const AIR_KICK_SECONDS: f32 = 0.35;
-/// ...and how long a bicycle kick's flip lasts, and how far back it leans at
-/// its deepest, in radians.
-const FLIP_SECONDS: f32 = 0.6;
-const FLIP_ANGLE: f32 = 1.9;
-/// The flip turns about the hips.
-const HIP_HEIGHT: f32 = 1.0;
 
 impl Character {
     fn new(index: usize, yaw: f32) -> Self {
@@ -242,16 +281,17 @@ impl Character {
             seek: None,
             winding_up: false,
             release: false,
+            catch_up_to: None,
+            gait: Clip::Idle,
             airborne: false,
             yaw,
             face: None,
             arms: Vec::new(),
-            arm_goal: ArmGoal::Block,
+            arm_goal: Vec3::ZERO,
             arm_weight: 0.0,
             leg: None,
             leg_goal: Vec3::ZERO,
             leg_weight: 0.0,
-            air_kick: None,
         }
     }
 
@@ -264,25 +304,26 @@ impl Character {
     }
 }
 
-fn load_animation_library(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.insert_resource(AnimationLibrary(assets.load(ANIMATION_LIBRARY)));
+fn load_animation_libraries(mut commands: Commands, assets: Res<AssetServer>) {
+    commands.insert_resource(AnimationLibraries(ANIMATION_LIBRARIES.iter().map(|path| assets.load(*path)).collect()));
 }
 
 fn build_animation_graph(
     mut commands: Commands,
-    library: Res<AnimationLibrary>,
+    libraries: Res<AnimationLibraries>,
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
 ) {
-    let Some(gltf) = gltfs.get(&library.0) else {
+    let Some(loaded) = libraries.0.iter().map(|handle| gltfs.get(handle)).collect::<Option<Vec<_>>>() else {
         return;
     };
     let mut graph = AnimationGraph::new();
     let nodes = Clip::ALL
         .into_iter()
         .map(|clip| {
-            let handle = gltf.named_animations.get(clip.source()).unwrap_or_else(|| {
-                panic!("{ANIMATION_LIBRARY} has no animation named {}", clip.source())
+            let (library, name) = clip.source();
+            let handle = loaded[library].named_animations.get(name).unwrap_or_else(|| {
+                panic!("{} has no animation named {name}", ANIMATION_LIBRARIES[library])
             });
             (clip, graph.add_clip(handle.clone(), 1.0, graph.root))
         })
@@ -403,20 +444,19 @@ fn react_to_events(
                     }
                     let clip = match kind {
                         HitKind::Serve => Clip::Serve,
-                        HitKind::Pass | HitKind::Lob => Clip::Pass,
-                        HitKind::Spike => Clip::Spike,
-                        // Kicked in the air: drop the arm swing and swing a leg instead.
-                        HitKind::Volley | HitKind::Bicycle => {
-                            let bicycle = kind == HitKind::Bicycle;
-                            character.air_kick =
-                                Some(AirKick { contact: game.current.ball_position(), bicycle, start: time.elapsed_secs() });
+                        // Whichever of bump or set was winding up; otherwise by the ball's height.
+                        HitKind::Pass | HitKind::Lob => match character.action {
+                            Some(clip @ (Clip::Bump | Clip::Set)) if character.winding_up => clip,
+                            _ => hit_clip(&game.current, me, MoveId::Pass),
+                        },
+                        HitKind::Spike | HitKind::Volley | HitKind::Bicycle => {
                             // A bicycle kick faces away from where the ball goes.
-                            if bicycle && let Some((direction, until)) = character.face {
+                            if kind == HitKind::Bicycle
+                                && let Some((direction, until)) = character.face
+                            {
                                 character.face = Some((-direction, until));
                             }
-                            character.action = None;
-                            character.winding_up = false;
-                            continue;
+                            Clip::attack(kind)
                         }
                         // Digs and kicks happen mid-move, which keeps playing.
                         HitKind::Dig | HitKind::Kick => continue,
@@ -434,14 +474,14 @@ fn react_to_events(
                             if let Some(action) = body.action {
                                 character.face = Some((action.direction, face_until));
                             }
-                            character.start(if id == MoveId::Dive { Clip::Dive } else { Clip::Kick }, None);
+                            character.start(if id == MoveId::Dive { Clip::Dive } else { Clip::FootSave }, None);
                         }
                         // A pressed hit winds up and waits for the ball. Serves
                         // happen on the press itself, so they skip this.
                         MoveId::Pass | MoveId::Spike => {
                             let serving = game.current.ball == Ball::Held { by: me };
                             if !serving && !character.action.is_some_and(Clip::is_game_action) {
-                                character.start(if id == MoveId::Pass { Clip::Pass } else { Clip::Spike }, None);
+                                character.start(hit_clip(&game.current, me, id), None);
                                 character.winding_up = true;
                             }
                         }
@@ -495,15 +535,6 @@ fn place_characters(
             character.yaw += turn.clamp(-max_turn, max_turn);
         }
         *transform = Transform::from_translation(feet).with_rotation(Quat::from_rotation_y(character.yaw));
-        if let Some(kick) = character.air_kick.filter(|kick| kick.bicycle) {
-            let progress = (time.elapsed_secs() - kick.start) / FLIP_SECONDS;
-            if progress < 1.0 {
-                // Lean back about the hips, head toward where the ball goes, and come back up.
-                let facing = transform.rotation;
-                let lean = facing * Quat::from_rotation_x(-FLIP_ANGLE * (PI * progress).sin()) * facing.inverse();
-                transform.rotate_around(feet + Vec3::Y * HIP_HEIGHT, lean);
-            }
-        }
     }
 }
 
@@ -525,13 +556,34 @@ fn animate_characters(
             commands.entity(armature).insert(AnimationGraphHandle(animations.graph.clone()));
         }
 
-        let me = &game.current.players[character.index];
+        let sim = &game.current;
+        let me = &sim.players[character.index];
         let airborne = !me.grounded();
         if airborne != character.airborne {
             character.airborne = airborne;
-            // A block goes straight to hands up, without the takeoff crouch.
-            if !character.action.is_some_and(Clip::is_game_action) && !me.blocking() {
-                character.start(if airborne { Clip::JumpStart } else { Clip::Land }, None);
+            // Takeoffs go straight to the airborne pose: the library's takeoff
+            // crouches, which only looks right before leaving the ground.
+            if !airborne && !character.action.is_some_and(Clip::is_game_action) {
+                character.start(Clip::Land, None);
+            }
+        }
+        if me.blocking() && character.action != Some(Clip::Block) {
+            character.start(Clip::Block, None);
+        }
+        // Waiting to serve: ball up in the hand, arm cocked.
+        let serving = sim.ball == (Ball::Held { by: character.index });
+        if serving && character.action.is_none() {
+            character.start(Clip::Serve, None);
+            character.winding_up = true;
+        }
+        // An attack winding up switches technique as the ball comes in.
+        if character.winding_up
+            && let Some(clip) = character.action.filter(|clip| clip.is_attack())
+        {
+            let wanted = hit_clip(sim, character.index, MoveId::Spike);
+            if wanted != clip {
+                character.start(wanted, None);
+                character.winding_up = true;
             }
         }
 
@@ -541,8 +593,9 @@ fn animate_characters(
         {
             let finished = match action {
                 Clip::Celebrate => game.current.phase == Phase::Rally,
-                // The crouch loops; it lasts as long as the foot save does.
-                Clip::Kick => !me.action.is_some_and(|action| action.id == MoveId::FootSave),
+                Clip::FootSave => !me.action.is_some_and(|action| action.id == MoveId::FootSave),
+                // Hands stay up until landing.
+                Clip::Block => !me.blocking(),
                 // Running cuts a landing short, so it never slows you down.
                 Clip::Land if speed > JOG_SPEED => true,
                 _ if character.winding_up => false,
@@ -560,31 +613,44 @@ fn animate_characters(
             && let Some(active) = player.animation_mut(animations.nodes[&action])
         {
             if character.release {
-                // Connected: jump to the contact frame and follow through.
-                active.seek_to(swing.contact).set_speed(action.speed()).resume();
+                // Connected: hurry through to contact, then follow through.
+                active.set_speed(CATCH_UP_SPEED);
+                character.catch_up_to = Some(swing.contact);
                 character.winding_up = false;
-            } else if me.active_move(game.current.tick).is_none() {
+            } else if if action == Clip::Serve { !serving } else { me.active_move(sim.tick).is_none() } {
                 // Nothing to hit: swing through anyway.
-                active.set_speed(action.speed()).resume();
+                active.set_speed(action.speed());
                 character.winding_up = false;
             } else if active.seek_time() >= swing.wind_up {
-                active.pause();
+                // Hold with speed zero rather than pausing: Bevy only blends
+                // out of an animation that isn't paused.
+                active.set_speed(0.0);
             }
         }
+        if let Some(contact) = character.catch_up_to
+            && let Some(action) = character.action
+            && let Some(active) = player.animation_mut(animations.nodes[&action])
+            && active.seek_time() >= contact
+        {
+            active.set_speed(action.speed());
+            character.catch_up_to = None;
+        }
 
-        let movement = if airborne {
-            Clip::Airborne
-        } else if speed > SPRINT_SPEED {
-            Clip::Sprint
-        } else if speed > JOG_SPEED {
-            Clip::Jog
-        } else {
-            Clip::Idle
+        character.gait = match character.gait {
+            Clip::Sprint if speed > STOP_SPRINT_SPEED => Clip::Sprint,
+            _ if speed > SPRINT_SPEED => Clip::Sprint,
+            Clip::Jog | Clip::Sprint if speed > STOP_JOG_SPEED => Clip::Jog,
+            _ if speed > JOG_SPEED => Clip::Jog,
+            _ if sim.phase == Phase::Rally => Clip::Ready,
+            _ => Clip::Idle,
         };
+        let movement = if airborne { Clip::Airborne } else { character.gait };
         let clip = character.action.unwrap_or(movement);
         if character.playing != Some(clip) || character.restart {
-            // Restarting doesn't un-pause, and a held wind-up may have paused this clip.
-            let active = transitions.play(&mut player, animations.nodes[&clip], BLEND).resume();
+            let changing_gait = !clip.is_game_action() && !character.playing.is_some_and(Clip::is_game_action);
+            let blend = if changing_gait { GAIT_BLEND } else { BLEND };
+            character.catch_up_to = None;
+            let active = transitions.play(&mut player, animations.nodes[&clip], blend);
             active.set_speed(if character.winding_up { WIND_UP_SPEED } else { clip.speed() });
             if let Some(seek) = character.seek.take() {
                 active.seek_to(seek);
@@ -612,97 +678,70 @@ fn draw_team_markers(game: Res<Match>, characters: Query<(&Character, &Transform
     }
 }
 
-/// How quickly posed arms blend in and out, per second.
+/// How quickly posed limbs blend in and out, per second.
 const ARM_BLEND_SPEED: f32 = 12.0;
 /// Arms start reaching for a ball this close to the chest, and reach fully
 /// once it's within `FULL_REACH`.
 const REACH_START: f32 = 2.6;
 const FULL_REACH: f32 = 1.2;
 const CHEST_HEIGHT: f32 = 1.3;
+/// How far a reach bends the animated arms toward the ball: enough to meet it,
+/// not so much the bump or set loses its shape.
+const REACH_WEIGHT: f32 = 0.6;
 /// A foot save's leg reaches for a ball this close; otherwise it kicks straight out.
 const KICK_REACH_START: f32 = 2.5;
 
-/// Where posed arms point.
-#[derive(Clone, Copy, PartialEq)]
-enum ArmGoal {
-    /// Both arms straight up over the net.
-    Block,
-    /// Toward the ball: both arms (a bump, or a set overhead), or just the
-    /// hitting arm for a spike.
-    Reach { ball: Vec3, both_arms: bool },
-}
-
-/// How a player's arms should be posed right now, and how strongly.
-fn arm_goal(sim: &Sim, index: usize) -> Option<(ArmGoal, f32)> {
+/// Where a bump, set or spike's arms should reach: toward the ball, and how
+/// strongly (0 to 1).
+fn arm_goal(sim: &Sim, index: usize, clip: Option<Clip>) -> Option<(Vec3, f32)> {
     let me = &sim.players[index];
-    if me.blocking() {
-        return Some((ArmGoal::Block, 1.0));
-    }
-    // Reach for a ball on our side that we're allowed to play.
-    if !matches!(sim.ball, Ball::InFlight(_)) || sim.must_not_touch(index) {
+    if !matches!(clip, Some(Clip::Bump | Clip::Set | Clip::Spike)) || !matches!(sim.ball, Ball::InFlight(_)) {
         return None;
     }
     let ball = sim.ball_position();
-    if me.side * ball.x < -BALL_RADIUS {
+    if me.side * ball.x < -BALL_RADIUS || sim.must_not_touch(index) {
         return None;
     }
-    let chest = me.position + Vec3::Y * CHEST_HEIGHT;
-    let distance = ball.distance(chest);
-    if distance > REACH_START {
-        return None;
-    }
+    let distance = ball.distance(me.position + Vec3::Y * CHEST_HEIGHT);
     let closeness = ((REACH_START - distance) / (REACH_START - FULL_REACH)).clamp(0.0, 1.0);
-    let spiking = !me.grounded() && ball.y > chest.y + 0.5;
-    Some((ArmGoal::Reach { ball, both_arms: !spiking }, closeness))
+    (closeness > 0.0).then_some((ball, closeness * REACH_WEIGHT))
 }
 
-/// The free animation library has no bump, set, block or foot save, so arms
-/// and legs are posed in code: after the animation has placed the skeleton,
-/// arms are turned to point up for a block or at the ball as it comes in, with
-/// the elbows straightened, and a foot save stretches a leg out to the ball.
-/// Both arms converging on a low ball makes a bump; on a high one, a set. This
-/// works on the final bone positions, so everything below a turned bone
-/// (forearm, hand, fingers; calf, foot) is repositioned to follow.
+/// Animations are made for a ball in one spot; this bends the limbs toward the
+/// real one. After the animation has placed the skeleton, the arms of a bump,
+/// set or spike turn toward the ball as it comes in, and a foot save stretches
+/// its leg out to it. This works on the final bone positions, so everything
+/// below a turned bone (forearm, hand, fingers; calf, foot) follows.
 fn pose_limbs(
     game: Res<Match>,
     time: Res<Time>,
-    mut characters: Query<(&mut Character, &Transform)>,
+    mut characters: Query<&mut Character>,
     locals: Query<&Transform, Without<Character>>,
     children: Query<&Children>,
     mut globals: Query<&mut GlobalTransform>,
 ) {
     let sim = &game.current;
-    for (mut character, body) in &mut characters {
+    for mut character in &mut characters {
         let step = ARM_BLEND_SPEED * time.delta_secs();
 
-        let now = time.elapsed_secs();
-        if character.air_kick.is_some_and(|kick| now - kick.start > AIR_KICK_SECONDS.max(FLIP_SECONDS)) {
-            character.air_kick = None;
-        }
-        let air_kick = character.air_kick.filter(|kick| now - kick.start < AIR_KICK_SECONDS);
-
         // Keep the last goal while blending out, so arms ease back from where they were.
-        let target = match arm_goal(sim, character.index).filter(|_| air_kick.is_none()) {
-            Some((goal, strength)) => {
-                character.arm_goal = goal;
+        let target = match arm_goal(sim, character.index, character.action) {
+            Some((ball, strength)) => {
+                character.arm_goal = ball;
                 strength
             }
             None => 0.0,
         };
         character.arm_weight += (target - character.arm_weight).clamp(-step, step);
         if character.arm_weight > 0.0 {
-            let forward = body.rotation * Vec3::Z;
-            let goal = character.arm_goal;
+            let ball = character.arm_goal;
+            let spike = character.action == Some(Clip::Spike);
             for (side, &arm) in character.arms.iter().enumerate() {
-                // Arms are stored left, right; a spike swings only the right.
-                if matches!(goal, ArmGoal::Reach { both_arms: false, .. }) && side == 0 {
+                // Arms are stored left, right; a spike reaches with only the right.
+                if spike && side == 0 {
                     continue;
                 }
-                let aim = |joint: Vec3| match goal {
-                    ArmGoal::Block => (Vec3::Y + forward * 0.25).normalize(),
-                    ArmGoal::Reach { ball, .. } => (ball - joint).normalize_or_zero(),
-                };
-                point_limb(arm, aim, character.arm_weight, &locals, &children, &mut globals);
+                point_limb(arm, |joint| (ball - joint).normalize_or_zero(), character.arm_weight, &locals, &children, &mut globals);
             }
         }
 
@@ -715,10 +754,7 @@ fn pose_limbs(
             let extended = me.position + Vec3::new(action.direction.x, 0.0, action.direction.y) * 1.8 + Vec3::Y * 0.2;
             character.leg_goal = if near_and_low && action.phase(sim.tick) != Some(MovePhase::Recovery) { ball } else { extended };
         }
-        if let Some(kick) = air_kick {
-            character.leg_goal = kick.contact;
-        }
-        let target = if kicking.is_some() || air_kick.is_some() { 1.0 } else { 0.0 };
+        let target = if kicking.is_some() { 1.0 } else { 0.0 };
         character.leg_weight += (target - character.leg_weight).clamp(-step, step);
         if character.leg_weight > 0.0
             && let Some(leg) = character.leg

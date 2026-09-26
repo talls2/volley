@@ -80,10 +80,19 @@ now; heroes will each be a kit with their own special moves.
 
 ## Art and sound
 
-Placeholder characters and animations are the free Quaternius packs; the library
-has no volleyball moves, so passes, spikes and serves borrow the closest motions
-it has (`Clip::source` in `crates/client/src/characters.rs`), and blocking arms
-are posed in code. The sand is a photo-scanned Poly Haven texture; sounds are
+Placeholder characters are the free Quaternius packs, and running, jumping and
+landing come from its animation library. The volleyball moves (ready stance,
+bump, set, spike, volley and bicycle kicks, serve, block, dive, foot save, cheer)
+are our own, authored for the same skeleton by a Blender script:
+
+    ~/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
+        -P tools/blender/volley_animations.py -- --preview /tmp/volley-anims
+
+It writes `crates/client/assets/animations/Volley.glb`, and with `--preview`,
+a contact sheet per clip. Each clip is a few key poses in character terms
+(where the wrists and ankles go, how the hips and spine turn), solved with IK
+and baked. In game, arms still bend a little toward the real ball, and a foot
+save's leg reaches for it. The sand is a photo-scanned Poly Haven texture; sounds are
 Kenney impacts, recorded ocean waves, a crowd, and a whistle synthesized for the
 game. Every source and license is in
 [`crates/client/assets/CREDITS.md`](crates/client/assets/CREDITS.md). The crowd

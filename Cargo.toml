@@ -1,0 +1,22 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+bevy = "0.19.1"
+glam = "0.32.1"
+
+# Bevy is very slow unoptimized. Optimize dependencies fully and our own code lightly,
+# so debug builds still run smoothly and recompile quickly. Dependency debug info is
+# off because it multiplies the build folder's size; ours keeps line numbers for panics.
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 3
+debug = false

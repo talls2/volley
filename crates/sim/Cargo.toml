@@ -1,0 +1,7 @@
+[package]
+name = "volley_sim"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+glam.workspace = true

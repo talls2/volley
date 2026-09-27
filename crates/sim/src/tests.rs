@@ -53,7 +53,7 @@ fn low_ball_hits_the_net_and_drops_back() {
     let mut sim = Sim::new(MatchConfig::default());
     let flight = Flight::to_target(Vec3::new(-3.0, 1.0, 0.0), Vec3::new(3.0, BALL_RADIUS, 0.0), 0.6, sim.tick);
     sim.ball = Ball::InFlight(flight);
-    sim.touches = Touches { team: 0, count: 1, last: Some(0) };
+    sim.touches = Touches { count: 1, last: Some(0), ..Touches::new(0) };
 
     let mut events = Vec::new();
     for _ in 0..2 * TICK_HZ {
@@ -128,7 +128,7 @@ fn spike_into_block(offset: f32, kind: HitKind) -> (Sim, usize) {
     let from = Vec3::new(-1.5, 3.1, 0.0);
     let flight = Flight::to_target(from, Vec3::new(7.2, BALL_RADIUS, 0.0), 0.47, sim.tick);
     sim.ball = Ball::InFlight(flight);
-    sim.touches = Touches { team: 0, count: 3, last: Some(0) };
+    sim.touches = Touches { count: 3, last: Some(0), ..Touches::new(0) };
     sim.last_hit = Some(kind);
     (sim, blocker)
 }
@@ -205,7 +205,7 @@ fn diving_digs_a_ball_out_of_running_reach() {
     // Comes down 3 m to the side, too far to run in the time left.
     let landing = start + Vec3::new(0.0, BALL_RADIUS, 3.0);
     sim.ball = Ball::InFlight(Flight::to_target(landing + Vec3::new(-6.0, 3.0, 0.0), landing, 1.0, sim.tick));
-    sim.touches = Touches { team: 0, count: 1, last: Some(0) };
+    sim.touches = Touches { count: 1, last: Some(0), ..Touches::new(0) };
 
     // Wait until the ball is about to land, then dive toward it.
     let mut events = Vec::new();
@@ -231,7 +231,7 @@ fn low_ball_beside(sideways: f32) -> (Sim, usize) {
     let player = sim.player_index(1, 0);
     let landing = sim.players[player].position + Vec3::new(0.0, BALL_RADIUS, sideways);
     sim.ball = Ball::InFlight(Flight::to_target(landing + Vec3::new(-6.0, 3.0, 0.0), landing, 1.0, sim.tick));
-    sim.touches = Touches { team: 0, count: 1, last: Some(0) };
+    sim.touches = Touches { count: 1, last: Some(0), ..Touches::new(0) };
     (sim, player)
 }
 
@@ -539,7 +539,7 @@ fn armed_spike_waits_for_the_sweet_spot() {
     let mut sim = Sim::new(MatchConfig::default());
     let player = sim.player_index(0, 0);
     sim.players[player].position = Vec3::new(-2.0, 0.0, 0.0);
-    sim.touches = Touches { team: 0, count: 2, last: Some(1) };
+    sim.touches = Touches { count: 2, last: Some(1), ..Touches::new(0) };
     // A set dropping onto the spot a spike meets best at the top of the jump.
     let apex = Vec3::new(-1.7, 1.225 + 2.1, 0.0);
     let rise = sim.players[player].kit.jump_speed / player::PLAYER_GRAVITY;
@@ -688,4 +688,176 @@ fn fast_landings_skid() {
     let normal_stop = 6.5 * 6.5 / (2.0 * 55.0);
     assert!(slide(6.5) > normal_stop * 1.4, "slid {}", slide(6.5));
     assert!(slide(2.0) < 2.0 * 2.0 / (2.0 * 55.0) + 0.05, "slow landings don't skid");
+}
+
+
+/// A match with Cross as team 0's first player, the ball dropping onto him
+/// from `ball`, and his team on `touches` touches with `last` touching last.
+fn cross_under_ball(ball: Vec3, touches: u32, last: Option<usize>) -> (Sim, usize) {
+    let mut sim = Sim::new(MatchConfig::default());
+    let cross = sim.player_index(0, 0);
+    sim.set_kit(cross, moves::CROSS);
+    sim.players[cross].position = Vec3::new(ball.x, 0.0, ball.z);
+    sim.ball = Ball::InFlight(Flight { origin: ball, velocity: Vec3::ZERO, start_tick: sim.tick });
+    sim.touches = Touches { count: touches, last, ..Touches::new(0) };
+    (sim, cross)
+}
+
+/// Steps until the ball has been touched (or a second passes), pressing
+/// `input` for `player` every tick.
+fn play_until_touch(sim: &mut Sim, player: usize, input: PlayerInput) -> Vec<Event> {
+    let mut events = Vec::new();
+    for _ in 0..TICK_HZ {
+        let mut inputs = idle(sim);
+        inputs[player] = input;
+        events.extend(sim.step(&inputs));
+        if events.iter().any(|e| matches!(e, Event::Touched { .. } | Event::Point { .. })) {
+            break;
+        }
+    }
+    events
+}
+
+#[test]
+fn a_dribbler_touches_twice_in_a_row_once_per_possession() {
+    let (mut sim, cross) = cross_under_ball(Vec3::new(-4.0, 1.6, 0.0), 1, Some(0));
+    let events = play_until_touch(&mut sim, cross, PlayerInput { pass: true, ..default() });
+    assert!(events.contains(&Event::Dribbled { player: cross }), "{events:?}");
+    assert!(events.iter().any(|e| matches!(e, Event::Touched { player: 0, .. })), "{events:?}");
+    // Used up for this possession: a third touch in a row would be a fault.
+    assert!(sim.must_not_touch(cross));
+
+    // Anyone else doing it is a double touch.
+    let (mut sim, player) = cross_under_ball(Vec3::new(-4.0, 1.6, 0.0), 1, Some(0));
+    sim.set_kit(player, moves::ALL_ROUNDER);
+    let events = play_until_touch(&mut sim, player, PlayerInput { pass: true, ..default() });
+    assert!(events.contains(&Event::Point { team: 1, reason: PointReason::DoubleTouch }), "{events:?}");
+}
+
+#[test]
+fn no_look_hits_are_read_late() {
+    let mut sim = Sim::new(MatchConfig::default());
+    let hitter = sim.player_index(0, 0);
+    let defender = sim.player_index(1, 0);
+    let flight = Flight::to_target(Vec3::new(-3.0, 2.0, 0.0), Vec3::new(6.0, BALL_RADIUS, 0.0), 1.2, sim.tick);
+    sim.last_hitter = Some(hitter);
+    let plain = bot::reaction_ticks(&sim, defender, &flight);
+    sim.set_kit(hitter, moves::CROSS);
+    let no_look = bot::reaction_ticks(&sim, defender, &flight);
+    assert!(no_look > plain, "{no_look} vs {plain}");
+    // Teammates read it fine.
+    assert_eq!(bot::reaction_ticks(&sim, sim.player_index(0, 1), &flight), plain);
+}
+
+/// Cross in the air by the net with `input` pressed, a blocker up at the net
+/// lined up with the ball. Returns the events until the point.
+fn attack_into_block(input: PlayerInput) -> Vec<Event> {
+    let ball = Vec3::new(-1.3, 3.4, 0.5);
+    let (mut sim, cross) = cross_under_ball(ball, 2, Some(1));
+    sim.players[cross].position = Vec3::new(-1.6, 0.6, 0.5);
+    sim.players[cross].vertical_velocity = 3.0;
+    sim.players[cross].aim = Some(Vec2::new(7.0, 0.0));
+    let blocker = sim.player_index(1, 0);
+    let mut events = Vec::new();
+    let mut input = input;
+    for _ in 0..2 * TICK_HZ {
+        // Hold the blocker up at the net, hands high, lined up with the ball.
+        let b = &mut sim.players[blocker];
+        b.position = Vec3::new(0.6, 1.1, 0.5);
+        b.vertical_velocity = 0.0;
+        b.hands_up = true;
+        let mut inputs = idle(&sim);
+        inputs[cross] = PlayerInput { aim: Some(Vec2::new(7.0, 0.0)), ..input };
+        input.ability = false;
+        input.spike = false;
+        events.extend(sim.step(&inputs));
+        if events.iter().any(|e| matches!(e, Event::Point { .. })) {
+            break;
+        }
+    }
+    events
+}
+
+#[test]
+fn crossover_carries_the_ball_around_the_block() {
+    let spiked = attack_into_block(PlayerInput { spike: true, ..default() });
+    assert!(spiked.iter().any(|e| matches!(e, Event::Blocked { .. })), "a plain spike is blocked: {spiked:?}");
+
+    let crossed = attack_into_block(PlayerInput { ability: true, movement: Vec2::new(0.0, 1.0), ..default() });
+    assert!(crossed.iter().any(|e| matches!(e, Event::Carried { player: 0 })), "{crossed:?}");
+    assert!(crossed.iter().any(|e| matches!(e, Event::Touched { player: 0, kind: HitKind::Spike, .. })), "{crossed:?}");
+    assert!(!crossed.iter().any(|e| matches!(e, Event::Blocked { .. })), "got blocked: {crossed:?}");
+}
+
+#[test]
+fn abilities_wait_for_their_cooldown() {
+    let (mut sim, player) = lone_player();
+    sim.set_kit(player, moves::CROSS);
+    let press = |sim: &mut Sim| {
+        let mut inputs = idle(sim);
+        inputs[player] = PlayerInput { jump: true, ..default() };
+        sim.step(&inputs);
+        let mut inputs = idle(sim);
+        inputs[player] = PlayerInput { ability: true, ..default() };
+        let started = sim.step(&inputs).contains(&Event::MoveStarted { player, id: MoveId::Crossover });
+        while !sim.players[player].grounded() {
+            sim.step(&idle(sim));
+        }
+        started
+    };
+    assert!(press(&mut sim));
+    assert!(!press(&mut sim), "still cooling down");
+    for _ in 0..7 * TICK_HZ {
+        sim.step(&idle(&sim));
+    }
+    assert!(press(&mut sim), "ready again");
+}
+
+#[test]
+fn posterizer_needs_a_full_charge_and_leaps_high() {
+    let (mut sim, player) = lone_player();
+    sim.set_kit(player, moves::CROSS);
+    let mut inputs = idle(&sim);
+    inputs[player] = PlayerInput { ultimate: true, ..default() };
+    assert!(!sim.step(&inputs).contains(&Event::MoveStarted { player, id: MoveId::Posterizer }), "not charged");
+
+    sim.players[player].charge = 1.0;
+    assert!(sim.step(&inputs).contains(&Event::MoveStarted { player, id: MoveId::Posterizer }));
+    assert_eq!(sim.players[player].charge, 0.0, "uses the charge");
+    let mut apex: f32 = 0.0;
+    let mut air_ticks = 0;
+    while !sim.players[player].grounded() {
+        sim.step(&idle(&sim));
+        apex = apex.max(sim.players[player].position.y);
+        air_ticks += 1;
+    }
+    let (mut normal, _) = lone_player();
+    let normal_apex = jump_apex(&mut normal, player, |_| PlayerInput::default());
+    assert!(apex > normal_apex * 1.8, "{apex} vs {normal_apex}");
+    assert!(air_ticks > TICK_HZ, "hangs: {air_ticks} ticks");
+}
+
+#[test]
+fn dunks_go_through_blocks_and_knock_blockers_down() {
+    let (mut sim, blocker) = spike_into_block(0.0, HitKind::Dunk);
+    let events = run_until_point(&mut sim);
+    assert!(events.contains(&Event::Posterized { player: blocker }), "{events:?}");
+    assert!(!events.iter().any(|e| matches!(e, Event::Blocked { .. })), "{events:?}");
+    assert!(events.contains(&Event::Point { team: 0, reason: PointReason::LandedIn }), "{events:?}");
+    assert!(sim.players[blocker].stunned(sim.tick) || sim.phase != Phase::Rally);
+}
+
+#[test]
+fn heroes_with_kits_play_real_rallies() {
+    let mut sim = Sim::new(MatchConfig::default());
+    sim.set_kit(sim.player_index(0, 0), moves::CROSS);
+    sim.set_kit(sim.player_index(1, 1), moves::CROSS);
+    let events = run_bots(&mut sim, 300 * TICK_HZ);
+    let points = count(&events, |e| matches!(e, Event::Point { .. }));
+    assert!((15..=60).contains(&points), "{points} points");
+    assert!(count(&events, |e| matches!(e, Event::Carried { .. })) > 0, "no crossovers");
+    assert!(count(&events, |e| matches!(e, Event::Dribbled { .. })) > 0, "no dribbles");
+    assert!(count(&events, |e| matches!(e, Event::Touched { kind: HitKind::Dunk, .. })) > 0, "no dunks");
+    let faults = count(&events, |e| matches!(e, Event::Point { reason: PointReason::DoubleTouch | PointReason::TooManyTouches, .. }));
+    assert_eq!(faults, 0);
 }

@@ -39,6 +39,9 @@ fn react_to_hits(
             // A clean attack hits harder.
             Event::Touched { kind, quality, .. } if kind.is_attack() => (0.03 + 0.05 * quality, 0.15 + 0.35 * quality),
             Event::Blocked { stuffed: true, .. } => (0.09, 0.6),
+            // The catch of a crossover hangs for a beat; a dunk through the block shakes the beach.
+            Event::Carried { .. } => (0.04, 0.1),
+            Event::Posterized { .. } => (0.12, 0.9),
             Event::Landed { velocity, .. } if velocity.length() > 15.0 => (0.0, 0.3),
             _ => continue,
         };

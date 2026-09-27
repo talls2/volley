@@ -11,7 +11,7 @@ fn default<T: Default>() -> T {
 use crate::moves::MoveId;
 use crate::player::{BLOCK_DISTANCE, DASH_TICKS, PLAYER_GRAVITY, Player};
 use crate::court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT};
-use crate::{Ball, DT, Flight, HitKind, OVER_DEPTH, PlayerInput, SET_DEPTH, Sim, TICK_HZ, dice, flight_seconds};
+use crate::{Ball, DT, Flight, HitKind, MAX_TOUCHES, OVER_DEPTH, Passive, PlayerInput, SET_DEPTH, Sim, TICK_HZ, dice, flight_seconds};
 
 /// How long a bot waits before serving.
 const SERVE_DELAY_TICKS: u32 = TICK_HZ;
@@ -25,6 +25,8 @@ const FAST_BALL_REACTION_TICKS: u32 = 18;
 const REACTION_SPREAD_TICKS: u32 = 7;
 /// Balls faster than this (m/s, as hit) count as fast: spikes, mostly.
 const FAST_BALL_SPEED: f32 = 15.0;
+/// A no-look hit takes this much longer to read.
+const NO_LOOK_TICKS: u32 = 8;
 /// Ball height (center) a bot meets a pass at.
 const PASS_HEIGHT: f32 = 1.2;
 /// Ball height a bot spikes at: near the top of its reach when jumping.
@@ -54,14 +56,17 @@ pub fn input_for(sim: &Sim, me: usize) -> PlayerInput {
             }
             return input;
         }
-        Ball::InFlight(flight) if sim.tick >= flight.start_tick + reaction_ticks(&flight) => {
+        Ball::InFlight(flight) if sim.tick >= flight.start_tick + reaction_ticks(sim, me, &flight) => {
             let attack = sim.team_touches(team) == 2 && attack_point(&flight, side).is_some();
             let meet_at = if attack { SPIKE_HEIGHT } else { PASS_HEIGHT };
             let intercept = flight
                 .descending_time_at_height(meet_at)
                 .map(|t| (t, flight.position_at_time(t)))
                 .filter(|(_, at)| sim.team_on(at.x) == team);
+            // After the team's third touch another would be a fault: let it drop.
+            let touches_left = sim.team_touches(team) < MAX_TOUCHES;
             if let Some((time, at)) = intercept
+                && touches_left
                 && chaser(sim, team, at) == Some(me)
             {
                 let seconds_left = time - flight.elapsed(sim.tick);
@@ -93,13 +98,17 @@ pub fn input_for(sim: &Sim, me: usize) -> PlayerInput {
     input
 }
 
-fn reaction_ticks(flight: &Flight) -> u32 {
-    if flight.velocity.length() > FAST_BALL_SPEED {
+pub(crate) fn reaction_ticks(sim: &Sim, me: usize, flight: &Flight) -> u32 {
+    let read = if flight.velocity.length() > FAST_BALL_SPEED {
         // The hit's start tick stands in for randomness, keeping the simulation deterministic.
         FAST_BALL_REACTION_TICKS + dice(flight.start_tick, 0) % REACTION_SPREAD_TICKS
     } else {
         REACTION_TICKS
-    }
+    };
+    let no_look = sim.last_hitter().map(|hitter| &sim.players[hitter]).is_some_and(|hitter| {
+        hitter.team != sim.players[me].team && hitter.kit.has(Passive::NoLook)
+    });
+    read + if no_look { NO_LOOK_TICKS } else { 0 }
 }
 
 /// Whether the ball is close enough to press for a hit. Presses are held for a
@@ -119,7 +128,9 @@ fn pass(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32)
     let landing = flight.landing_point();
     let direction = Vec2::new(landing.x - player.position.x, landing.z - player.position.z).normalize_or_zero();
     // Coming in too low for the arms: a foot gets it, if it's in reach.
+    let has_foot_save = player.kit.has_move(MoveId::FootSave);
     if player.grounded()
+        && has_foot_save
         && !would_connect(sim, me, flight, MoveId::Pass, direction)
         && would_connect(sim, me, flight, MoveId::FootSave, direction)
     {
@@ -138,7 +149,7 @@ fn pass(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32)
         return PlayerInput { dash: true, movement: to_ball.normalize_or_zero(), ..input };
     }
     if to_ball.length() > run_reach + 0.3 && player.grounded() {
-        if would_connect(sim, me, flight, MoveId::FootSave, direction) {
+        if has_foot_save && would_connect(sim, me, flight, MoveId::FootSave, direction) {
             return PlayerInput { kick: true, movement: direction, ..input };
         }
         if would_connect(sim, me, flight, MoveId::Dive, direction) {
@@ -172,16 +183,50 @@ fn spike(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32
     let mut input = PlayerInput::default();
     input.movement = (to_ball / 0.4).clamp_length_max(1.0);
     if !player.grounded() {
-        // Arm the attack right away; it steers the rest of the way.
-        input.spike = player.active_move(sim.tick).is_none();
-        input.aim = Some(spike_aim(sim, player.team, flight.position_at(sim.tick)));
+        // Arm the attack right away; it steers the rest of the way. A blocker
+        // lined up gets crossed over instead, carrying the ball away from them.
+        let armed = player.active_move(sim.tick);
+        let ball = flight.position_at(sim.tick);
+        if let Some(blocker) = blocker_ahead(sim, me, ball)
+            && armed == Some(MoveId::Spike)
+            && player.kit.has_move(MoveId::Crossover)
+            && player.ready(MoveId::Crossover, sim.tick)
+        {
+            input.ability = true;
+            input.movement = Vec2::new(0.0, (player.position.z - blocker.z).signum());
+        }
+        input.spike = armed.is_none();
+        input.aim = Some(spike_aim(sim, player.team, ball));
         return input;
+    }
+    // A charged ultimate leaps from farther out, high over the ball, and
+    // hammers it on the way down: leave the ground so the feet come back down
+    // to spiking height as the ball arrives.
+    if player.kit.has_move(MoveId::Posterizer) && player.ready(MoveId::Posterizer, sim.tick) {
+        let spec = MoveId::Posterizer.spec();
+        let speed = player.takeoff_speed() * spec.leap.unwrap_or(1.0);
+        let gravity = PLAYER_GRAVITY * spec.gravity;
+        let feet = SPIKE_HEIGHT - 2.1;
+        let coming_down = (speed + (speed * speed - 2.0 * gravity * feet).max(0.0).sqrt()) / gravity;
+        input.ultimate = to_ball.length() < 5.0 && seconds_left <= coming_down;
+        if input.ultimate {
+            return input;
+        }
     }
     // Leave the ground so the top of the jump meets the ball. The armed
     // attack's steering covers the last couple of meters.
     let rise_time = player.takeoff_speed() / PLAYER_GRAVITY;
     input.jump = to_ball.length() < 2.5 && seconds_left <= rise_time;
     input
+}
+
+/// An opponent up at the net, lined up with a ball about to be attacked.
+fn blocker_ahead(sim: &Sim, me: usize, ball: Vec3) -> Option<Vec3> {
+    let team = sim.players[me].team;
+    (0..sim.config.players_per_team)
+        .map(|slot| &sim.players[sim.player_index(1 - team, slot)])
+        .find(|p| p.position.x.abs() < BLOCK_DISTANCE && (p.position.z - ball.z).abs() < 0.8)
+        .map(|p| p.position)
 }
 
 /// When the other team has the ball, one teammate blocks: they walk to the net
@@ -248,12 +293,16 @@ fn attack_point(flight: &Flight, side: f32) -> Option<Vec3> {
     (side * at.x > 0.0 && at.x.abs() < SPIKE_RANGE).then_some(at)
 }
 
-/// A set goes to the net in front of a teammate, so they can spike it. Other
-/// passes go to the default spot.
+/// A set goes to the net in front of a teammate, so they can spike it; a
+/// dribbler sometimes sets themself instead. Other passes go to the default spot.
 fn pass_aim(sim: &Sim, me: usize) -> Option<Vec2> {
     let team = sim.players[me].team;
     if sim.team_touches(team) != 1 {
         return None;
+    }
+    let self_set = sim.last_toucher(team) != Some(me) && sim.can_dribble(me) && dice(sim.tick, sim.rally) % 2 == 0;
+    if self_set {
+        return Some(Vec2::new(sim.side(team) * SET_DEPTH, sim.players[me].position.z));
     }
     let attacker = (0..sim.config.players_per_team).map(|slot| sim.player_index(team, slot)).find(|&i| i != me)?;
     Some(Vec2::new(sim.side(team) * SET_DEPTH, sim.players[attacker].position.z))

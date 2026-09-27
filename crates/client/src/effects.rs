@@ -88,6 +88,8 @@ fn kick_up_sand(
             Event::MoveStarted { player, id: MoveId::FootSave } => pending.0.push((now + KICK_IMPACT_SECONDS, player)),
             // Sand sprays back off the pushing foot.
             Event::Dashed { player } => puff(game.current.players[player].position, 30, 1.9),
+            Event::MoveStarted { player, id: MoveId::Posterizer } => puff(game.current.players[player].position, 60, 3.0),
+            Event::Posterized { player } => pending.0.push((now + 0.35, player)),
             _ => {}
         }
     }

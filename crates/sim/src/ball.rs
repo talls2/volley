@@ -10,6 +10,8 @@ pub enum Ball {
     /// The server holds the ball before serving.
     Held { by: usize },
     InFlight(Flight),
+    /// Carried in the air by a hero allowed to, until it's released as an attack.
+    Carried { by: usize, release_tick: u32 },
     /// The rally is over; the ball rests where it ended.
     Dead { at: Vec3 },
 }

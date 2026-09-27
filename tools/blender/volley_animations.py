@@ -460,6 +460,73 @@ CLIPS = [
         ],
     ),
     dict(
+        # Cross palms the ball overhead and swings it across his body, hanging
+        # and shifting to his left, then cocks to spike. The right-shifting
+        # version is the mirror image.
+        name="Crossover",
+        mirror="Crossover_Right",
+        ball=at(0.3, 0.3, 2.0),
+        contact=0.0,
+        keys=[
+            (0.0, {**airborne(0.4), "spine": rot(pitch=-8, turn=-10, lean=6), "head": rot(pitch=-18),
+                   "hand_r": at(0.3, 0.3, 1.95), "elbow_r": at(0.9, -0.2, 1.6), "wrist_r": wrist_back(50, "r"),
+                   "hand_l": at(-0.45, 0.2, 1.3), "elbow_l": at(-0.9, -0.3, 1.2), "fingers_r": 0.5}),
+            # Swinging it across, low around the front of the body.
+            (0.09, {"hips_rot": rot(lean=-10), "spine": rot(pitch=6, turn=20, lean=-14), "head": rot(pitch=-10, turn=-15),
+                    "hand_r": at(-0.1, 0.45, 1.4), "elbow_r": at(0.6, 0.2, 0.8), "wrist_r": wrist_back(20, "r"),
+                    "hand_l": at(-0.3, 0.4, 1.45), "elbow_l": at(-0.8, 0.0, 1.0),
+                    "foot_l": at(-0.25, -0.05, 0.3), "foot_r": at(0.05, 0.1, 0.45)}),
+            # Up on the other side, hitting arm cocked.
+            (0.17, {"hips_rot": rot(lean=-4), "spine": rot(pitch=-14, turn=-24, lean=-8), "head": rot(pitch=-20, turn=15),
+                    "hand_r": at(0.2, -0.2, 1.75), "elbow_r": at(0.7, -0.4, 2.3), "wrist_r": wrist_back(40, "r"),
+                    "hand_l": at(-0.15, 0.45, 1.95), "elbow_l": at(-0.5, 0.2, 1.5), "fingers_r": 0.2}),
+        ],
+    ),
+    dict(
+        # Cross's ultimate: tuck on the way up, the ball cocked behind the head
+        # in both hands, then hammered down.
+        name="Dunk",
+        wind_up=0.3,
+        contact=0.4,
+        ball=at(0, 0.5, 1.75),
+        keys=[
+            (0.0, {**airborne(0.5), **arms_down(), "hand_l": at(-0.3, -0.35, 0.95), "hand_r": at(0.3, -0.35, 0.95),
+                   "elbow_l": at(-0.6, 0.4, 1.4), "elbow_r": at(0.6, 0.4, 1.4)}),
+            (0.15, {**airborne(0.9), "spine": rot(pitch=-10), "head": rot(pitch=-15),
+                    "hand_l": at(-0.2, 0.35, 1.9), "hand_r": at(0.2, 0.35, 1.9),
+                    "elbow_l": at(-0.8, 0.0, 1.5), "elbow_r": at(0.8, 0.0, 1.5), "fingers_l": 0.3, "fingers_r": 0.3}),
+            # Tomahawk: both hands behind the head, back arched, knees up.
+            (0.3, {**airborne(1.0), "hips_rot": rot(pitch=-8), "spine": rot(pitch=-22), "head": rot(pitch=-12),
+                   "hand_l": at(-0.12, -0.28, 1.85), "hand_r": at(0.12, -0.28, 1.85),
+                   "elbow_l": at(-0.5, 0.3, 2.4), "elbow_r": at(0.5, 0.3, 2.4)}),
+            # Slam.
+            (0.4, {**airborne(0.3), "hips_rot": rot(pitch=12), "spine": rot(pitch=28), "head": rot(pitch=-5),
+                   "hand_l": at(-0.1, 0.55, 1.55), "hand_r": at(0.1, 0.55, 1.55),
+                   "elbow_l": at(-0.6, 0.0, 2.0), "elbow_r": at(0.6, 0.0, 2.0), "fingers_l": 0.1, "fingers_r": 0.1}),
+            (0.55, {"hips_rot": rot(pitch=14), "spine": rot(pitch=30),
+                    "hand_l": at(-0.2, 0.45, 0.85), "hand_r": at(0.2, 0.45, 0.85),
+                    "elbow_l": at(-0.7, -0.3, 1.2), "elbow_r": at(0.7, -0.3, 1.2), "fingers_l": 0.45, "fingers_r": 0.45}),
+            (0.8, {**airborne(0.2), **arms_down(), **upright()}),
+        ],
+    ),
+    dict(
+        # Flattened by a dunk through the block: knocked back onto the sand,
+        # a moment sitting there, and back up.
+        name="Knocked_Down",
+        keys=[
+            (0.0, {**airborne(0.2), "hips_rot": rot(pitch=-20), "spine": rot(pitch=-20), "head": rot(pitch=15),
+                   "hand_l": at(-0.4, 0.2, 1.9), "hand_r": at(0.4, 0.2, 1.9),
+                   "elbow_l": at(-1.0, -0.3, 1.5), "elbow_r": at(1.0, -0.3, 1.5)}),
+            (0.3, {"hips": at(0, -0.25, -0.72), "hips_rot": rot(pitch=-35), "spine": rot(pitch=15), "head": rot(pitch=10),
+                   "foot_l": at(-0.2, 0.45, ANKLE_HEIGHT), "foot_r": at(0.25, 0.5, ANKLE_HEIGHT),
+                   "knee_l": at(-0.4, 0.6, 2.0), "knee_r": at(0.4, 0.6, 2.0), "foot_rot_l": rot(pitch=-20), "foot_rot_r": rot(pitch=-20),
+                   "hand_l": at(-0.35, -0.55, 0.05), "hand_r": at(0.35, -0.55, 0.05),
+                   "elbow_l": at(-0.8, -0.2, 0.8), "elbow_r": at(0.8, -0.2, 0.8)}),
+            (0.6, {"head": rot(pitch=20, turn=15)}),
+            (1.0, ready_pose()),
+        ],
+    ),
+    dict(
         name="Cheer_Loop",
         loop=True,
         keys=[
@@ -851,7 +918,15 @@ def main():
     preview = args[args.index("--preview") + 1] if "--preview" in args else None
     only = args[args.index("--only") + 1].split(",") if "--only" in args else None
     rig = Rig()
+    clips = []
     for clip in CLIPS:
+        clips.append(clip)
+        if "mirror" in clip:
+            flipped = {**clip, "name": clip["mirror"], "keys": [(t, mirror(pose)) for t, pose in clip["keys"]]}
+            if "ball" in clip:
+                flipped["ball"] = Vector((-clip["ball"].x, clip["ball"].y, clip["ball"].z))
+            clips.append(flipped)
+    for clip in clips:
         if only and clip["name"] not in only:
             continue
         action = rig.bake(clip)

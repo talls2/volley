@@ -1,9 +1,9 @@
-//! Match flow: the title screen, pausing, and the match-over screen with a
-//! rematch.
+//! Match flow: the title screen, hero select, pausing, and the match-over
+//! screen with a rematch.
 
 use bevy::prelude::*;
+use volley_sim::Phase;
 use volley_sim::court::TEAM_NAMES;
-use volley_sim::{MatchConfig, Phase, Sim};
 
 use crate::Match;
 use crate::scene::TEAM_COLORS;
@@ -18,6 +18,8 @@ pub fn plugin(app: &mut App) {
 pub enum Screen {
     #[default]
     Title,
+    /// Picking a hero before each match; see `select.rs`.
+    HeroSelect,
     Playing,
     MatchOver,
 }
@@ -63,21 +65,16 @@ fn pressed(keys: &ButtonInput<KeyCode>, gamepads: &Query<&Gamepad>, key_list: &[
         || gamepads.iter().any(|pad| pad.any_just_pressed(buttons.iter().copied()))
 }
 
+/// From the title or a finished match, on to picking heroes.
 fn start_or_rematch(
     screen: Res<State<Screen>>,
     mut next: ResMut<NextState<Screen>>,
     keys: Res<ButtonInput<KeyCode>>,
     gamepads: Query<&Gamepad>,
-    mut game: ResMut<Match>,
 ) {
-    if *screen.get() == Screen::Playing || !pressed(&keys, &gamepads, &START_KEYS, &START_BUTTONS) {
-        return;
+    if matches!(screen.get(), Screen::Title | Screen::MatchOver) && pressed(&keys, &gamepads, &START_KEYS, &START_BUTTONS) {
+        next.set(Screen::HeroSelect);
     }
-    if *screen.get() == Screen::MatchOver {
-        let sim = Sim::new(MatchConfig::default());
-        *game = Match { previous: sim.clone(), current: sim };
-    }
-    next.set(Screen::Playing);
 }
 
 fn toggle_pause(
@@ -118,7 +115,7 @@ fn update_overlay(
             "Beach volleyball 2v2: sets to 21, best of 3\nPress Enter or A to play".to_string(),
         ),
         Screen::Playing if clock.is_paused() => ("Paused".to_string(), Color::WHITE, "Press P or Menu to resume".to_string()),
-        Screen::Playing => {
+        Screen::Playing | Screen::HeroSelect => {
             **overlay = Visibility::Hidden;
             return;
         }

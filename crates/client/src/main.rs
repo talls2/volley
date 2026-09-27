@@ -9,9 +9,11 @@ mod characters;
 mod effects;
 mod feel;
 mod flow;
+mod heroes;
 mod hud;
 mod input;
 mod scene;
+mod select;
 mod trail;
 
 use bevy::prelude::*;
@@ -48,6 +50,7 @@ fn main() {
             effects::plugin,
             feel::plugin,
             flow::plugin,
+            select::plugin,
             characters::plugin,
             audio::plugin,
             hud::plugin,

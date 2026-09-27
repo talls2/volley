@@ -13,8 +13,8 @@ mod player;
 
 pub use ball::{Ball, Flight};
 pub use glam::{Vec2, Vec3};
-pub use moves::{Kit, Move, MoveId};
-pub use player::{Action, Dash, MovePhase, Player};
+pub use moves::{Kit, Move, MoveId, Passive};
+pub use player::{Action, Carry, Dash, MovePhase, Player};
 
 use moves::Touch;
 use court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT, NET_HALF_WIDTH, RUNOFF};
@@ -22,10 +22,15 @@ use court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT, NET_HALF_WIDTH, RU
 pub const TICK_HZ: u32 = 60;
 pub const DT: f32 = 1.0 / TICK_HZ as f32;
 
-const MAX_TOUCHES: u32 = 3;
+pub(crate) const MAX_TOUCHES: u32 = 3;
 /// After a touch nobody can touch the ball for this long, so one swing never counts twice.
 const TOUCH_LOCKOUT_TICKS: u32 = 10;
 const POINT_PAUSE_TICKS: u32 = 90;
+/// How long a player knocked down by a dunk stays down.
+const KNOCKDOWN_TICKS: u32 = 60;
+/// Ultimate charge from each touch, and for each point the team wins.
+const CHARGE_PER_TOUCH: f32 = 0.05;
+const CHARGE_PER_POINT: f32 = 0.05;
 const SET_PAUSE_TICKS: u32 = 240;
 
 /// Default distance past the net for unaimed shots over it. Spikes go deep:
@@ -46,7 +51,7 @@ pub(crate) fn flight_seconds(kind: HitKind, distance: f32) -> f32 {
         // Scrambles like digs and kicks add the move's own hang time on top.
         HitKind::Pass | HitKind::Dig | HitKind::Kick => 1.2 + 0.05 * distance,
         // Attacks depend on how cleanly they're hit.
-        HitKind::Spike | HitKind::Volley | HitKind::Bicycle => attack::flight_seconds(kind, distance, 1.0),
+        HitKind::Spike | HitKind::Volley | HitKind::Bicycle | HitKind::Dunk => attack::flight_seconds(kind, distance, 1.0),
     }
 }
 
@@ -67,6 +72,9 @@ pub struct PlayerInput {
     pub kick: bool,
     /// A quick burst along the ground, toward `movement`.
     pub dash: bool,
+    /// The hero's ability, and their ultimate.
+    pub ability: bool,
+    pub ultimate: bool,
 }
 
 /// Players per team and the scoring rules. The defaults are beach volleyball's.
@@ -125,12 +133,14 @@ pub enum HitKind {
     Volley,
     /// An attack kicked over the head, flipping backwards, for a ball behind.
     Bicycle,
+    /// A slam dunk, through any block.
+    Dunk,
 }
 
 impl HitKind {
     /// Attacks: hit hard over the net from the air.
     pub fn is_attack(self) -> bool {
-        matches!(self, HitKind::Spike | HitKind::Volley | HitKind::Bicycle)
+        matches!(self, HitKind::Spike | HitKind::Volley | HitKind::Bicycle | HitKind::Dunk)
     }
 }
 
@@ -165,6 +175,12 @@ pub enum Event {
     /// A move began: a press, a dive, a foot save.
     MoveStarted { player: usize, id: MoveId },
     Dashed { player: usize },
+    /// A hero caught the ball to carry it (a crossover); the attack follows.
+    Carried { player: usize },
+    /// Touched twice in a row, which only a dribbler may.
+    Dribbled { player: usize },
+    /// Knocked down by a dunk through their block.
+    Posterized { player: usize },
     /// `quality`: how cleanly an attack was hit, from 0 to 1. Other hits are 1.
     Touched { player: usize, kind: HitKind, quality: f32 },
     /// A block at the net. `stuffed`: sent straight back down on the attackers;
@@ -186,6 +202,14 @@ struct Touches {
     team: usize,
     count: u32,
     last: Option<usize>,
+    /// Someone has already touched twice in a row this possession.
+    dribbled: bool,
+}
+
+impl Touches {
+    fn new(team: usize) -> Self {
+        Self { team, count: 0, last: None, dribbled: false }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -210,8 +234,9 @@ pub struct Sim {
     serve_rotation: [usize; 2],
     touches: Touches,
     touch_lockout_until: u32,
-    /// The kind of the latest hit.
+    /// The kind of the latest hit, and who made it.
     last_hit: Option<HitKind>,
+    last_hitter: Option<usize>,
     /// Each team's half: -1 or +1.
     sides: [f32; 2],
     /// Switch sides when the next rally starts.
@@ -240,9 +265,10 @@ impl Sim {
             rally_start_tick: 0,
             serving_team: 0,
             serve_rotation: [0, 0],
-            touches: Touches { team: 0, count: 0, last: None },
+            touches: Touches::new(0),
             touch_lockout_until: 0,
             last_hit: None,
+            last_hitter: None,
             sides,
             switch_pending: false,
         };
@@ -280,15 +306,27 @@ impl Sim {
         match self.ball {
             Ball::Held { by } => self.update_serve(by, &mut events),
             Ball::InFlight(flight) => self.update_flight(flight, &mut events),
+            Ball::Carried { by, release_tick } => self.update_carry(by, release_tick, &mut events),
             Ball::Dead { .. } => {}
         }
         events
+    }
+
+    /// Gives `player` a hero's kit.
+    pub fn set_kit(&mut self, player: usize, kit: Kit) {
+        self.players[player].kit = kit;
+    }
+
+    /// Who hit the ball last, if anyone this rally.
+    pub fn last_hitter(&self) -> Option<usize> {
+        self.last_hitter
     }
 
     pub fn ball_position(&self) -> Vec3 {
         match self.ball {
             Ball::Held { by } => held_ball_position(&self.players[by]),
             Ball::InFlight(flight) => flight.position_at(self.tick),
+            Ball::Carried { by, .. } => carried_ball_position(&self.players[by]),
             Ball::Dead { at } => at,
         }
     }
@@ -324,7 +362,12 @@ impl Sim {
     /// Whether the rules forbid `player` from touching the ball next: nobody touches
     /// twice in a row, except a player with no teammates to pass to.
     pub fn must_not_touch(&self, player: usize) -> bool {
-        self.config.players_per_team > 1 && self.touches.last == Some(player)
+        self.config.players_per_team > 1 && self.touches.last == Some(player) && !self.can_dribble(player)
+    }
+
+    /// Whether `player` may still touch twice in a row this possession.
+    pub fn can_dribble(&self, player: usize) -> bool {
+        self.players[player].kit.has(Passive::Dribble) && !self.touches.dribbled
     }
 
     /// How many times `team` has touched the ball since it came to their side.
@@ -359,9 +402,10 @@ impl Sim {
         self.rally += 1;
         self.rally_start_tick = self.tick;
         self.phase = Phase::Rally;
-        self.touches = Touches { team: self.serving_team, count: 0, last: None };
+        self.touches = Touches::new(self.serving_team);
         self.touch_lockout_until = 0;
         self.last_hit = None;
+        self.last_hitter = None;
         if self.switch_pending {
             self.switch_pending = false;
             self.sides = [self.sides[1], self.sides[0]];
@@ -382,7 +426,8 @@ impl Sim {
     /// aim marker; changes nothing.
     pub fn preview_hit(&self, player: usize) -> HitPreview {
         let p = &self.players[player];
-        let id = if p.grounded() { MoveId::Pass } else { MoveId::Spike };
+        let fallback = if p.grounded() { MoveId::Pass } else { MoveId::Spike };
+        let id = p.active_move(self.tick).unwrap_or(fallback);
         let touches = self.team_touches(p.team) + 1;
         self.plan_hit(player, id, touches, self.ball_position()).preview
     }
@@ -404,6 +449,11 @@ impl Sim {
                 let depth = if touches == 1 { RECEIVE_DEPTH } else { SET_DEPTH };
                 (kind, own_side_target(side, player.aim, depth), 1.0)
             }
+        } else if let Touch::Carry { .. } = spec.touch {
+            // Released from a carry: a clean spike from wherever the ball was taken.
+            (HitKind::Spike, over_net_target(side, player.aim, SPIKE_DEPTH), 1.0)
+        } else if spec.touch == Touch::Dunk {
+            (HitKind::Dunk, over_net_target(side, player.aim, SPIKE_DEPTH), 1.0)
         } else {
             let (kind, quality) = attack::best_technique(player, from);
             (kind, over_net_target(side, player.aim, SPIKE_DEPTH), quality)
@@ -422,6 +472,7 @@ impl Sim {
         let HitPreview { kind, target, spread, quality } = plan.preview;
         let target = target + wobble(spread, self.tick, hitter);
         self.last_hit = Some(kind);
+        self.last_hitter = Some(hitter);
         self.ball = Ball::InFlight(Flight::to_target(from, target, plan.seconds, self.tick));
         self.touch_lockout_until = self.tick + TOUCH_LOCKOUT_TICKS;
         events.push(Event::Touched { player: hitter, kind, quality });
@@ -433,7 +484,7 @@ impl Sim {
         };
         let from = held_ball_position(&self.players[server]);
         let plan = self.plan_hit(server, id, 1, from);
-        self.touches = Touches { team: self.players[server].team, count: 1, last: Some(server) };
+        self.touches = Touches { count: 1, last: Some(server), ..Touches::new(self.players[server].team) };
         self.hit(server, plan, from, events);
     }
 
@@ -451,7 +502,16 @@ impl Sim {
             let v = flight.velocity_at_time(crossing);
             // Just clear of the net on the side the ball came from.
             let back = -v.x.signum() * (BALL_RADIUS + 0.01);
-            if let Some((blocker, stuffed)) = self.blocker_for(at, v) {
+            if self.last_hit == Some(HitKind::Dunk) {
+                // Straight through the block, flattening whoever tried.
+                for blocker in self.blockers_in_the_way(at, v) {
+                    let player = &mut self.players[blocker];
+                    player.stunned_until = self.tick + KNOCKDOWN_TICKS;
+                    player.hands_up = false;
+                    player.action = None;
+                    events.push(Event::Posterized { player: blocker });
+                }
+            } else if let Some((blocker, stuffed)) = self.blocker_for(at, v) {
                 let (x, velocity) = if stuffed {
                     (back, Vec3::new(-v.x * 0.45, v.y.min(0.0) - 2.0, v.z * 0.5))
                 } else {
@@ -459,7 +519,7 @@ impl Sim {
                 };
                 self.ball = Ball::InFlight(Flight { origin: Vec3::new(x, at.y, at.z), velocity, start_tick: self.tick });
                 // A block isn't one of the team's three touches, and the blocker may play the ball again.
-                self.touches = Touches { team: self.players[blocker].team, count: 0, last: None };
+                self.touches = Touches::new(self.players[blocker].team);
                 self.touch_lockout_until = self.tick + TOUCH_LOCKOUT_TICKS;
                 events.push(Event::Blocked { player: blocker, stuffed });
                 return;
@@ -496,7 +556,7 @@ impl Sim {
                 let player = &self.players[i];
                 player.active_move(self.tick).is_some_and(|id| {
                     player.reaches(id, ball)
-                        && (id.spec().touch != Touch::Attack || attack::hits_now(player, id, ball, next_ball))
+                        && (matches!(id.spec().touch, Touch::Keep(_)) || attack::hits_now(player, id, ball, next_ball))
                 })
             })
             .min_by(|&a, &b| {
@@ -516,11 +576,15 @@ impl Sim {
         let team = self.players[hitter].team;
 
         if self.touches.team != team {
-            self.touches = Touches { team, count: 0, last: None };
+            self.touches = Touches::new(team);
         }
         if self.must_not_touch(hitter) {
             self.award_point(1 - team, PointReason::DoubleTouch, ball, events);
             return;
+        }
+        if self.config.players_per_team > 1 && self.touches.last == Some(hitter) {
+            self.touches.dribbled = true;
+            events.push(Event::Dribbled { player: hitter });
         }
         self.touches.count += 1;
         self.touches.last = Some(hitter);
@@ -528,9 +592,34 @@ impl Sim {
             self.award_point(1 - team, PointReason::TooManyTouches, ball, events);
             return;
         }
+        let player = &mut self.players[hitter];
+        if player.kit.moves.iter().any(|id| id.spec().ultimate) {
+            player.charge = (player.charge + CHARGE_PER_TOUCH).min(1.0);
+        }
 
+        if let Touch::Carry { ticks, shift } = id.spec().touch {
+            // Toward where the carrier is moving across the court, else toward the middle.
+            let sideways = if player.movement.y.abs() > 0.2 { player.movement.y.signum() } else { -player.position.z.signum() };
+            let velocity = Vec2::new(0.0, sideways * shift / (ticks as f32 * DT));
+            player.carry = Some(Carry { until_tick: self.tick + ticks, velocity });
+            self.ball = Ball::Carried { by: hitter, release_tick: self.tick + ticks };
+            events.push(Event::Carried { player: hitter });
+            return;
+        }
         let plan = self.plan_hit(hitter, id, self.touches.count, ball);
         self.hit(hitter, plan, ball, events);
+    }
+
+    /// Releases a carried ball as an attack when the carry ends, or if the
+    /// carrier lands first.
+    fn update_carry(&mut self, carrier: usize, release_tick: u32, events: &mut Vec<Event>) {
+        let player = &self.players[carrier];
+        if self.tick < release_tick && !player.grounded() {
+            return;
+        }
+        let from = carried_ball_position(player);
+        let plan = self.plan_hit(carrier, MoveId::Crossover, self.touches.count, from);
+        self.hit(carrier, plan, from, events);
     }
 
     /// Who blocks a ball crossing the net at `at` moving at `velocity`, and
@@ -540,17 +629,28 @@ impl Sim {
         if self.last_hit == Some(HitKind::Serve) || at.y < NET_HEIGHT {
             return None;
         }
+        // A square block beats a glancing one.
+        self.block_contacts(at, velocity).max_by_key(|&(_, stuffed)| stuffed)
+    }
+
+    /// Everyone whose block a ball crossing the net at `at` goes into.
+    fn blockers_in_the_way(&self, at: Vec3, velocity: Vec3) -> Vec<usize> {
+        self.block_contacts(at, velocity).map(|(player, _)| player).collect()
+    }
+
+    fn block_contacts(&self, at: Vec3, velocity: Vec3) -> impl Iterator<Item = (usize, bool)> + '_ {
         // The team on the side the ball is heading into.
         let defending = self.team_on(velocity.x);
-        let contacts = (0..self.players.len())
-            .filter(|&i| self.players[i].team == defending)
-            .filter_map(|i| self.players[i].block_contact(at).map(|stuffed| (i, stuffed)));
-        // A square block beats a glancing one.
-        contacts.max_by_key(|&(_, stuffed)| stuffed)
+        (0..self.players.len())
+            .filter(move |&i| self.players[i].team == defending)
+            .filter_map(move |i| self.players[i].block_contact(at).map(|stuffed| (i, stuffed)))
     }
 
     fn award_point(&mut self, team: usize, reason: PointReason, ball_at: Vec3, events: &mut Vec<Event>) {
         self.score[team] += 1;
+        for player in self.players.iter_mut().filter(|p| p.team == team && p.kit.moves.iter().any(|id| id.spec().ultimate)) {
+            player.charge = (player.charge + CHARGE_PER_POINT).min(1.0);
+        }
         // Winning back the serve rotates who serves.
         if team != self.serving_team {
             self.serving_team = team;
@@ -587,6 +687,11 @@ impl Sim {
 
 fn held_ball_position(player: &Player) -> Vec3 {
     player.position + Vec3::new(-player.side * 0.35, 1.9, 0.0)
+}
+
+/// Palmed high overhead, just in front: where a carried ball rides.
+fn carried_ball_position(player: &Player) -> Vec3 {
+    player.position + Vec3::new(-player.side * 0.3, 2.0, 0.0)
 }
 
 /// Where a shot over the net from the half at `side` lands: the aimed spot, kept

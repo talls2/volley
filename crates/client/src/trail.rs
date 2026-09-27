@@ -41,6 +41,7 @@ fn color_for(kind: HitKind) -> Color {
         HitKind::Kick => Color::srgb(1.0, 0.5, 0.85),
         HitKind::Volley => Color::srgb(1.0, 0.15, 0.3),
         HitKind::Bicycle => Color::srgb(0.75, 0.3, 1.0),
+        HitKind::Dunk => Color::srgb(1.0, 0.95, 0.45),
     }
 }
 

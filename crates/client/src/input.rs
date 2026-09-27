@@ -8,6 +8,7 @@ use volley_sim::{PlayerInput, Sim, bot};
 
 use crate::aim;
 use crate::camera::CameraRig;
+use crate::flow::Screen;
 
 /// The local player is this team's first player.
 pub const LOCAL_TEAM: usize = 0;
@@ -20,7 +21,9 @@ pub fn plugin(app: &mut App) {
             RunFixedMainLoop,
             record_presses.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
         )
-        .add_systems(Update, (toggle_driver, track_active_device));
+        .add_systems(Update, (toggle_driver, track_active_device))
+        // Presses made on the menus (like the one that started the match) don't count.
+        .add_systems(OnEnter(Screen::Playing), |mut presses: ResMut<Presses>| *presses = Presses::default());
 }
 
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Default)]
@@ -50,6 +53,8 @@ pub struct Keys {
     pub dive: KeyCode,
     pub kick: KeyCode,
     pub dash: KeyCode,
+    pub ability: KeyCode,
+    pub ultimate: KeyCode,
     pub toggle_bot: KeyCode,
 }
 
@@ -64,6 +69,8 @@ pub const KEYS: Keys = Keys {
     dive: KeyCode::ShiftLeft,
     kick: KeyCode::KeyF,
     dash: KeyCode::KeyC,
+    ability: KeyCode::KeyR,
+    ultimate: KeyCode::KeyG,
     toggle_bot: KeyCode::Digit1,
 };
 
@@ -74,24 +81,29 @@ pub struct Buttons {
     pub dive: &'static [GamepadButton],
     pub kick: &'static [GamepadButton],
     pub dash: &'static [GamepadButton],
+    pub ability: &'static [GamepadButton],
+    pub ultimate: &'static [GamepadButton],
     pub toggle_bot: GamepadButton,
 }
 
 /// Hits are on the triggers and bumpers, pressed with index fingers, so the
-/// right thumb can stay on the stick and keep aiming. Face buttons do the same
-/// for anyone who prefers them.
+/// right thumb can stay on the stick and keep aiming. The face buttons are the
+/// hero's ability and ultimate.
 pub const BUTTONS: Buttons = Buttons {
     jump: &[GamepadButton::South],
-    // RB, X
-    pass: &[GamepadButton::RightTrigger, GamepadButton::West],
-    // RT, Y
-    spike: &[GamepadButton::RightTrigger2, GamepadButton::North],
+    // RB
+    pass: &[GamepadButton::RightTrigger],
+    // RT
+    spike: &[GamepadButton::RightTrigger2],
     // LT, B
     dive: &[GamepadButton::LeftTrigger2, GamepadButton::East],
     // LB
     kick: &[GamepadButton::LeftTrigger],
     // Left stick click: the thumb is already there, moving.
     dash: &[GamepadButton::LeftThumb],
+    // X, Y
+    ability: &[GamepadButton::West],
+    ultimate: &[GamepadButton::North],
     // View / Back
     toggle_bot: GamepadButton::Select,
 };
@@ -122,6 +134,8 @@ struct Presses {
     dive: bool,
     kick: bool,
     dash: bool,
+    ability: bool,
+    ultimate: bool,
 }
 
 /// Every connected gamepad controls the local player. The Mac can report extra
@@ -138,6 +152,8 @@ fn record_presses(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mu
     presses.dive |= pressed(KEYS.dive, BUTTONS.dive);
     presses.kick |= pressed(KEYS.kick, BUTTONS.kick);
     presses.dash |= pressed(KEYS.dash, BUTTONS.dash);
+    presses.ability |= pressed(KEYS.ability, BUTTONS.ability);
+    presses.ultimate |= pressed(KEYS.ultimate, BUTTONS.ultimate);
 }
 
 fn toggle_driver(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mut driver: ResMut<LocalDriver>) {
@@ -190,6 +206,8 @@ impl Controls<'_, '_> {
                 dive: presses.dive,
                 kick: presses.kick,
                 dash: presses.dash,
+                ability: presses.ability,
+                ultimate: presses.ultimate,
             };
         }
         inputs

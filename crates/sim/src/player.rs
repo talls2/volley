@@ -8,10 +8,11 @@ use crate::{DT, PlayerInput, attack};
 /// running speed or stop in about an eighth of a second; in the air they steer less.
 const ACCELERATION: f32 = 55.0;
 const AIR_ACCELERATION: f32 = 15.0;
-/// An armed attack pulls the body toward a ball within this far (horizontally),
-/// this hard, so a jump that's a little off still meets it.
-const STEER_RANGE: f32 = 3.0;
+/// An armed attack pulls the body toward a ball within its move's steering
+/// range this hard, so a jump that's a little off still meets it.
 const STEER_ACCELERATION: f32 = 35.0;
+/// Gravity while carrying the ball, as a fraction of normal: the carrier hangs.
+const CARRY_GRAVITY: f32 = 0.25;
 /// Steering aims to close the gap in about this long.
 const STEER_SECONDS: f32 = 0.15;
 /// A running jump goes higher: takeoff speed grows by up to this fraction at
@@ -75,11 +76,11 @@ impl Action {
         }
     }
 
-    /// Moves with a lunge or recovery commit the body: nothing else can start
-    /// until they finish.
+    /// Moves with a lunge, a leap or recovery commit the body: nothing else can
+    /// start until they finish.
     fn committed(&self) -> bool {
         let spec = self.id.spec();
-        spec.lunge.is_some() || spec.recovery > 0
+        spec.lunge.is_some() || spec.leap.is_some() || spec.recovery > 0
     }
 }
 
@@ -105,6 +106,24 @@ pub struct Player {
     rising: bool,
     /// Skidding on landing until this tick.
     skid_until: u32,
+    /// When each move (by [`MoveId::index`]) can start again.
+    ready_at: [u32; MoveId::ALL.len()],
+    /// Ultimate charge, from 0 to 1.
+    pub charge: f32,
+    /// Carrying the ball: shifting sideways until the carry ends.
+    pub carry: Option<Carry>,
+    /// Knocked down (by a dunk through the block) until this tick.
+    pub stunned_until: u32,
+    /// The latest movement input, world XZ.
+    pub(crate) movement: Vec2,
+}
+
+/// The body's shift while carrying the ball.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Carry {
+    pub until_tick: u32,
+    /// World XZ velocity of the shift.
+    pub velocity: Vec2,
 }
 
 /// A quick burst along the ground.
@@ -137,7 +156,30 @@ impl Player {
             dash: None,
             rising: false,
             skid_until: 0,
+            ready_at: [0; MoveId::ALL.len()],
+            charge: 0.0,
+            carry: None,
+            stunned_until: 0,
+            movement: Vec2::ZERO,
         }
+    }
+
+    /// Whether `id` is off cooldown (and, for an ultimate, charged) at `tick`.
+    pub fn ready(&self, id: MoveId, tick: u32) -> bool {
+        tick >= self.ready_at[id.index()] && (!id.spec().ultimate || self.charge >= 1.0)
+    }
+
+    /// Seconds until `id` is off cooldown at `tick`.
+    pub fn cooldown_left(&self, id: MoveId, tick: u32) -> f32 {
+        self.ready_at[id.index()].saturating_sub(tick) as f32 * DT
+    }
+
+    pub fn stunned(&self, tick: u32) -> bool {
+        tick < self.stunned_until
+    }
+
+    pub fn carrying(&self, tick: u32) -> bool {
+        self.carry.is_some_and(|carry| tick < carry.until_tick)
     }
 
     /// How fast a jump leaves the ground right now: faster with a run-up.
@@ -215,8 +257,9 @@ impl Player {
         Some(id)
     }
 
+    /// Back in position for a new rally. Cooldowns and charge carry over.
     pub(crate) fn reset(&mut self, position: Vec3) {
-        *self = Player { kit: self.kit, ..Self::new(self.team, self.side, position) };
+        *self = Player { kit: self.kit, ready_at: self.ready_at, charge: self.charge, ..Self::new(self.team, self.side, position) };
     }
 
     /// Applies one tick of input. Returns what it started: a move (not one
@@ -225,6 +268,10 @@ impl Player {
         if self.action.is_some_and(|action| action.phase(tick).is_none()) {
             self.action = None;
         }
+        // Knocked down: no control until back up.
+        let idle = PlayerInput::default();
+        let input = if self.stunned(tick) { &idle } else { input };
+        self.movement = input.movement;
         self.aim = input.aim;
 
         let committed = self.action.is_some_and(|action| action.committed());
@@ -237,12 +284,19 @@ impl Player {
         }
 
         let mut started = Started::default();
-        let presses = [(input.dive, Button::Dive), (input.kick, Button::Kick), (input.spike, Button::Spike), (input.pass, Button::Pass)];
+        let presses = [
+            (input.ultimate, Button::Ultimate),
+            (input.ability, Button::Ability),
+            (input.dive, Button::Dive),
+            (input.kick, Button::Kick),
+            (input.spike, Button::Spike),
+            (input.pass, Button::Pass),
+        ];
         for (pressed, button) in presses {
             if !pressed || committed || (serving && button != Button::Pass) {
                 continue;
             }
-            let Some(id) = self.kit.move_for(button, self.grounded()) else {
+            let Some(id) = self.kit.move_for(button, self.grounded()).filter(|&id| self.ready(id, tick)) else {
                 continue;
             };
             let repressed = self.action.is_some_and(|action| action.id == id && !action.spent);
@@ -255,6 +309,15 @@ impl Player {
             self.action = Some(Action { id, start_tick: tick, direction, spent: false });
             if !repressed {
                 started.move_id = Some(id);
+                let spec = id.spec();
+                self.ready_at[id.index()] = tick + spec.cooldown;
+                if spec.ultimate {
+                    self.charge = 0.0;
+                }
+                if let Some(leap) = spec.leap {
+                    self.vertical_velocity = self.takeoff_speed() * leap;
+                    self.rising = false;
+                }
             }
             break;
         }
@@ -276,6 +339,7 @@ impl Player {
                 self.velocity = action.direction * action.id.spec().lunge.unwrap_or_default();
             }
             Some((action, MovePhase::Recovery)) if action.id.spec().recovery > 0 => self.velocity = Vec2::ZERO,
+            _ if self.carrying(tick) => self.velocity = self.carry.map(|carry| carry.velocity).unwrap_or_default(),
             _ => {
                 let running = input.movement.clamp_length_max(1.0) * self.kit.run_speed;
                 let (wanted, acceleration) = match self.steering(tick, ball) {
@@ -322,7 +386,12 @@ impl Player {
         }
 
         if !self.grounded() || self.vertical_velocity > 0.0 {
-            self.vertical_velocity -= PLAYER_GRAVITY * DT;
+            let gravity = if self.carrying(tick) {
+                CARRY_GRAVITY
+            } else {
+                self.action.map_or(1.0, |action| action.id.spec().gravity)
+            };
+            self.vertical_velocity -= PLAYER_GRAVITY * gravity * DT;
             self.position.y += self.vertical_velocity * DT;
             if self.vertical_velocity <= 0.0 {
                 self.rising = false;
@@ -334,10 +403,11 @@ impl Player {
                 if self.velocity.length() > SKID_SPEED {
                     self.skid_until = tick + SKID_TICKS;
                 }
-                // Air moves last until landing.
-                if self.action.is_some_and(|action| action.id.spec().stance == Stance::Air) {
+                // Air moves, and moves that leap, last until landing.
+                if self.action.is_some_and(|action| action.id.spec().stance == Stance::Air || action.id.spec().leap.is_some()) {
                     self.action = None;
                 }
+                self.carry = None;
             }
         }
         started
@@ -346,10 +416,10 @@ impl Player {
     /// While an armed attack is in the air near the ball on our side, the
     /// horizontal offset to where the body should be to hit it.
     fn steering(&self, tick: u32, ball: Vec3) -> Option<Vec2> {
-        let armed = !self.grounded() && self.active_move(tick).is_some_and(MoveId::steers);
+        let range = self.active_move(tick).filter(|_| !self.grounded()).and_then(|id| id.spec().steer)?;
         let to_spot = attack::steer_position(self, ball) - Vec2::new(self.position.x, self.position.z);
-        let near = Vec2::new(ball.x - self.position.x, ball.z - self.position.z).length() < STEER_RANGE;
-        (armed && near && self.side * ball.x > 0.0).then_some(to_spot)
+        let near = Vec2::new(ball.x - self.position.x, ball.z - self.position.z).length() < range;
+        (near && self.side * ball.x > 0.0).then_some(to_spot)
     }
 }
 

@@ -1,6 +1,6 @@
 //! Moves: everything a player can do to the ball, described as data. A kit is
-//! a set of moves plus physical stats, so heroes and their special maneuvers
-//! are new data rather than new rules.
+//! a hero's moves, passives and physical stats, so heroes and their special
+//! maneuvers are new data rather than new rules.
 
 use crate::HitKind;
 
@@ -11,6 +11,8 @@ pub enum Button {
     Spike,
     Dive,
     Kick,
+    Ability,
+    Ultimate,
 }
 
 /// Where the player has to be to start a move.
@@ -22,13 +24,20 @@ pub enum Stance {
 }
 
 /// What a touch with the move does.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Touch {
     /// Keeps the ball on your side for a teammate, or sends it over on the
     /// team's last touch.
     Keep(HitKind),
     /// Hits it hard over the net, with whatever technique reaches the ball.
     Attack,
+    /// Catches the ball (a carry, which only some heroes get away with) and
+    /// holds it for `ticks` while the body shifts `shift` meters sideways, then
+    /// attacks from there.
+    Carry { ticks: u32, shift: f32 },
+    /// A slam dunk: an attack faster than a spike that blocks can't stop, and
+    /// that knocks down anyone who tries.
+    Dunk,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -53,6 +62,19 @@ pub struct Move {
     pub wobble: f32,
     /// Extra seconds in the air, so scrambled balls go up high enough to reach.
     pub hang: f32,
+    /// Ticks after starting the move before it can start again.
+    pub cooldown: u32,
+    /// Needs a full ultimate charge, and uses it up.
+    pub ultimate: bool,
+    /// Starting the move jumps, this many times as fast as a normal jump. The
+    /// move lasts until landing.
+    pub leap: Option<f32>,
+    /// Gravity while the move is underway, as a fraction of normal: below 1
+    /// hangs in the air.
+    pub gravity: f32,
+    /// While armed in the air, the body steers toward a ball within this many
+    /// meters so a jump a little off still meets it.
+    pub steer: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,14 +83,13 @@ pub enum MoveId {
     Spike,
     Dive,
     FootSave,
+    Crossover,
+    Posterizer,
 }
 
 impl MoveId {
-    /// Whether the player steers toward the ball in the air while this move is
-    /// armed: attacks do, so a jump a little off still meets the ball.
-    pub fn steers(self) -> bool {
-        self.spec().touch == Touch::Attack
-    }
+    pub const ALL: [MoveId; 6] =
+        [MoveId::Pass, MoveId::Spike, MoveId::Dive, MoveId::FootSave, MoveId::Crossover, MoveId::Posterizer];
 
     pub fn spec(self) -> &'static Move {
         match self {
@@ -76,7 +97,14 @@ impl MoveId {
             MoveId::Spike => &SPIKE,
             MoveId::Dive => &DIVE,
             MoveId::FootSave => &FOOT_SAVE,
+            MoveId::Crossover => &CROSSOVER,
+            MoveId::Posterizer => &POSTERIZER,
         }
+    }
+
+    /// A small number for indexing per-move state, like cooldowns.
+    pub fn index(self) -> usize {
+        self as usize
     }
 }
 
@@ -99,6 +127,11 @@ const PASS: Move = Move {
     touch: Touch::Keep(HitKind::Pass),
     wobble: 0.0,
     hang: 0.0,
+    cooldown: 0,
+    ultimate: false,
+    leap: None,
+    gravity: 1.0,
+    steer: None,
 };
 
 /// Armed for the rest of the jump (air moves end on landing), with a wide zone
@@ -113,6 +146,7 @@ const SPIKE: Move = Move {
     low: 0.2,
     high: 2.9,
     touch: Touch::Attack,
+    steer: Some(3.0),
     ..PASS
 };
 
@@ -130,8 +164,8 @@ const DIVE: Move = Move {
     high: 1.3,
     lunge: Some(9.0),
     touch: Touch::Keep(HitKind::Dig),
-    wobble: 0.0,
     hang: 0.3,
+    ..PASS
 };
 
 /// The save that keeps you on your feet: a leg shot out to a ball too low for
@@ -152,9 +186,48 @@ const FOOT_SAVE: Move = Move {
     touch: Touch::Keep(HitKind::Kick),
     wobble: 1.2,
     hang: 0.6,
+    ..PASS
 };
 
-/// A player's moves and physical stats. Heroes will each have their own.
+/// Cross's ability. Armed in the air like an attack; when the ball comes in he
+/// palms it, swings it across his body while hanging and shifting a meter
+/// sideways, then spikes it from there. Blockers who read him jump at the
+/// wrong spot, at the wrong moment.
+const CROSSOVER: Move = Move {
+    name: "Crossover",
+    button: Button::Ability,
+    touch: Touch::Carry { ticks: 10, shift: 1.2 },
+    cooldown: 7 * crate::TICK_HZ,
+    ..SPIKE
+};
+
+/// Cross's ultimate. A slam-dunk leap about twice as high with hang time,
+/// steering to the ball from far away, and a dunk that goes through blocks:
+/// best hammered down on the ball from above, on the way down.
+const POSTERIZER: Move = Move {
+    name: "Posterizer",
+    button: Button::Ultimate,
+    stance: Stance::Ground,
+    reach: 1.8,
+    high: 3.0,
+    touch: Touch::Dunk,
+    ultimate: true,
+    leap: Some(1.05),
+    gravity: 0.6,
+    steer: Some(6.0),
+    ..SPIKE
+};
+
+/// Traits a hero always has.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Passive {
+    /// Once per possession, two touches in a row without a double-touch fault.
+    Dribble,
+    /// Hits go somewhere other than where the body faces: defenders react late.
+    NoLook,
+}
+
+/// A hero: moves, passives and physical stats.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Kit {
     pub name: &'static str,
@@ -163,9 +236,23 @@ pub struct Kit {
     /// Speed of a dash's burst along the ground.
     pub dash_speed: f32,
     pub moves: &'static [MoveId],
+    pub passives: &'static [Passive],
 }
 
 impl Kit {
+    pub fn has(&self, passive: Passive) -> bool {
+        self.passives.contains(&passive)
+    }
+
+    pub fn has_move(&self, id: MoveId) -> bool {
+        self.moves.contains(&id)
+    }
+
+    /// The kit's move with a cooldown or needing a charge: its ability and ultimate.
+    pub fn move_on(&self, button: Button) -> Option<MoveId> {
+        self.moves.iter().copied().find(|id| id.spec().button == button)
+    }
+
     /// The move `button` does in this kit, standing or in the air.
     pub fn move_for(&self, button: Button, grounded: bool) -> Option<MoveId> {
         self.moves.iter().copied().find(|id| {
@@ -186,4 +273,19 @@ pub const ALL_ROUNDER: Kit = Kit {
     jump_speed: 7.0,
     dash_speed: 11.0,
     moves: &[MoveId::Pass, MoveId::Spike, MoveId::Dive, MoveId::FootSave],
+    passives: &[],
 };
+
+/// A pro basketball superstar: quicker, a higher jumper and the best ball
+/// handler, but no foot save, so low balls are trouble.
+pub const CROSS: Kit = Kit {
+    name: "Cross",
+    run_speed: 7.0,
+    jump_speed: 7.6,
+    dash_speed: 11.5,
+    moves: &[MoveId::Pass, MoveId::Spike, MoveId::Dive, MoveId::Crossover, MoveId::Posterizer],
+    passives: &[Passive::Dribble, Passive::NoLook],
+};
+
+/// Every hero, in the order the hero select shows them.
+pub const HEROES: [Kit; 2] = [ALL_ROUNDER, CROSS];

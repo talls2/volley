@@ -89,6 +89,7 @@ pub fn steer_position(player: &Player, ball: Vec3) -> Vec2 {
 pub fn flight_seconds(kind: HitKind, distance: f32, quality: f32) -> f32 {
     let miss = 1.0 - quality;
     let clean = match kind {
+        HitKind::Dunk => 0.22 + 0.016 * distance,
         HitKind::Volley => 0.4 + 0.024 * distance,
         HitKind::Bicycle => 0.35 + 0.022 * distance,
         _ => 0.3 + 0.02 * distance,

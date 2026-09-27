@@ -34,10 +34,12 @@ variables cargo sets, so launching the binary directly won't load the characters
 | Move | W A S D | Left stick |
 | Jump (hold for full height) | Space | A |
 | Dash | C | Left stick click |
-| Pass / serve / block | Q | RB (or X) |
-| Attack (in the air) | E | RT (or Y) |
+| Pass / serve / block | Q | RB |
+| Attack (in the air) | E | RT |
 | Dive | Left Shift | LT (or B) |
 | Foot save | F | LB |
+| Hero ability | R | X |
+| Hero ultimate | G | Y |
 | Pause | P | Menu |
 | Let a bot play for you | 1 | View |
 
@@ -45,7 +47,8 @@ On a controller, hits are on the bumpers and triggers so your right thumb can
 stay on the stick and keep aiming. The on-screen help switches to controller
 buttons when you use one.
 
-You play Red with a bot teammate. The camera follows you from behind, and movement
+Before each match you pick a hero. You play Red with an All-rounder bot
+teammate, against Cross and an All-rounder. The camera follows you from behind, and movement
 is relative to where it faces. The court is a third bigger than a real one (24 x 12 m).
 
 - **Movement:** a running jump goes about a third higher than a standing one, so run in to attack. Tap jump for a short hop, hold it for the full jump. **Dash** bursts about two meters along the sand toward where you're moving (you can hit or jump out of it; jumping out keeps its speed for a flying approach) and then needs a moment to recharge. Landing fast skids a little in the sand.
@@ -69,23 +72,39 @@ three. Teams switch sides every 7 points (every 5 in the deciding set). The
 team that loses a set serves first in the next. A title screen starts the
 match; a match-over screen offers a rematch.
 
+## Heroes
+
+Each hero is a sports star from another field who happens to play volleyball,
+with their own stats, passives, ability (on a cooldown) and ultimate (charged by
+touching the ball and winning points). A gold ring under a player means their
+ultimate is ready.
+
+- **All-rounder**, beach volleyball pro: solid everywhere, with the foot save; no ability or ultimate.
+- **Cross**, pro basketball superstar: quicker and a higher jumper, but no foot save.
+  - *Dribble* (passive): once per possession, two touches in a row without a double-touch fault. Set yourself for a self alley-oop.
+  - *No-look* (passive): defenders read his hits late, and he doesn't turn toward where the ball goes.
+  - *Crossover* (ability, 7 s): armed in the air like an attack; when the ball arrives he palms it (a carry only he gets away with), swings it across his body while hanging and shifting about a meter sideways (the way you're moving), then spikes. Blockers lined up on him jump at the wrong spot and the wrong time.
+  - *Posterizer* (ultimate): a leap about twice as high with hang time, steering to the ball from far away; the dunk goes through any block and knocks the blockers down for a second.
+
 ## Moves and kits
 
 Everything a player does to the ball is a *move*, described as data in
 `crates/sim/src/moves.rs`: its button, whether it's done on the ground or in
 the air, its windup, active and recovery time, where it can reach the ball,
 any lunge, and what a touch does (keep it for a teammate, or attack over the
-net), how accurately, and how long it hangs. Attacks pick their technique and
-contact quality in `crates/sim/src/attack.rs`. A *kit* is a set of moves plus
-stats like run speed, jump height and dash speed. Everyone uses the All-rounder kit for
-now; heroes will each be a kit with their own special moves.
+net, carry it, or dunk it), how accurately, how long it hangs, and for hero
+moves their cooldown, ultimate charge, leap, hang time and air steering.
+Attacks pick their technique and contact quality in `crates/sim/src/attack.rs`.
+A *kit* is a hero: moves, passives, and stats like run speed, jump height and
+dash speed. Adding a hero is mostly a new kit (plus any new kind of touch or
+passive it needs), a card in `crates/client/src/heroes.rs`, and its animations.
 
 ## Art and sound
 
 Placeholder characters are the free Quaternius packs, and running, jumping and
 landing come from its animation library. The volleyball moves (ready stance,
 takeoff, dash, bump, set, spike, volley and bicycle kicks, serve, block, dive,
-foot save, cheer)
+foot save, cheer) and hero moves (Cross's crossover and dunk, getting knocked down)
 are our own, authored for the same skeleton by a Blender script:
 
     ~/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \

@@ -18,7 +18,7 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy::world_serialization::WorldInstanceReady;
 use volley_sim::court::BALL_RADIUS;
-use volley_sim::{Ball, DT, Event, HitKind, MoveId, MovePhase, Phase, Sim, attack};
+use volley_sim::{Ball, DT, Event, HitKind, MoveId, MovePhase, Passive, Phase, Sim, attack};
 
 use crate::input::LOCAL_TEAM;
 use crate::scene::{TEAM_COLORS, player_feet};
@@ -100,6 +100,12 @@ enum Clip {
     Block,
     Dive,
     FootSave,
+    /// Cross carrying the ball across his body, shifting left or right.
+    Crossover,
+    CrossoverRight,
+    Dunk,
+    /// Flattened by a dunk through the block.
+    KnockedDown,
     Celebrate,
 }
 
@@ -112,7 +118,7 @@ struct Swing {
 }
 
 impl Clip {
-    const ALL: [Clip; 18] = [
+    const ALL: [Clip; 22] = [
         Clip::Idle,
         Clip::Jog,
         Clip::Sprint,
@@ -130,6 +136,10 @@ impl Clip {
         Clip::Block,
         Clip::Dive,
         Clip::FootSave,
+        Clip::Crossover,
+        Clip::CrossoverRight,
+        Clip::Dunk,
+        Clip::KnockedDown,
         Clip::Celebrate,
     ];
 
@@ -153,6 +163,10 @@ impl Clip {
             Clip::Block => (VOLLEY, "Block"),
             Clip::Dive => (VOLLEY, "Dive"),
             Clip::FootSave => (VOLLEY, "Foot_Save"),
+            Clip::Crossover => (VOLLEY, "Crossover"),
+            Clip::CrossoverRight => (VOLLEY, "Crossover_Right"),
+            Clip::Dunk => (VOLLEY, "Dunk"),
+            Clip::KnockedDown => (VOLLEY, "Knocked_Down"),
             Clip::Celebrate => (VOLLEY, "Cheer_Loop"),
         }
     }
@@ -178,6 +192,7 @@ impl Clip {
             Clip::VolleyKick => Some(Swing { wind_up: 0.1, contact: 0.18 }),
             Clip::BicycleKick => Some(Swing { wind_up: 0.12, contact: 0.24 }),
             Clip::Serve => Some(Swing { wind_up: 0.0, contact: 0.22 }),
+            Clip::Dunk => Some(Swing { wind_up: 0.3, contact: 0.4 }),
             _ => None,
         }
     }
@@ -220,6 +235,9 @@ fn hit_clip(sim: &Sim, player: usize, id: MoveId) -> Clip {
     };
     match id {
         MoveId::Spike => Clip::attack(attack::best_technique(me, ball).0),
+        // Cocked to spike, until the ball is caught.
+        MoveId::Crossover => Clip::Spike,
+        MoveId::Posterizer => Clip::Dunk,
         _ if ball.y - me.position.y > SET_HEIGHT => Clip::Set,
         _ => Clip::Bump,
     }
@@ -449,7 +467,11 @@ fn react_to_events(
             let me = character.index;
             match *event {
                 Event::Touched { player, kind, .. } if player == me => {
-                    if let Ball::InFlight(flight) = game.current.ball {
+                    // A no-look hitter keeps looking where they were.
+                    let no_look = game.current.players[me].kit.has(Passive::NoLook);
+                    if let Ball::InFlight(flight) = game.current.ball
+                        && !no_look
+                    {
                         character.face = Some((Vec2::new(flight.velocity.x, flight.velocity.z), face_until));
                     }
                     let clip = match kind {
@@ -468,6 +490,7 @@ fn react_to_events(
                             }
                             Clip::attack(kind)
                         }
+                        HitKind::Dunk => Clip::Dunk,
                         // Digs and kicks happen mid-move, which keeps playing.
                         HitKind::Dig | HitKind::Kick => continue,
                     };
@@ -488,7 +511,7 @@ fn react_to_events(
                         }
                         // A pressed hit winds up and waits for the ball. Serves
                         // happen on the press itself, so they skip this.
-                        MoveId::Pass | MoveId::Spike => {
+                        MoveId::Pass | MoveId::Spike | MoveId::Crossover | MoveId::Posterizer => {
                             let serving = game.current.ball == Ball::Held { by: me };
                             if !serving && !character.action.is_some_and(Clip::is_game_action) {
                                 character.start(hit_clip(&game.current, me, id), None);
@@ -497,6 +520,14 @@ fn react_to_events(
                         }
                     }
                 }
+                Event::Carried { player } if player == me => {
+                    let body = &game.current.players[me];
+                    let shift = body.carry.map(|carry| carry.velocity).unwrap_or_default();
+                    // Facing +z, the right hand is toward -x.
+                    let right = Vec2::new(-character.yaw.cos(), character.yaw.sin());
+                    character.start(if shift.dot(right) > 0.0 { Clip::CrossoverRight } else { Clip::Crossover }, None);
+                }
+                Event::Posterized { player } if player == me => character.start(Clip::KnockedDown, None),
                 Event::Dashed { player } if player == me => {
                     if let Some(dash) = game.current.players[me].dash {
                         character.face = Some((dash.direction, face_until));
@@ -595,6 +626,7 @@ fn animate_characters(
         // An attack winding up switches technique as the ball comes in.
         if character.winding_up
             && let Some(clip) = character.action.filter(|clip| clip.is_attack())
+            && me.active_move(sim.tick) == Some(MoveId::Spike)
         {
             let wanted = hit_clip(sim, character.index, MoveId::Spike);
             if wanted != clip {
@@ -681,15 +713,21 @@ fn animate_characters(
 }
 
 /// A ring in team color under every player, doubled under your own.
-fn draw_team_markers(game: Res<Match>, characters: Query<(&Character, &Transform)>, mut gizmos: Gizmos) {
+fn draw_team_markers(game: Res<Match>, time: Res<Time>, characters: Query<(&Character, &Transform)>, mut gizmos: Gizmos) {
     let flat = Quat::from_rotation_x(FRAC_PI_2);
     let local = game.current.player_index(LOCAL_TEAM, 0);
     for (character, transform) in &characters {
-        let color = TEAM_COLORS[game.current.players[character.index].team];
+        let player = &game.current.players[character.index];
+        let color = TEAM_COLORS[player.team];
         let at = transform.translation.with_y(0.03);
         gizmos.circle(Isometry3d::new(at, flat), 0.55, color);
         if character.index == local {
             gizmos.circle(Isometry3d::new(at, flat), 0.65, color);
+        }
+        // Ultimate ready: a gold ring that breathes.
+        if player.charge >= 1.0 {
+            let pulse = 0.8 + 0.08 * (time.elapsed_secs() * 5.0).sin();
+            gizmos.circle(Isometry3d::new(at, flat), pulse, Color::srgb(1.0, 0.8, 0.15));
         }
     }
 }

@@ -44,11 +44,17 @@ const LOOKS: [Look; 2] = [
         hair_color: Color::srgb(0.12, 0.1, 0.09),
     },
 ];
-/// Quaternius's general library, and our volleyball moves made for its skeleton
-/// (see `tools/blender/volley_animations.py`).
-const ANIMATION_LIBRARIES: [&str; 2] = ["animations/UAL1_Standard.glb", "animations/Volley.glb"];
+/// Quaternius's general library; our volleyball moves made for its skeleton
+/// (see `tools/blender/volley_animations.py`); and Mixamo motion capture
+/// retargeted onto it (see `tools/blender/retarget_mixamo.py`).
+const ANIMATION_LIBRARIES: [&str; 3] = ["animations/UAL1_Standard.glb", "animations/Volley.glb", "animations/Mocap.glb"];
 const QUATERNIUS: usize = 0;
 const VOLLEY: usize = 1;
+const MOCAP: usize = 2;
+/// Ground speeds (m/s) the motion-captured jog and sprint look right at; they
+/// play faster or slower to match how fast a player really runs.
+const JOG_PACE: f32 = 4.0;
+const SPRINT_PACE: f32 = 7.0;
 
 /// Blend time into and out of moves, and between running speeds and standing,
 /// which differ more and change more often.
@@ -147,13 +153,13 @@ impl Clip {
     fn source(self) -> (usize, &'static str) {
         match self {
             Clip::Idle => (QUATERNIUS, "Idle_Loop"),
-            Clip::Jog => (QUATERNIUS, "Jog_Fwd_Loop"),
-            Clip::Sprint => (QUATERNIUS, "Sprint_Loop"),
-            Clip::Airborne => (QUATERNIUS, "Jump_Loop"),
-            Clip::Land => (QUATERNIUS, "Jump_Land"),
+            Clip::Jog => (MOCAP, "Jog"),
+            Clip::Sprint => (MOCAP, "Sprint"),
+            Clip::Airborne => (MOCAP, "Airborne"),
+            Clip::Land => (MOCAP, "Land"),
             Clip::Takeoff => (VOLLEY, "Takeoff"),
-            Clip::Dash => (VOLLEY, "Dash"),
-            Clip::Ready => (VOLLEY, "Ready_Loop"),
+            Clip::Dash => (MOCAP, "Dash"),
+            Clip::Ready => (MOCAP, "Ready"),
             Clip::Bump => (VOLLEY, "Bump"),
             Clip::Set => (VOLLEY, "Set"),
             Clip::Spike => (VOLLEY, "Spike"),
@@ -166,8 +172,8 @@ impl Clip {
             Clip::Crossover => (VOLLEY, "Crossover"),
             Clip::CrossoverRight => (VOLLEY, "Crossover_Right"),
             Clip::Dunk => (VOLLEY, "Dunk"),
-            Clip::KnockedDown => (VOLLEY, "Knocked_Down"),
-            Clip::Celebrate => (VOLLEY, "Cheer_Loop"),
+            Clip::KnockedDown => (MOCAP, "Knocked_Down"),
+            Clip::Celebrate => (MOCAP, "Celebrate"),
         }
     }
 
@@ -175,12 +181,24 @@ impl Clip {
         matches!(self, Clip::Idle | Clip::Ready | Clip::Jog | Clip::Sprint | Clip::Airborne | Clip::Celebrate)
     }
 
-    /// Playback speed. The landing is sped up to fit the game's quicker jumps;
-    /// our own clips are timed for the game already.
+    /// Playback speed. Motion capture happens at human speed, a little slow for
+    /// the game's jumps, dashes and knockdowns; our own clips are timed for it.
     fn speed(self) -> f32 {
         match self {
-            Clip::Land => 1.6,
+            Clip::Land | Clip::Dash => 1.3,
+            Clip::KnockedDown => 1.6,
             _ => 1.0,
+        }
+    }
+
+    /// Where to start playing, in clip seconds, skipping motion capture's lead-in:
+    /// the landing's fall, the dash's first shift of weight, the knockdown's stagger.
+    fn start_at(self) -> f32 {
+        match self {
+            Clip::Land => 0.33,
+            Clip::Dash => 0.1,
+            Clip::KnockedDown => 0.35,
+            _ => 0.0,
         }
     }
 
@@ -700,7 +718,8 @@ fn animate_characters(
             character.catch_up_to = None;
             let active = transitions.play(&mut player, animations.nodes[&clip], blend);
             active.set_speed(if character.winding_up { WIND_UP_SPEED } else { clip.speed() });
-            if let Some(seek) = character.seek.take() {
+            let seek = character.seek.take().unwrap_or(clip.start_at());
+            if seek > 0.0 {
                 active.seek_to(seek);
             }
             if clip.looping() {
@@ -708,6 +727,15 @@ fn animate_characters(
             }
             character.playing = Some(clip);
             character.restart = false;
+        }
+        // Running clips keep pace with the feet.
+        if let Some(pace) = match clip {
+            Clip::Jog => Some(JOG_PACE),
+            Clip::Sprint => Some(SPRINT_PACE),
+            _ => None,
+        } && let Some(active) = player.animation_mut(animations.nodes[&clip])
+        {
+            active.set_speed((speed / pace).clamp(0.7, 1.8));
         }
     }
 }

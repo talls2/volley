@@ -153,16 +153,6 @@ def ready_pose(dip=0.0):
     )
 
 
-def ready_sway(side, dip=0.0):
-    """The ready stance with the weight shifted toward one foot (+1 right, -1
-    left), the chest turning a little against it."""
-    pose = ready_pose(dip)
-    pose["hips"] = pose["hips"] + at(0.035 * side, 0, 0)
-    pose["hips_rot"] = rot(pitch=14, lean=-3 * side, turn=2 * side)
-    pose["spine"] = rot(pitch=12, lean=2 * side, turn=-3 * side)
-    return pose
-
-
 def bump_platform(height, reach):
     """Both arms straight and together in front, wrists at `height`."""
     return dict(
@@ -229,17 +219,6 @@ def upright():
 SPIKE_BALL = at(0.12, 0.35, 2.12)
 
 CLIPS = [
-    dict(
-        name="Ready_Loop",
-        loop=True,
-        keys=[
-            (0.0, ready_sway(1)),
-            (0.4, ready_sway(0, dip=0.04)),
-            (0.8, ready_sway(-1)),
-            (1.2, ready_sway(0, dip=0.04)),
-            (1.6, ready_sway(1)),
-        ],
-    ),
     dict(
         name="Bump",
         # Holds at the end of the wind-up until the ball arrives; the ball is
@@ -441,25 +420,6 @@ CLIPS = [
         ],
     ),
     dict(
-        # A burst along the sand: low, driving off the back foot, arms pumping.
-        name="Dash",
-        keys=[
-            (0.0, ready_pose()),
-            (0.06, {**ready_pose(dip=0.12), "hips": at(0, 0.1, -0.3), "hips_rot": rot(pitch=24), "spine": rot(pitch=14),
-                    "head": rot(pitch=-30),
-                    "foot_l": at(-0.14, 0.5, ANKLE_HEIGHT), "knee_l": at(-0.2, 2.0, 0.6), "foot_rot_l": rot(),
-                    "foot_r": at(0.14, -0.55, 0.22), "knee_r": at(0.2, 2.0, 0.3), "foot_rot_r": rot(pitch=45),
-                    "hand_r": at(0.22, 0.5, 1.15), "elbow_r": at(0.5, -0.3, 0.6),
-                    "hand_l": at(-0.3, -0.4, 0.8), "elbow_l": at(-0.5, 0.3, 1.2)}),
-            (0.18, {"hips": at(0, 0.1, -0.24),
-                    "foot_r": at(0.14, 0.45, ANKLE_HEIGHT), "foot_rot_r": rot(), "knee_r": at(0.2, 2.0, 0.6),
-                    "foot_l": at(-0.14, -0.45, 0.25), "foot_rot_l": rot(pitch=45), "knee_l": at(-0.2, 2.0, 0.3),
-                    "hand_l": at(-0.22, 0.5, 1.15), "elbow_l": at(-0.5, -0.3, 0.6),
-                    "hand_r": at(0.3, -0.4, 0.8), "elbow_r": at(0.5, 0.3, 1.2)}),
-            (0.34, ready_pose()),
-        ],
-    ),
-    dict(
         # Cross palms the ball overhead and swings it across his body, hanging
         # and shifting to his left, then cocks to spike. The right-shifting
         # version is the mirror image.
@@ -507,36 +467,6 @@ CLIPS = [
                     "hand_l": at(-0.2, 0.45, 0.85), "hand_r": at(0.2, 0.45, 0.85),
                     "elbow_l": at(-0.7, -0.3, 1.2), "elbow_r": at(0.7, -0.3, 1.2), "fingers_l": 0.45, "fingers_r": 0.45}),
             (0.8, {**airborne(0.2), **arms_down(), **upright()}),
-        ],
-    ),
-    dict(
-        # Flattened by a dunk through the block: knocked back onto the sand,
-        # a moment sitting there, and back up.
-        name="Knocked_Down",
-        keys=[
-            (0.0, {**airborne(0.2), "hips_rot": rot(pitch=-20), "spine": rot(pitch=-20), "head": rot(pitch=15),
-                   "hand_l": at(-0.4, 0.2, 1.9), "hand_r": at(0.4, 0.2, 1.9),
-                   "elbow_l": at(-1.0, -0.3, 1.5), "elbow_r": at(1.0, -0.3, 1.5)}),
-            (0.3, {"hips": at(0, -0.25, -0.72), "hips_rot": rot(pitch=-35), "spine": rot(pitch=15), "head": rot(pitch=10),
-                   "foot_l": at(-0.2, 0.45, ANKLE_HEIGHT), "foot_r": at(0.25, 0.5, ANKLE_HEIGHT),
-                   "knee_l": at(-0.4, 0.6, 2.0), "knee_r": at(0.4, 0.6, 2.0), "foot_rot_l": rot(pitch=-20), "foot_rot_r": rot(pitch=-20),
-                   "hand_l": at(-0.35, -0.55, 0.05), "hand_r": at(0.35, -0.55, 0.05),
-                   "elbow_l": at(-0.8, -0.2, 0.8), "elbow_r": at(0.8, -0.2, 0.8)}),
-            (0.6, {"head": rot(pitch=20, turn=15)}),
-            (1.0, ready_pose()),
-        ],
-    ),
-    dict(
-        name="Cheer_Loop",
-        loop=True,
-        keys=[
-            (0.0, {**upright(), "hand_l": at(-0.45, 0.1, 2.0), "hand_r": at(0.45, 0.1, 2.0),
-                   "elbow_l": at(-1.0, -0.3, 1.5), "elbow_r": at(1.0, -0.3, 1.5), "head": rot(pitch=-15),
-                   "fingers_l": 1.4, "fingers_r": 1.4}),
-            (0.3, {"hips": at(0, 0, -0.12), "hand_l": at(-0.4, 0.2, 1.7), "hand_r": at(0.4, 0.2, 1.7),
-                   "head": rot(pitch=5)}),
-            (0.6, {"hips": at(0, 0, 0), "hand_l": at(-0.45, 0.1, 2.0), "hand_r": at(0.45, 0.1, 2.0),
-                   "head": rot(pitch=-15)}),
         ],
     ),
 ]
@@ -938,4 +868,5 @@ def main():
         export(rig)
 
 
-main()
+if __name__ == "__main__":
+    main()

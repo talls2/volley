@@ -105,8 +105,11 @@ passive it needs), a card in `crates/client/src/heroes.rs`, and its animations.
 
 ## Art and sound
 
-Placeholder characters are the free Quaternius packs, and running, jumping and
-landing come from its animation library. The volleyball moves (ready stance,
+Placeholder characters are the free Quaternius packs. Movement (the ready
+stance, jogging, sprinting, the air, landing, dashing, getting knocked down and
+cheering) is Mixamo motion capture, retargeted onto the Quaternius skeleton by
+`tools/blender/retarget_mixamo.py`; the downloaded FBX files stay out of the
+repository, and the script lists which ones it uses. The volleyball moves (ready stance,
 takeoff, dash, bump, set, spike, volley and bicycle kicks, serve, block, dive,
 foot save, cheer) and hero moves (Cross's crossover and dunk, getting knocked down)
 are our own, authored for the same skeleton by a Blender script:

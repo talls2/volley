@@ -18,32 +18,42 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy::world_serialization::WorldInstanceReady;
 use volley_sim::court::BALL_RADIUS;
-use volley_sim::{Ball, DT, Event, HitKind, MoveId, MovePhase, Passive, Phase, Sim, attack};
+use volley_sim::moves::CROSS;
+use volley_sim::{Ball, DT, Event, HitKind, Kit, MoveId, MovePhase, Passive, Phase, Sim, attack};
+
+use crate::flow::Screen;
 
 use crate::input::LOCAL_TEAM;
 use crate::scene::{TEAM_COLORS, player_feet};
 use crate::{Match, SimEvent};
 
 /// A body and its hairstyle, rigged to the same skeleton.
-struct Look {
+pub struct Look {
     body: &'static str,
-    hair: &'static str,
-    /// The pack's hair textures are grey, meant to be colored by a shader; we tint the material instead.
-    hair_color: Color,
+    /// A separate hair model, and its color: the pack's hair textures are
+    /// grey, meant to be colored by a shader, so we tint the material instead.
+    hair: Option<(&'static str, Color)>,
 }
 
+/// Heroes without their own look yet alternate between these.
 const LOOKS: [Look; 2] = [
     Look {
         body: "characters/Superhero_Male_FullBody.gltf",
-        hair: "characters/Hair_SimpleParted.gltf",
-        hair_color: Color::srgb(0.3, 0.18, 0.1),
+        hair: Some(("characters/Hair_SimpleParted.gltf", Color::srgb(0.3, 0.18, 0.1))),
     },
     Look {
         body: "characters/Superhero_Female_FullBody.gltf",
-        hair: "characters/Hair_Buns.gltf",
-        hair_color: Color::srgb(0.12, 0.1, 0.09),
+        hair: Some(("characters/Hair_Buns.gltf", Color::srgb(0.12, 0.1, 0.09))),
     },
 ];
+
+/// Cross's stand-in until he has his own model: the male body painted in his
+/// kit, fade included (see `tools/blender/paint_cross.py`).
+const CROSS_LOOK: Look = Look { body: "characters/Cross.glb", hair: None };
+
+fn look_for(kit: &Kit, index: usize) -> &'static Look {
+    if kit.name == CROSS.name { &CROSS_LOOK } else { &LOOKS[index % LOOKS.len()] }
+}
 /// Quaternius's general library; our volleyball moves made for its skeleton
 /// (see `tools/blender/volley_animations.py`); and Mixamo motion capture
 /// retargeted onto it (see `tools/blender/retarget_mixamo.py`).
@@ -71,6 +81,7 @@ const STOP_SPRINT_SPEED: f32 = 3.5;
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Startup, (load_animation_libraries, spawn_characters))
+        .add_systems(OnEnter(Screen::Playing), spawn_characters)
         .add_systems(
             Update,
             (
@@ -281,6 +292,7 @@ struct Animations {
 #[derive(Component)]
 struct Character {
     index: usize,
+    look: &'static Look,
     /// The skeleton's top node, which holds the `AnimationPlayer`. Set once the model spawns.
     armature: Option<Entity>,
     playing: Option<Clip>,
@@ -317,9 +329,10 @@ struct Character {
 }
 
 impl Character {
-    fn new(index: usize, yaw: f32) -> Self {
+    fn new(index: usize, yaw: f32, look: &'static Look) -> Self {
         Self {
             index,
+            look,
             armature: None,
             playing: None,
             action: None,
@@ -377,14 +390,20 @@ fn build_animation_graph(
     commands.insert_resource(Animations { graph: graphs.add(graph), nodes });
 }
 
-fn spawn_characters(mut commands: Commands, assets: Res<AssetServer>, game: Res<Match>) {
+/// Spawns everyone's model, dressed as their hero, replacing any from before
+/// (each match's heroes are picked anew).
+fn spawn_characters(mut commands: Commands, assets: Res<AssetServer>, game: Res<Match>, existing: Query<Entity, With<Character>>) {
+    for entity in &existing {
+        commands.entity(entity).despawn();
+    }
     for (index, player) in game.current.players.iter().enumerate() {
-        let model = assets.load(GltfAssetLabel::Scene(0).from_asset(LOOKS[index % LOOKS.len()].body));
+        let look = look_for(&player.kit, index);
+        let model = assets.load(GltfAssetLabel::Scene(0).from_asset(look.body));
         // Start out facing the net.
         let yaw = -player.side * FRAC_PI_2;
         commands
             .spawn((
-                Character::new(index, yaw),
+                Character::new(index, yaw, look),
                 WorldAssetRoot(model),
                 Transform::default(),
             ))
@@ -421,9 +440,10 @@ fn hook_up_skeleton(
         .collect();
     character.leg = (|| Some([bone("thigh_r")?, bone("calf_r")?, bone("foot_r")?]))();
 
-    let look = &LOOKS[character.index % LOOKS.len()];
-    let hair_color = look.hair_color;
-    let hair = assets.load(GltfAssetLabel::Scene(0).from_asset(look.hair));
+    let Some((hair, hair_color)) = character.look.hair else {
+        return;
+    };
+    let hair = assets.load(GltfAssetLabel::Scene(0).from_asset(hair));
     commands.spawn((WorldAssetRoot(hair), Transform::default(), ChildOf(ready.entity))).observe(
         move |ready: On<WorldInstanceReady>,
               mut commands: Commands,

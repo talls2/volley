@@ -3,6 +3,7 @@
 | Asset | Author / source | License |
 |---|---|---|
 | `characters/` Universal Base Characters (free version) | [Quaternius](https://quaternius.com) | CC0 1.0 |
+| `characters/Cross.glb`: the Quaternius male superhero repainted in Cross's kit | Painted for this project (`tools/blender/paint_cross.py`) | CC0 base |
 | `animations/` Universal Animation Library (free version) | [Quaternius](https://quaternius.com) | CC0 1.0 |
 | `animations/Mocap.glb`: motion capture retargeted onto the Quaternius skeleton (ready stance, jog, sprint, air, landing, dash, knockdown, cheer) | [Mixamo](https://www.mixamo.com), Adobe | Mixamo terms: free for use in games and other projects; the raw downloads aren't republished here |
 | `animations/Volley.glb`: volleyball and hero moves | Made for this project (`tools/blender/volley_animations.py`) | — |

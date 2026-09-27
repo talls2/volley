@@ -84,7 +84,7 @@ touching the ball and winning points). A gold ring under a player means their
 ultimate is ready.
 
 - **All-rounder**, beach volleyball pro: solid everywhere, with the foot save; no ability or ultimate.
-- **Cross**, pro basketball superstar: quicker and a higher jumper, but no foot save.
+- **Cross**, pro basketball superstar: quicker and a higher jumper, but no foot save. Concept art in [`docs/concept/cross.webp`](docs/concept/cross.webp); until he has his own model, the placeholder body is painted in his black and orange kit by `tools/blender/paint_cross.py`.
   - *Dribble* (passive): once per possession, two touches in a row without a double-touch fault. Set yourself for a self alley-oop.
   - *No-look* (passive): defenders read his hits late, and he doesn't turn toward where the ball goes.
   - *Crossover* (ability, 7 s): armed in the air like an attack; when the ball arrives he palms it (a carry only he gets away with), swings it across his body while hanging and shifting about a meter sideways (the way you're moving), then spikes. Blockers lined up on him jump at the wrong spot and the wrong time.

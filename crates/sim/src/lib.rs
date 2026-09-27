@@ -62,13 +62,14 @@ pub(crate) fn flight_seconds(kind: HitKind, distance: f32) -> f32 {
 pub struct PlayerInput {
     /// World-space XZ direction, length at most 1.
     pub movement: Vec2,
-    /// The spot on the floor (world XZ) to send the next hit to. `None` uses
-    /// the default spot for that kind of hit.
-    pub aim: Option<Vec2>,
+    /// Where to send the next hit. `None` uses the default spot for that kind of hit.
+    pub aim: Option<Aim>,
     pub jump: bool,
     /// Jump was let go: a jump still rising is cut short into a hop.
     pub jump_released: bool,
     pub pass: bool,
+    /// Pass is held down: a pass stays armed, waiting for the ball.
+    pub pass_held: bool,
     pub spike: bool,
     pub dive: bool,
     pub kick: bool,
@@ -77,6 +78,45 @@ pub struct PlayerInput {
     /// The hero's ability, and their ultimate.
     pub ability: bool,
     pub ultimate: bool,
+}
+
+/// Where a player sends their hits.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Aim {
+    /// A spot on the floor, world XZ.
+    Spot(Vec2),
+    /// A direction on the floor (world XZ) and how hard, from 0 to 1: harder
+    /// goes farther. Hits over the net always go toward the other side,
+    /// keeping the direction's angle across the court.
+    Toward { direction: Vec2, power: f32 },
+}
+
+/// How far a hit of `kind` goes at no power and at full power, in meters.
+fn aim_range(kind: HitKind) -> (f32, f32) {
+    match kind {
+        HitKind::Serve => (14.0, 46.0),
+        HitKind::Lob => (6.0, 30.0),
+        HitKind::Pass | HitKind::Dig | HitKind::Kick => (2.0, 16.0),
+        HitKind::Spike | HitKind::Volley | HitKind::Bicycle | HitKind::Dunk => (5.0, 32.0),
+    }
+}
+
+/// The spot on the floor an aim sends a hit of `kind` from `from` to, for a
+/// player on the half at `side`.
+fn aim_spot(aim: Option<Aim>, kind: HitKind, from: Vec3, side: f32, over_net: bool) -> Option<Vec2> {
+    match aim? {
+        Aim::Spot(spot) => Some(spot),
+        Aim::Toward { direction, power } => {
+            let mut direction = direction.try_normalize().unwrap_or(Vec2::new(-side, 0.0));
+            // Over the net means away from your own half.
+            if over_net && direction.x * side > 0.0 {
+                direction.x = -direction.x;
+            }
+            let (short, long) = aim_range(kind);
+            let distance = short + (long - short) * power.clamp(0.0, 1.0);
+            Some(Vec2::new(from.x, from.z) + direction * distance)
+        }
+    }
 }
 
 /// Players per team and the scoring rules. The defaults are beach volleyball's.
@@ -444,25 +484,26 @@ impl Sim {
         let player = &self.players[hitter];
         let side = player.side;
         let spec = id.spec();
+        let over = |kind: HitKind, depth: f32| over_net_target(side, aim_spot(player.aim, kind, from, side, true), depth);
         let (kind, target, quality) = if self.ball == (Ball::Held { by: hitter }) {
-            (HitKind::Serve, over_net_target(side, player.aim, OVER_DEPTH), 1.0)
+            (HitKind::Serve, over(HitKind::Serve, OVER_DEPTH), 1.0)
         } else if let Touch::Keep(kind) = spec.touch {
             if touches >= MAX_TOUCHES {
                 // The team's last touch has to go over.
                 let kind = if kind == HitKind::Pass { HitKind::Lob } else { kind };
-                (kind, over_net_target(side, player.aim, OVER_DEPTH), 1.0)
+                (kind, over(kind, OVER_DEPTH), 1.0)
             } else {
                 let depth = if touches == 1 { RECEIVE_DEPTH } else { SET_DEPTH };
-                (kind, own_side_target(side, player.aim, depth), 1.0)
+                (kind, own_side_target(side, aim_spot(player.aim, kind, from, side, false), depth), 1.0)
             }
         } else if let Touch::Carry { .. } = spec.touch {
             // Released from a carry: a clean spike from wherever the ball was taken.
-            (HitKind::Spike, over_net_target(side, player.aim, SPIKE_DEPTH), 1.0)
+            (HitKind::Spike, over(HitKind::Spike, SPIKE_DEPTH), 1.0)
         } else if spec.touch == Touch::Dunk {
-            (HitKind::Dunk, over_net_target(side, player.aim, SPIKE_DEPTH), 1.0)
+            (HitKind::Dunk, over(HitKind::Dunk, SPIKE_DEPTH), 1.0)
         } else {
             let (kind, quality) = attack::best_technique(player, from);
-            (kind, over_net_target(side, player.aim, SPIKE_DEPTH), quality)
+            (kind, over(kind, SPIKE_DEPTH), quality)
         };
         let distance = from.with_y(0.0).distance(target.with_y(0.0));
         let (seconds, spread) = if kind.is_attack() {
@@ -700,8 +741,8 @@ fn carried_ball_position(player: &Player) -> Vec3 {
 
 /// Where a shot over the net from the half at `side` lands: the aimed spot, kept
 /// on the other half and off the walls, or `depth` past the net if unaimed.
-pub(crate) fn over_net_target(side: f32, aim: Option<Vec2>, depth: f32) -> Vec3 {
-    let spot = aim.unwrap_or(Vec2::new(-side * depth, 0.0));
+pub(crate) fn over_net_target(side: f32, spot: Option<Vec2>, depth: f32) -> Vec3 {
+    let spot = spot.unwrap_or(Vec2::new(-side * depth, 0.0));
     let (min_x, max_x) = court::x_range(-side, 1.0, HALF_LENGTH - WALL_MARGIN);
     let max_z = HALF_WIDTH - WALL_MARGIN;
     Vec3::new(spot.x.clamp(min_x, max_x), BALL_RADIUS, spot.y.clamp(-max_z, max_z))
@@ -709,8 +750,8 @@ pub(crate) fn over_net_target(side: f32, aim: Option<Vec2>, depth: f32) -> Vec3 
 
 /// Where a pass on the half at `side` lands: the aimed spot, kept inside that
 /// half, or `depth` from the net if unaimed.
-fn own_side_target(side: f32, aim: Option<Vec2>, depth: f32) -> Vec3 {
-    let spot = aim.unwrap_or(Vec2::new(side * depth, 0.0));
+fn own_side_target(side: f32, spot: Option<Vec2>, depth: f32) -> Vec3 {
+    let spot = spot.unwrap_or(Vec2::new(side * depth, 0.0));
     let (min_x, max_x) = court::x_range(side, 0.8, HALF_LENGTH - WALL_MARGIN);
     let max_z = HALF_WIDTH - WALL_MARGIN;
     Vec3::new(spot.x.clamp(min_x, max_x), BALL_RADIUS, spot.y.clamp(-max_z, max_z))

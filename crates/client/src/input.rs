@@ -4,9 +4,8 @@
 use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
-use volley_sim::{PlayerInput, Sim, bot};
+use volley_sim::{Aim, Ball, PlayerInput, Sim, bot};
 
-use crate::aim;
 use crate::camera::CameraRig;
 use crate::flow::Screen;
 
@@ -15,6 +14,7 @@ pub const LOCAL_TEAM: usize = 0;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Presses>()
+        .init_resource::<Charge>()
         .init_resource::<LocalDriver>()
         .init_resource::<ActiveDevice>()
         .add_systems(
@@ -23,7 +23,10 @@ pub fn plugin(app: &mut App) {
         )
         .add_systems(Update, (toggle_driver, track_active_device))
         // Presses made on the menus (like the one that started the match) don't count.
-        .add_systems(OnEnter(Screen::Playing), |mut presses: ResMut<Presses>| *presses = Presses::default());
+        .add_systems(OnEnter(Screen::Playing), |mut presses: ResMut<Presses>, mut charge: ResMut<Charge>| {
+            *presses = Presses::default();
+            *charge = Charge::default();
+        });
 }
 
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Default)]
@@ -130,6 +133,8 @@ struct Presses {
     jump: bool,
     jump_released: bool,
     pass: bool,
+    /// Pass let go: serves go on release, after charging.
+    pass_released: bool,
     spike: bool,
     dive: bool,
     kick: bool,
@@ -138,17 +143,68 @@ struct Presses {
     ultimate: bool,
 }
 
+/// Holding pass or attack this long charges a hit to full power.
+const CHARGE_SECONDS: f32 = 0.8;
+
+/// Charging hits: a hit charges while its button is held, and uses whatever
+/// charge it has when it meets the ball. Longer holds hit farther.
+#[derive(Resource, Default)]
+pub struct Charge {
+    /// When pass or attack went down, while held.
+    pass_since: Option<f32>,
+    spike_since: Option<f32>,
+    /// The power when the button was let go, kept while its move waits for the ball.
+    released: f32,
+    /// The power right now, from 0 to 1: charging, or the last one released.
+    pub power: f32,
+    pub charging: bool,
+}
+
+fn charge_after(seconds: f32) -> f32 {
+    (seconds / CHARGE_SECONDS).min(1.0)
+}
+
 /// Every connected gamepad controls the local player. The Mac can report extra
 /// devices as gamepads, and listening to all of them means the real one always works.
-fn record_presses(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mut presses: ResMut<Presses>) {
+fn record_presses(
+    keys: Res<ButtonInput<KeyCode>>,
+    gamepads: Query<&Gamepad>,
+    time: Res<Time<Real>>,
+    mut presses: ResMut<Presses>,
+    mut charge: ResMut<Charge>,
+) {
     let pressed = |key, buttons: &[GamepadButton]| {
         keys.just_pressed(key) || gamepads.iter().any(|pad| pad.any_just_pressed(buttons.iter().copied()))
     };
+    let released = |key, buttons: &[GamepadButton]| {
+        keys.just_released(key) || gamepads.iter().any(|pad| pad.any_just_released(buttons.iter().copied()))
+    };
+    let now = time.elapsed_secs();
+    // Pass and attack charge while held; letting go keeps the power reached.
+    let (charge, presses) = (&mut *charge, &mut *presses);
+    for (key, buttons, since, press, release) in [
+        (KEYS.pass, BUTTONS.pass, &mut charge.pass_since, &mut presses.pass, Some(&mut presses.pass_released)),
+        (KEYS.spike, BUTTONS.spike, &mut charge.spike_since, &mut presses.spike, None),
+    ] {
+        if pressed(key, buttons) {
+            *since = Some(now);
+            *press = true;
+        }
+        if released(key, buttons)
+            && let Some(start) = since.take()
+        {
+            charge.released = charge_after(now - start);
+            if let Some(release) = release {
+                *release = true;
+            }
+        }
+    }
+    let held = [charge.pass_since, charge.spike_since].into_iter().flatten().min_by(f32::total_cmp);
+    charge.charging = held.is_some();
+    charge.power = held.map_or(charge.released, |start| charge_after(now - start));
     presses.jump |= pressed(KEYS.jump, BUTTONS.jump);
     presses.jump_released |= keys.just_released(KEYS.jump)
         || gamepads.iter().any(|pad| pad.any_just_released(BUTTONS.jump.iter().copied()));
-    presses.pass |= pressed(KEYS.pass, BUTTONS.pass);
-    presses.spike |= pressed(KEYS.spike, BUTTONS.spike);
     presses.dive |= pressed(KEYS.dive, BUTTONS.dive);
     presses.kick |= pressed(KEYS.kick, BUTTONS.kick);
     presses.dash |= pressed(KEYS.dash, BUTTONS.dash);
@@ -185,9 +241,9 @@ pub struct Controls<'w, 's> {
     keys: Res<'w, ButtonInput<KeyCode>>,
     gamepads: Query<'w, 's, &'static Gamepad>,
     presses: ResMut<'w, Presses>,
+    charge: ResMut<'w, Charge>,
     driver: Res<'w, LocalDriver>,
     camera: Res<'w, CameraRig>,
-    camera_transform: Query<'w, 's, &'static Transform, With<Camera3d>>,
 }
 
 impl Controls<'_, '_> {
@@ -195,13 +251,26 @@ impl Controls<'_, '_> {
     pub fn take_inputs(&mut self, sim: &Sim) -> Vec<PlayerInput> {
         let mut inputs: Vec<_> = (0..sim.players.len()).map(|i| bot::input_for(sim, i)).collect();
         let presses = std::mem::take(&mut *self.presses);
+        let me = sim.player_index(LOCAL_TEAM, 0);
+        // A released hit keeps its power while its move waits for the ball; after that, a tap's.
+        if !self.charge.charging && !presses.pass && !presses.spike && sim.players[me].action.is_none() {
+            self.charge.released = 0.0;
+            self.charge.power = 0.0;
+        }
+        // A serve has no ball coming to time: hold to charge it, let go to serve.
+        let serving = sim.ball == (Ball::Held { by: me });
+        let pass_down = self.keys.pressed(KEYS.pass) || self.gamepads.iter().any(|pad| pad.any_pressed(BUTTONS.pass.iter().copied()));
         if *self.driver == LocalDriver::Human {
-            inputs[sim.player_index(LOCAL_TEAM, 0)] = PlayerInput {
-                movement: self.camera.to_world(self.movement()),
-                aim: self.camera_transform.single().ok().map(aim::floor_point),
+            let movement = self.camera.to_world(self.movement());
+            // Hits go the way you're moving, or the way you're looking if you aren't.
+            let direction = if movement.length() > 0.2 { movement } else { self.camera.forward() };
+            inputs[me] = PlayerInput {
+                movement,
+                aim: Some(Aim::Toward { direction, power: self.charge.power }),
                 jump: presses.jump,
                 jump_released: presses.jump_released,
-                pass: presses.pass,
+                pass: if serving { presses.pass_released } else { presses.pass },
+                pass_held: pass_down && !serving,
                 spike: presses.spike,
                 dive: presses.dive,
                 kick: presses.kick,

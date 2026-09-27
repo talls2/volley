@@ -2,7 +2,7 @@ use glam::{Vec2, Vec3};
 
 use crate::court::{self, BODY_RADIUS, HALF_LENGTH, HALF_WIDTH};
 use crate::moves::{ALL_ROUNDER, Button, Kit, MoveId, Stance};
-use crate::{DT, PlayerInput, attack};
+use crate::{Aim, DT, PlayerInput, attack};
 
 /// How quickly players speed up and slow down, in m/s². On the ground they reach
 /// running speed or stop in about an eighth of a second; in the air they steer less.
@@ -98,7 +98,7 @@ pub struct Player {
     /// Horizontal velocity as world (x, z).
     pub velocity: Vec2,
     /// Where the player's next hit goes, from their latest input.
-    pub aim: Option<Vec2>,
+    pub aim: Option<Aim>,
     pub action: Option<Action>,
     /// Hands raised to block, until landing.
     pub(crate) hands_up: bool,
@@ -276,6 +276,15 @@ impl Player {
         self.movement = input.movement;
         self.aim = input.aim;
 
+        // Holding pass keeps a waiting pass armed.
+        if input.pass_held
+            && let Some(action) = self.action.as_mut()
+            && action.id.spec().button == Button::Pass
+            && !action.spent
+            && action.phase(tick) == Some(MovePhase::Active)
+        {
+            action.start_tick = tick;
+        }
         let committed = self.action.is_some_and(|action| action.committed());
         if input.pass && !committed && self.position.x.abs() < BLOCK_DISTANCE && self.side * ball.x < 0.0 {
             // Block: hands up, jumping first if still on the ground.

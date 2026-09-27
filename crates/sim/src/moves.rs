@@ -112,7 +112,9 @@ impl MoveId {
 /// to be frame-perfect.
 const HIT_WINDOW: u32 = 8;
 
-/// Can't bump a ball below the knees: low balls need a foot save or a dive.
+/// Can't bump a ball at the ankles: those need a foot save or a dive. Stays
+/// armed while pass is held (see [`crate::PlayerInput::pass_held`]), then for
+/// the hit window after letting go.
 const PASS: Move = Move {
     name: "Pass",
     button: Button::Pass,
@@ -120,8 +122,8 @@ const PASS: Move = Move {
     windup: 0,
     active: HIT_WINDOW,
     recovery: 0,
-    reach: 1.0,
-    low: 0.5,
+    reach: 1.3,
+    low: 0.35,
     high: 2.4,
     lunge: None,
     touch: Touch::Keep(HitKind::Pass),

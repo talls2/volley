@@ -85,7 +85,7 @@ fn aimed_hits_land_where_aimed() {
     let spot = Vec2::new(7.0, -4.0);
     // Jumping with the ball right where a spike meets it best.
     sim.players[hitter].position = Vec3::new(-2.3, 0.9, 0.0);
-    sim.players[hitter].aim = Some(spot);
+    sim.players[hitter].aim = Some(Aim::Spot(spot));
     let plan = sim.plan_hit(hitter, MoveId::Spike, 3, from);
     assert_eq!(plan.preview.kind, HitKind::Spike);
     assert_eq!(plan.preview.spread, 0.0);
@@ -94,7 +94,7 @@ fn aimed_hits_land_where_aimed() {
 
     let teammate_spot = Vec2::new(-2.0, 3.5);
     sim.players[hitter].position.y = 0.0;
-    sim.players[hitter].aim = Some(teammate_spot);
+    sim.players[hitter].aim = Some(Aim::Spot(teammate_spot));
     let plan = sim.plan_hit(hitter, MoveId::Pass, 1, from);
     assert_eq!(plan.preview.kind, HitKind::Pass);
     sim.hit(hitter, plan, from, &mut Vec::new());
@@ -556,7 +556,7 @@ fn off_position_attacks_are_weaker_and_wilder() {
     let hitter = sim.player_index(0, 0);
     let from = Vec3::new(-2.0, 3.0, 0.0);
     sim.ball = Ball::Dead { at: from };
-    sim.players[hitter].aim = Some(Vec2::new(6.0, 0.0));
+    sim.players[hitter].aim = Some(Aim::Spot(Vec2::new(6.0, 0.0)));
 
     sim.players[hitter].position = Vec3::new(-2.3, 0.9, 0.0);
     let clean = sim.plan_hit(hitter, MoveId::Spike, 3, from);
@@ -791,7 +791,7 @@ fn attack_into_block(input: PlayerInput) -> Vec<Event> {
     let (mut sim, cross) = cross_under_ball(ball, 2, Some(1));
     sim.players[cross].position = Vec3::new(-1.6, 0.6, 0.5);
     sim.players[cross].vertical_velocity = 3.0;
-    sim.players[cross].aim = Some(Vec2::new(7.0, 0.0));
+    sim.players[cross].aim = Some(Aim::Spot(Vec2::new(7.0, 0.0)));
     let blocker = sim.player_index(1, 0);
     let mut events = Vec::new();
     let mut input = input;
@@ -802,7 +802,7 @@ fn attack_into_block(input: PlayerInput) -> Vec<Event> {
         b.vertical_velocity = 0.0;
         b.hands_up = true;
         let mut inputs = idle(&sim);
-        inputs[cross] = PlayerInput { aim: Some(Vec2::new(7.0, 0.0)), ..input };
+        inputs[cross] = PlayerInput { aim: Some(Aim::Spot(Vec2::new(7.0, 0.0))), ..input };
         input.ability = false;
         input.spike = false;
         events.extend(sim.step(&inputs));
@@ -897,3 +897,69 @@ fn heroes_with_kits_play_real_rallies() {
     assert_eq!(faults, 0);
 }
 
+
+/// Where `hitter` would send a hit with move `id` as the team's `touches`th
+/// touch, aiming `aim`, from 1.5 m above their feet.
+fn target_with(aim: Aim, id: MoveId, touches: u32) -> (Vec3, Vec3) {
+    let mut sim = Sim::new(MatchConfig::default());
+    let hitter = sim.player_index(0, 0);
+    sim.players[hitter].position = Vec3::new(-10.0, 0.0, 0.0);
+    sim.players[hitter].aim = Some(aim);
+    let from = sim.players[hitter].position + Vec3::Y * 1.5;
+    sim.ball = Ball::Dead { at: from };
+    (sim.plan_hit(hitter, id, touches, from).preview.target, from)
+}
+
+#[test]
+fn passes_go_where_you_move_even_behind_you() {
+    // Team 0 faces +x: pulling back sends it toward your own back wall.
+    let back = Vec2::new(-1.0, 0.0);
+    let (target, from) = target_with(Aim::Toward { direction: back, power: 0.5 }, MoveId::Pass, 1);
+    assert!(target.x < from.x - 2.0, "behind you: {target}");
+    let (left, _) = target_with(Aim::Toward { direction: Vec2::new(0.0, 1.0), power: 0.5 }, MoveId::Pass, 1);
+    assert!(left.z > 3.0 && (left.x - from.x).abs() < 0.5, "straight to the side: {left}");
+}
+
+#[test]
+fn holding_longer_hits_farther() {
+    let aim = |power| Aim::Toward { direction: Vec2::new(1.0, 0.3), power };
+    let (soft, from) = target_with(aim(0.0), MoveId::Pass, 1);
+    let (hard, _) = target_with(aim(1.0), MoveId::Pass, 1);
+    let distance = |t: Vec3| Vec2::new(t.x - from.x, t.z - from.z).length();
+    assert!(distance(hard) > distance(soft) + 5.0, "{} vs {}", distance(hard), distance(soft));
+}
+
+#[test]
+fn attacks_pointed_backward_still_go_over() {
+    let (target, _) = target_with(Aim::Toward { direction: Vec2::new(-1.0, 0.5), power: 0.6 }, MoveId::Pass, 3);
+    assert!(target.x > 0.0, "over the net: {target}");
+    assert!(target.z > 0.0, "keeping the angle across the court: {target}");
+}
+
+#[test]
+fn holding_pass_waits_for_the_ball() {
+    // Pressed well before the ball arrives: a held pass still takes it.
+    let (mut sim, player) = cross_under_ball(Vec3::new(-4.0, 4.0, 0.0), 0, None);
+    sim.set_kit(player, moves::ALL_ROUNDER);
+    let mut events = Vec::new();
+    for tick in 0..2 * TICK_HZ {
+        let mut inputs = idle(&sim);
+        inputs[player] = PlayerInput { pass: tick == 0, pass_held: true, ..default() };
+        events.extend(sim.step(&inputs));
+        if events.iter().any(|e| matches!(e, Event::Touched { .. } | Event::Point { .. })) {
+            break;
+        }
+    }
+    assert!(events.iter().any(|e| matches!(e, Event::Touched { player: 0, kind: HitKind::Pass, .. })), "{events:?}");
+
+    // Tapped as early and let go, it's long gone by then.
+    let (mut sim, player) = cross_under_ball(Vec3::new(-4.0, 4.0, 0.0), 0, None);
+    sim.set_kit(player, moves::ALL_ROUNDER);
+    let mut inputs = idle(&sim);
+    inputs[player].pass = true;
+    let mut events = sim.step(&inputs);
+    for _ in 0..2 * TICK_HZ {
+        events.extend(sim.step(&idle(&sim)));
+    }
+    assert!(!events.iter().any(|e| matches!(e, Event::Touched { .. })), "{events:?}");
+}

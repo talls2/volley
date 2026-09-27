@@ -1,6 +1,7 @@
-//! Aiming, Rematch-style: hits go where the center of the screen points. Turn
-//! the camera to pick a direction; tilt it up or down to aim farther or shorter.
-//! A marker on the floor shows where your next hit would land.
+//! Aiming, Rematch-style: hits go the way you're moving (hold back to send it
+//! behind you), or the way the camera looks when you stand still, and holding
+//! the hit button longer sends it farther. A marker on the floor shows where
+//! your next hit would land, and a line points from you to it.
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -9,32 +10,17 @@ use volley_sim::Ball;
 
 use crate::Match;
 use crate::input::{LOCAL_TEAM, LocalDriver};
-
-/// Aiming at or above the horizon reaches this far.
-const MAX_DISTANCE: f32 = 60.0;
+use crate::scene::player_feet;
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Update, draw_aim_marker);
 }
 
-/// Where the camera's center line meets the floor, as world (x, z).
-pub fn floor_point(camera: &Transform) -> Vec2 {
-    let forward = camera.forward();
-    let horizontal = Vec2::new(forward.x, forward.z);
-    // The ray drops `height` after `height / -forward.y` of its length, which
-    // covers `horizontal.length()` times that across the floor.
-    let reach = if forward.y < 0.0 {
-        camera.translation.y / -forward.y * horizontal.length()
-    } else {
-        f32::INFINITY
-    };
-    let from = Vec2::new(camera.translation.x, camera.translation.z);
-    from + horizontal.normalize_or_zero() * reach.min(MAX_DISTANCE)
-}
+const MARKER_COLOR: Color = Color::srgb(1.0, 0.95, 0.4);
 
 /// Shows where your next hit would go while the ball is yours to play. An
 /// outer ring shows how far off a hit from a bad position may stray.
-fn draw_aim_marker(game: Res<Match>, driver: Res<LocalDriver>, mut gizmos: Gizmos) {
+fn draw_aim_marker(game: Res<Match>, driver: Res<LocalDriver>, fixed: Res<Time<Fixed>>, mut gizmos: Gizmos) {
     if *driver != LocalDriver::Human {
         return;
     }
@@ -52,16 +38,16 @@ fn draw_aim_marker(game: Res<Match>, driver: Res<LocalDriver>, mut gizmos: Gizmo
         return;
     }
     let preview = sim.preview_hit(me);
-    let spot = preview.target;
-    let color = Color::srgb(1.0, 0.95, 0.4);
-    let at = spot.with_y(0.03);
+    let at = preview.target.with_y(0.03);
     let flat = Quat::from_rotation_x(FRAC_PI_2);
-    // Big enough to read at the far end of the court.
-    gizmos.circle(Isometry3d::new(at, flat), 1.0, color);
-    gizmos.circle(Isometry3d::new(at, flat), 0.9, color);
-    gizmos.line(at - Vec3::X * 0.7, at + Vec3::X * 0.7, color);
-    gizmos.line(at - Vec3::Z * 0.7, at + Vec3::Z * 0.7, color);
+    // Big enough to read at the far end of the arena.
+    gizmos.circle(Isometry3d::new(at, flat), 1.0, MARKER_COLOR);
+    gizmos.circle(Isometry3d::new(at, flat), 0.9, MARKER_COLOR);
+    gizmos.line(at - Vec3::X * 0.7, at + Vec3::X * 0.7, MARKER_COLOR);
+    gizmos.line(at - Vec3::Z * 0.7, at + Vec3::Z * 0.7, MARKER_COLOR);
     if preview.spread > 1.1 {
-        gizmos.circle(Isometry3d::new(at, flat), preview.spread, color.with_alpha(0.5));
+        gizmos.circle(Isometry3d::new(at, flat), preview.spread, MARKER_COLOR.with_alpha(0.5));
     }
+    let feet = player_feet(&game, &fixed, me).with_y(0.03);
+    gizmos.line(feet, at, MARKER_COLOR.with_alpha(0.35));
 }

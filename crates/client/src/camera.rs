@@ -7,7 +7,6 @@ use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 
-use volley_sim::{Ball, court};
 
 use crate::Match;
 use crate::feel::Shake;
@@ -49,12 +48,11 @@ pub struct CameraRig {
 impl CameraRig {
     /// Facing the net from the half at `side`.
     fn facing_net(side: f32) -> Self {
-        // Tilted so the aim starts about mid-way into the other court from home.
         Self { yaw: if side < 0.0 { 0.0 } else { PI }, pitch: 0.2 }
     }
 
     /// Horizontal facing as world (x, z).
-    fn forward(&self) -> Vec2 {
+    pub fn forward(&self) -> Vec2 {
         Vec2::new(self.yaw.cos(), self.yaw.sin())
     }
 
@@ -80,22 +78,13 @@ fn spawn_camera(mut commands: Commands) {
     ));
 }
 
-/// Every rally starts facing the net. When serving, the camera also tilts so the
-/// aim starts mid-way into the other court: the aim line passes through the
-/// look point, so it meets the floor `LOOK_HEIGHT / tan(pitch)` beyond the player.
+/// Each rally starts looking at the net from behind the player.
 fn face_net_each_rally(game: Res<Match>, mut rig: ResMut<CameraRig>, mut rally: Local<u32>) {
     if *rally == game.current.rally {
         return;
     }
     *rally = game.current.rally;
-    let side = game.current.side(LOCAL_TEAM);
-    *rig = CameraRig::facing_net(side);
-    let local = game.current.player_index(LOCAL_TEAM, 0);
-    if game.current.ball == (Ball::Held { by: local }) {
-        let target_x = -side * court::HALF_LENGTH * 0.5;
-        let distance = (target_x - game.current.players[local].position.x).abs();
-        rig.pitch = LOOK_HEIGHT.atan2(distance);
-    }
+    *rig = CameraRig::facing_net(game.current.side(LOCAL_TEAM));
 }
 
 /// Click to capture the mouse for looking around; Esc gives it back.

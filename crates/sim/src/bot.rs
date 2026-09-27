@@ -11,7 +11,7 @@ fn default<T: Default>() -> T {
 use crate::moves::MoveId;
 use crate::player::{BLOCK_DISTANCE, DASH_TICKS, PLAYER_GRAVITY, Player};
 use crate::court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT};
-use crate::{Ball, DT, Flight, HitKind, MAX_TOUCHES, OVER_DEPTH, Passive, PlayerInput, SET_DEPTH, Sim, TICK_HZ, dice, flight_seconds};
+use crate::{Aim, Ball, DT, Flight, HitKind, MAX_TOUCHES, OVER_DEPTH, Passive, PlayerInput, SET_DEPTH, Sim, TICK_HZ, dice, flight_seconds};
 
 /// How long a bot waits before serving.
 const SERVE_DELAY_TICKS: u32 = TICK_HZ;
@@ -55,7 +55,7 @@ pub fn input_for(sim: &Sim, me: usize) -> PlayerInput {
             if sim.tick >= sim.rally_start_tick + SERVE_DELAY_TICKS {
                 // Vary serves between left, middle and right.
                 let z = ((sim.rally % 3) as f32 - 1.0) * HALF_WIDTH * 0.6;
-                input.aim = Some(Vec2::new(-side * OVER_DEPTH, z));
+                input.aim = Some(Aim::Spot(Vec2::new(-side * OVER_DEPTH, z)));
                 input.pass = true;
             }
             return input;
@@ -142,7 +142,7 @@ fn pass(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32)
     }
     if ball_close(sim, me, flight) {
         input.pass = true;
-        input.aim = pass_aim(sim, me);
+        input.aim = pass_aim(sim, me).map(Aim::Spot);
         input.movement = (to_ball / 0.5).clamp_length_max(1.0);
         return input;
     }
@@ -203,7 +203,7 @@ fn spike(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32
             input.movement = Vec2::new(0.0, (player.position.z - blocker.z).signum());
         }
         input.spike = armed.is_none();
-        input.aim = Some(spike_aim(sim, player.team, ball));
+        input.aim = Some(Aim::Spot(spike_aim(sim, player.team, ball)));
         return input;
     }
     // A charged ultimate leaps from farther out, high over the ball, and

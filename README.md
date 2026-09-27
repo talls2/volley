@@ -32,12 +32,12 @@ variables cargo sets, so launching the binary directly won't load the characters
 
 | | Keyboard & mouse | Xbox controller |
 |---|---|---|
-| Look and aim | Mouse (click the window to capture it, Esc to release) | Right stick |
+| Look | Mouse (click the window to capture it, Esc to release) | Right stick |
 | Move | W A S D | Left stick |
 | Jump (hold for full height) | Space | A |
 | Dash | C | Left stick click |
-| Pass / serve / block | Q | RB |
-| Attack (in the air) | E | RT |
+| Pass / block (hold for power) / serve (hold, release) | Q | RB |
+| Attack (in the air; hold for power) | E | RT |
 | Dive | Left Shift | LT (or B) |
 | Foot save | F | LB |
 | Hero ability | R | X |
@@ -56,8 +56,8 @@ around: the ball bounces off them and stays in play, so nothing is ever out.
 It only ends when it hits the sand, and that side loses the point.
 
 - **Movement:** a running jump goes about a third higher than a standing one, so run in to attack. Tap jump for a short hop, hold it for the full jump. **Dash** bursts about three meters along the sand toward where you're moving (you can hit or jump out of it; jumping out keeps its speed for a flying approach) and then needs a moment to recharge. Landing fast skids a little in the sand.
-- **Aiming:** hits go where the center of the screen points. Turn to pick a direction; look higher to hit farther. The yellow ring on the floor shows where your next hit lands. Bank shots off the walls are fair game. Passes stay on your side; serves, spikes and third touches go over.
-- **Serving:** press pass. Each rally starts with the camera facing the net and the aim mid-way into the other court.
+- **Aiming, Rematch style:** hits go the way you're moving: hold back and a pass goes behind you, hold left and it goes left. Standing still, they go the way the camera looks. Press pass and you hit the ball the moment it's in reach, so pressing a little early is fine: holding keeps the pass waiting for the ball, and a quick tap is a soft toss. The longer the button has been held when the ball arrives, the harder and farther the hit (full power in under a second, shown by a bar); letting go keeps the power reached. Attacks work the same way, armed for the rest of the jump. The yellow ring on the floor shows where it will land, sliding out as you charge. Hits over the net (serves, attacks, third touches) always go toward the other side, keeping your angle across. Bank shots off the walls are fair game.
+- **Serving:** hold pass and let go: a tap drops it just past the net, a full charge sends it to the back wall. Each rally starts with the camera facing the net.
 - **Pass:** your team's first touch goes mid-court, the second is a set near the net, and the third goes over automatically.
 - **No touching twice in a row:** pass to your teammate, then go spike their set.
 - **Attack:** jump and press attack any time in the air: it stays armed until you land, steers you toward the ball, and hits it at the best moment it's in reach, with whatever reaches it. A ball overhead in front gets a **spike**, a low one a **volley kick**, and one behind your head a **bicycle kick**. The farther the ball is from that technique's sweet spot (a jump timed early or late, a ball out to the side), the weaker and wilder the hit: it flies slower and can land well off your aim, shown by a wider outer ring around the aim marker. A callout rates each attack, from "perfect!" to "scrambled".

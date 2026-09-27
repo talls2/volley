@@ -921,12 +921,14 @@ fn passes_go_where_you_move_even_behind_you() {
 }
 
 #[test]
-fn holding_longer_hits_farther() {
+fn holding_a_moment_boosts_a_little() {
     let aim = |power| Aim::Toward { direction: Vec2::new(1.0, 0.3), power };
-    let (soft, from) = target_with(aim(0.0), MoveId::Pass, 1);
-    let (hard, _) = target_with(aim(1.0), MoveId::Pass, 1);
+    let (tap, from) = target_with(aim(0.0), MoveId::Pass, 1);
+    let (held, _) = target_with(aim(1.0), MoveId::Pass, 1);
     let distance = |t: Vec3| Vec2::new(t.x - from.x, t.z - from.z).length();
-    assert!(distance(hard) > distance(soft) + 5.0, "{} vs {}", distance(hard), distance(soft));
+    // A tap is already a full pass to a teammate; holding adds a little.
+    assert!(distance(tap) > 5.0, "a tap reaches a teammate: {}", distance(tap));
+    assert!(distance(held) > distance(tap) && distance(held) < distance(tap) * 1.3, "{} vs {}", distance(held), distance(tap));
 }
 
 #[test]

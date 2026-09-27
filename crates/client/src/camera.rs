@@ -1,12 +1,14 @@
 //! Third-person camera behind the local player. The mouse (or right stick) turns
-//! it, and movement is relative to where it faces.
+//! it, and movement is relative to where it faces. Ball cam, on by default and
+//! toggled with Tab or the right stick's click, keeps turning it toward the ball
+//! instead; turning the camera yourself switches ball cam off.
 
-use std::f32::consts::PI;
+use std::f32::consts::{PI, TAU};
 
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
-
+use volley_sim::Ball;
 
 use crate::Match;
 use crate::feel::Shake;
@@ -29,12 +31,68 @@ const MAX_PITCH: f32 = 1.2;
 /// At full shake: how far the camera moves (m) and tilts (radians).
 const SHAKE_OFFSET: f32 = 0.25;
 const SHAKE_ROLL: f32 = 0.03;
+/// How quickly ball cam swings around to the ball (per second), and how much a
+/// high ball tips the camera down to look up at it.
+const BALL_CAM_TURN: f32 = 6.0;
+const BALL_CAM_TILT: f32 = 0.6;
+/// Ball cam ignores a ball this close (horizontally): right overhead, its
+/// direction flips around at the slightest move.
+const BALL_CAM_DEAD_ZONE: f32 = 1.5;
+const BALL_CAM_KEY: KeyCode = KeyCode::Tab;
+const BALL_CAM_BUTTON: GamepadButton = GamepadButton::RightThumb;
+/// Turning the camera this much (radians in a frame) takes it off ball cam.
+const MANUAL_TURN: f32 = 0.01;
 
 pub fn plugin(app: &mut App) {
     // Red starts on the negative-x half.
     app.insert_resource(CameraRig::facing_net(-1.0))
+        .init_resource::<BallCam>()
         .add_systems(Startup, spawn_camera)
-        .add_systems(Update, (face_net_each_rally, grab_cursor, turn, follow).chain());
+        .add_systems(Update, (face_net_each_rally, grab_cursor, toggle_ball_cam, turn, ball_cam, follow).chain());
+}
+
+/// Whether the camera keeps turning toward the ball.
+#[derive(Resource)]
+pub struct BallCam(pub bool);
+
+impl Default for BallCam {
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
+fn toggle_ball_cam(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mut ball_cam: ResMut<BallCam>) {
+    if keys.just_pressed(BALL_CAM_KEY) || gamepads.iter().any(|pad| pad.just_pressed(BALL_CAM_BUTTON)) {
+        ball_cam.0 = !ball_cam.0;
+    }
+}
+
+/// Swings the camera around behind the player, facing the ball, and tilts it
+/// to keep a high ball in view.
+fn ball_cam(
+    ball_cam: Res<BallCam>,
+    game: Res<Match>,
+    fixed: Res<Time<Fixed>>,
+    time: Res<Time<Real>>,
+    views: Query<&Transform, With<crate::scene::BallView>>,
+    mut rig: ResMut<CameraRig>,
+) {
+    if !ball_cam.0 || !matches!(game.current.ball, Ball::InFlight(_) | Ball::Carried { .. }) {
+        return;
+    }
+    let Ok(ball) = views.single().map(|view| view.translation) else { return };
+    let feet = player_feet(&game, &fixed, game.current.player_index(LOCAL_TEAM, 0));
+    let to_ball = Vec2::new(ball.x - feet.x, ball.z - feet.z);
+    if to_ball.length() < BALL_CAM_DEAD_ZONE {
+        return;
+    }
+    let blend = 1.0 - (-BALL_CAM_TURN * time.delta_secs()).exp();
+    let turn = (to_ball.y.atan2(to_ball.x) - rig.yaw + PI).rem_euclid(TAU) - PI;
+    rig.yaw = (rig.yaw + turn * blend).rem_euclid(TAU);
+    // A ball above eye level tips the camera down to look up at it.
+    let rise = (ball.y - LOOK_HEIGHT).atan2(to_ball.length());
+    let pitch = (0.2 - BALL_CAM_TILT * rise.max(0.0)).clamp(MIN_PITCH, 0.4);
+    rig.pitch += (pitch - rig.pitch) * blend;
 }
 
 #[derive(Resource)]
@@ -105,6 +163,7 @@ fn grab_cursor(
 
 fn turn(
     mut rig: ResMut<CameraRig>,
+    mut ball_cam: ResMut<BallCam>,
     mouse: Res<AccumulatedMouseMotion>,
     cursor: Single<&CursorOptions, With<PrimaryWindow>>,
     gamepads: Query<&Gamepad>,
@@ -120,7 +179,10 @@ fn turn(
         let curved = tilt * tilt.length();
         delta += Vec2::new(curved.x * STICK_YAW_SPEED, -curved.y * STICK_PITCH_SPEED) * time.delta_secs();
     }
-    rig.yaw = (rig.yaw + delta.x).rem_euclid(2.0 * PI);
+    if delta.length() > MANUAL_TURN {
+        ball_cam.0 = false;
+    }
+    rig.yaw = (rig.yaw + delta.x).rem_euclid(TAU);
     rig.pitch = (rig.pitch + delta.y).clamp(MIN_PITCH, MAX_PITCH);
 }
 

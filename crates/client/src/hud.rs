@@ -7,15 +7,15 @@ use volley_sim::moves::Button;
 use volley_sim::{Ball, DT, Event, HitKind, MoveId, Phase, PointReason, Sim};
 
 use crate::heroes;
-use crate::input::{ActiveDevice, Charge, LOCAL_TEAM, LocalDriver};
+use crate::input::{ActiveDevice, LOCAL_TEAM, LocalDriver};
 use crate::scene::TEAM_COLORS;
 use crate::{Match, SimEvent};
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Startup, spawn_hud)
-        .add_systems(Update, (update_score, announce_points, update_controls_help, prompt_saves, show_abilities, show_charge))
+        .add_systems(Update, (update_score, announce_points, update_controls_help, prompt_saves, show_abilities))
         // Once the camera has moved for the frame.
-        .add_systems(PostUpdate, place_name_tags.after(bevy::transform::TransformSystems::Propagate));
+        .add_systems(PostUpdate, (place_name_tags, point_to_ball, show_ball_cam).after(bevy::transform::TransformSystems::Propagate));
 }
 
 /// Keeps text readable over bright sand and sky.
@@ -39,16 +39,25 @@ struct ControlsHelp;
 #[derive(Component)]
 struct AbilityPanel;
 
-/// The charge bar under the middle of the screen, and its fill.
-#[derive(Component)]
-struct ChargeBar;
-
-#[derive(Component)]
-struct ChargeFill;
 
 /// The hero name floating over player `0`.
 #[derive(Component)]
 struct NameTag(usize);
+
+/// A ball marker on the edge of the screen, pointing the way to the ball when
+/// it's out of view, with how far away it is.
+#[derive(Component)]
+struct BallPointer;
+
+#[derive(Component)]
+struct BallPointerDistance;
+
+#[derive(Component)]
+struct BallCamLabel;
+
+const POINTER_SIZE: f32 = 26.0;
+/// How far in from the screen's edges the pointer stays.
+const POINTER_MARGIN: f32 = 40.0;
 
 fn spawn_hud(mut commands: Commands, game: Res<Match>) {
     commands.spawn((
@@ -85,27 +94,35 @@ fn spawn_hud(mut commands: Commands, game: Res<Match>) {
     ));
     commands
         .spawn((
-            ChargeBar,
+            BallPointer,
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Percent(50.0),
-                bottom: Val::Percent(20.0),
-                width: Val::Px(CHARGE_BAR_WIDTH),
-                height: Val::Px(10.0),
-                margin: UiRect::left(Val::Px(-CHARGE_BAR_WIDTH / 2.0)),
-                border: UiRect::all(Val::Px(2.0)),
-                border_radius: BorderRadius::all(Val::Px(5.0)),
+                width: Val::Px(POINTER_SIZE),
+                height: Val::Px(POINTER_SIZE),
+                border: UiRect::all(Val::Px(3.0)),
+                border_radius: BorderRadius::MAX,
+                justify_content: JustifyContent::Center,
                 ..default()
             },
-            BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.8)),
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.4)),
+            BackgroundColor(Color::srgb(1.0, 0.92, 0.45)),
+            BorderColor::all(Color::srgb(0.1, 0.1, 0.1)),
             Visibility::Hidden,
         ))
         .with_child((
-            ChargeFill,
-            Node { width: Val::Percent(0.0), height: Val::Percent(100.0), border_radius: BorderRadius::all(Val::Px(3.0)), ..default() },
-            BackgroundColor(Color::srgb(1.0, 0.95, 0.4)),
+            BallPointerDistance,
+            Text::default(),
+            TextFont { font_size: FontSize::Px(15.0), ..default() },
+            SHADOW,
+            Node { position_type: PositionType::Absolute, top: Val::Px(POINTER_SIZE), ..default() },
         ));
+    commands.spawn((
+        BallCamLabel,
+        Text::new("Ball cam"),
+        TextFont { font_size: FontSize::Px(16.0), ..default() },
+        TextColor(Color::srgb(1.0, 0.92, 0.45)),
+        SHADOW,
+        Node { position_type: PositionType::Absolute, right: Val::Px(18.0), top: Val::Px(16.0), ..default() },
+    ));
     commands.spawn((
         AbilityPanel,
         Text::default(),
@@ -242,15 +259,15 @@ fn update_controls_help(
     help.0 = match (*driver, *device) {
         (LocalDriver::Human, ActiveDevice::Keyboard) => format!(
             "You are {you}. Click to look with the mouse, Esc to release it. Hits go the way you're moving (or looking,\n\
-             standing still). Q passes as soon as the ball is in reach; hold it longer for a harder hit. Hold and release to serve.\n\
+             standing still). Q passes as soon as the ball is in reach; holding it a moment first adds a little power.\n\
              WASD move | C dash | Space jump (hold for full height; run in to jump higher) | Q pass / serve (at the net: block)\n\
-             E attack (in the air: spike, volley or bicycle kick) | Shift dive | F foot save | R ability | G ultimate | P pause | 1 let a bot play",
+             E attack (in the air: spike, volley or bicycle kick) | Shift dive | F foot save | R ability | G ultimate | Tab ball cam | P pause | 1 let a bot play",
         ),
         (LocalDriver::Human, ActiveDevice::Gamepad) => format!(
             "You are {you}. Right stick looks. Hits go the way the left stick points (or the way you look, standing\n\
-             still). RB passes as soon as the ball is in reach; hold it longer for a harder hit. Hold and release to serve.\n\
+             still). RB passes as soon as the ball is in reach; holding it a moment first adds a little power.\n\
              Left stick move (click to dash) | A jump (hold for full height; run in to jump higher) | RB pass / serve (at the net: block)\n\
-             RT attack (in the air: spike, volley or bicycle kick) | LT dive | LB foot save | X ability | Y ultimate | Menu pause | View let a bot play",
+             RT attack (in the air: spike, volley or bicycle kick) | LT dive | LB foot save | X ability | Y ultimate | R3 ball cam | Menu pause | View let a bot play",
         ),
         (LocalDriver::Bot, ActiveDevice::Keyboard) => format!("A bot is playing {you}. Press 1 to take over."),
         (LocalDriver::Bot, ActiveDevice::Gamepad) => format!("A bot is playing {you}. Press View to take over."),
@@ -358,16 +375,39 @@ fn place_name_tags(
     }
 }
 
-const CHARGE_BAR_WIDTH: f32 = 160.0;
-
-/// While a hit charges, a bar fills toward full power.
-fn show_charge(
-    charge: Res<Charge>,
-    mut bar: Single<&mut Visibility, With<ChargeBar>>,
-    mut fill: Single<(&mut Node, &mut BackgroundColor), With<ChargeFill>>,
+/// When the ball is off screen, a marker on the edge points the way to it.
+fn point_to_ball(
+    game: Res<Match>,
+    camera: Single<(&Camera, &GlobalTransform), With<Camera3d>>,
+    ball: Single<&GlobalTransform, With<crate::scene::BallView>>,
+    mut pointer: Single<(&mut Node, &mut Visibility), With<BallPointer>>,
+    mut distance: Single<&mut Text, With<BallPointerDistance>>,
 ) {
-    **bar = if charge.charging { Visibility::Inherited } else { Visibility::Hidden };
-    let (node, color) = &mut *fill;
-    node.width = Val::Percent(charge.power * 100.0);
-    color.0 = if charge.power >= 1.0 { Color::srgb(1.0, 0.55, 0.15) } else { Color::srgb(1.0, 0.95, 0.4) };
+    let (camera, camera_transform) = *camera;
+    let (node, visibility) = &mut *pointer;
+    let at = ball.translation();
+    let in_play = matches!(game.current.ball, Ball::InFlight(_) | Ball::Carried { .. });
+    let Some(size) = camera.logical_viewport_size() else { return };
+    let on_screen = camera
+        .world_to_viewport(camera_transform, at)
+        .is_ok_and(|p| p.x >= 0.0 && p.y >= 0.0 && p.x <= size.x && p.y <= size.y);
+    if !in_play || on_screen {
+        **visibility = Visibility::Hidden;
+        return;
+    }
+    **visibility = Visibility::Visible;
+    // Which way the ball is, across the screen: its offset in the camera's view.
+    let local = camera_transform.affine().inverse().transform_point3(at);
+    let direction = Vec2::new(local.x, -local.y).try_normalize().unwrap_or(Vec2::Y);
+    let half = size / 2.0 - Vec2::splat(POINTER_MARGIN);
+    let reach = (half.x / direction.x.abs().max(1e-3)).min(half.y / direction.y.abs().max(1e-3));
+    let spot = size / 2.0 + direction * reach;
+    node.left = Val::Px(spot.x - POINTER_SIZE / 2.0);
+    node.top = Val::Px(spot.y - POINTER_SIZE / 2.0);
+    let me = game.current.players[game.current.player_index(LOCAL_TEAM, 0)].position;
+    distance.0 = format!("{:.0}m", Vec2::new(at.x - me.x, at.z - me.z).length());
+}
+
+fn show_ball_cam(ball_cam: Res<crate::camera::BallCam>, driver: Res<LocalDriver>, mut label: Single<&mut Visibility, With<BallCamLabel>>) {
+    **label = if ball_cam.0 && *driver == LocalDriver::Human { Visibility::Visible } else { Visibility::Hidden };
 }

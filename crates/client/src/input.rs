@@ -143,11 +143,11 @@ struct Presses {
     ultimate: bool,
 }
 
-/// Holding pass or attack this long charges a hit to full power.
-const CHARGE_SECONDS: f32 = 0.8;
+/// Holding pass or attack this long gives a hit its full (small) boost.
+const CHARGE_SECONDS: f32 = 0.5;
 
-/// Charging hits: a hit charges while its button is held, and uses whatever
-/// charge it has when it meets the ball. Longer holds hit farther.
+/// Boosting hits: a hit charges while its button is held, and uses whatever
+/// charge it has when it meets the ball: a little farther and faster.
 #[derive(Resource, Default)]
 pub struct Charge {
     /// When pass or attack went down, while held.

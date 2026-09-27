@@ -85,19 +85,35 @@ pub struct PlayerInput {
 pub enum Aim {
     /// A spot on the floor, world XZ.
     Spot(Vec2),
-    /// A direction on the floor (world XZ) and how hard, from 0 to 1: harder
-    /// goes farther. Hits over the net always go toward the other side,
-    /// keeping the direction's angle across the court.
+    /// A direction on the floor (world XZ), and a boost from 0 to 1 for a hit
+    /// held a moment before it's made: a little farther and faster. Hits over
+    /// the net always go toward the other side, keeping the direction's angle
+    /// across the court.
     Toward { direction: Vec2, power: f32 },
 }
 
-/// How far a hit of `kind` goes at no power and at full power, in meters.
-fn aim_range(kind: HitKind) -> (f32, f32) {
+/// How far a hit of `kind` goes when aimed by direction, in meters: a pass
+/// reaches a teammate, an attack lands deep, a serve mid-way into the other half.
+fn aim_distance(kind: HitKind) -> f32 {
     match kind {
-        HitKind::Serve => (14.0, 46.0),
-        HitKind::Lob => (6.0, 30.0),
-        HitKind::Pass | HitKind::Dig | HitKind::Kick => (2.0, 16.0),
-        HitKind::Spike | HitKind::Volley | HitKind::Bicycle | HitKind::Dunk => (5.0, 32.0),
+        HitKind::Serve => 30.0,
+        HitKind::Lob => 16.0,
+        HitKind::Pass | HitKind::Dig | HitKind::Kick => 7.0,
+        HitKind::Spike | HitKind::Volley | HitKind::Bicycle | HitKind::Dunk => 18.0,
+    }
+}
+
+/// A fully boosted hit goes this much farther, and gets there this much sooner.
+/// Small on purpose, Mario Tennis style: a tap is a good hit, holding a moment
+/// makes it a little better, and the game stays quick.
+const BOOST_RANGE: f32 = 0.2;
+const BOOST_SPEED: f32 = 0.15;
+
+/// How much a hit is boosted, from 0 to 1.
+fn boost(aim: Option<Aim>) -> f32 {
+    match aim {
+        Some(Aim::Toward { power, .. }) => power.clamp(0.0, 1.0),
+        _ => 0.0,
     }
 }
 
@@ -112,8 +128,7 @@ fn aim_spot(aim: Option<Aim>, kind: HitKind, from: Vec3, side: f32, over_net: bo
             if over_net && direction.x * side > 0.0 {
                 direction.x = -direction.x;
             }
-            let (short, long) = aim_range(kind);
-            let distance = short + (long - short) * power.clamp(0.0, 1.0);
+            let distance = aim_distance(kind) * (1.0 + BOOST_RANGE * power.clamp(0.0, 1.0));
             Some(Vec2::new(from.x, from.z) + direction * distance)
         }
     }
@@ -511,6 +526,7 @@ impl Sim {
         } else {
             (flight_seconds(kind, distance) + spec.hang, spec.wobble)
         };
+        let seconds = seconds * (1.0 - BOOST_SPEED * boost(player.aim));
         Plan { preview: HitPreview { kind, target, spread, quality }, seconds }
     }
 

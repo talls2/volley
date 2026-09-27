@@ -18,11 +18,24 @@ pub fn plugin(app: &mut App) {
     app.insert_resource(ClearColor(SKY))
         .add_systems(Startup, spawn_scene)
         .add_systems(Update, generate_mipmaps.run_if(resource_exists::<NeedsMipmaps>))
-        .add_systems(Update, ((start_bounce, place_ball).chain(), draw_ball_guides));
+        .add_systems(Update, ((start_bounce, place_ball, place_shadow).chain(), draw_ball_guides));
 }
 
 #[derive(Component)]
 pub struct BallView;
+
+/// A soft dark spot on the sand right under the ball, so its height reads at a
+/// glance: big and dark when it's low, small and faint when it's high.
+#[derive(Component)]
+struct BallShadow;
+
+const SHADOW_RADIUS: f32 = 0.35;
+/// The shadow is smallest and faintest with the ball this high.
+const SHADOW_FADE_HEIGHT: f32 = 8.0;
+/// A landing ring starts this big and closes to the landing spot as the ball
+/// comes down, over this many seconds.
+const LANDING_RING: f32 = 2.5;
+const LANDING_WARNING: f32 = 1.5;
 
 /// The beach: a sand floor, an ocean around it, sky and haze.
 const SAND_SIZE: f32 = 160.0;
@@ -126,6 +139,18 @@ fn spawn_scene(
         commands.spawn((Mesh3d(pad.clone()), MeshMaterial3d(pad_material.clone()), Transform::from_xyz(0.0, 0.9, z)));
     }
 
+    commands.spawn((
+        BallShadow,
+        Mesh3d(meshes.add(Circle::new(SHADOW_RADIUS))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgba(0.0, 0.0, 0.0, 0.45),
+            alpha_mode: AlphaMode::Blend,
+            unlit: true,
+            ..default()
+        })),
+        Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
+        NotShadowCaster,
+    ));
     commands.spawn((
         BallView,
         Mesh3d(meshes.add(Sphere::new(BALL_RADIUS))),
@@ -270,15 +295,33 @@ fn place_ball(
 
 /// A ring under the ball and a marker where it will land: the depth cues that
 /// make a ball in 3D readable.
-fn draw_ball_guides(game: Res<Match>, ball: Single<&Transform, With<BallView>>, mut gizmos: Gizmos) {
-    let flat = Quat::from_rotation_x(FRAC_PI_2);
-    let below = ball.translation.with_y(0.02);
-    gizmos.circle(Isometry3d::new(below, flat), BALL_RADIUS, Color::srgba(0.0, 0.0, 0.0, 0.8));
-    if let Some(landing) = game.current.landing_point() {
-        let at = landing.with_y(0.02);
-        gizmos.circle(Isometry3d::new(at, flat), 0.5, Color::WHITE);
-        gizmos.circle(Isometry3d::new(at, flat), 0.25, Color::WHITE);
+fn place_shadow(
+    ball: Single<&Transform, (With<BallView>, Without<BallShadow>)>,
+    shadow: Single<(&mut Transform, &MeshMaterial3d<StandardMaterial>), With<BallShadow>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let (mut transform, material) = shadow.into_inner();
+    let height = (ball.translation.y / SHADOW_FADE_HEIGHT).clamp(0.0, 1.0);
+    transform.translation = ball.translation.with_y(0.015);
+    transform.scale = Vec3::splat(1.0 - 0.6 * height);
+    if let Some(mut material) = materials.get_mut(&material.0) {
+        material.base_color = Color::srgba(0.0, 0.0, 0.0, 0.5 - 0.35 * height);
     }
+}
+
+/// Where the ball will come down, in the color of the team whose side it's
+/// falling on: a target, and a ring closing in on it as the ball drops.
+fn draw_ball_guides(game: Res<Match>, mut gizmos: Gizmos) {
+    let Ball::InFlight(flight) = game.current.ball else { return };
+    let flat = Quat::from_rotation_x(FRAC_PI_2);
+    let landing = flight.landing_point();
+    let at = landing.with_y(0.02);
+    let color = TEAM_COLORS[game.current.team_on(landing.x)].lighter(0.2);
+    gizmos.circle(Isometry3d::new(at, flat), 0.5, color);
+    gizmos.circle(Isometry3d::new(at, flat), 0.25, color);
+    let left = flight.landing_time() - flight.elapsed(game.current.tick);
+    let closing = (left / LANDING_WARNING).clamp(0.0, 1.0);
+    gizmos.circle(Isometry3d::new(at, flat), 0.5 + (LANDING_RING - 0.5) * closing, color.with_alpha(0.7));
 }
 
 /// Textures that should get mipmaps once loaded.

@@ -17,7 +17,7 @@ pub use moves::{Kit, Move, MoveId, Passive};
 pub use player::{Action, Carry, Dash, MovePhase, Player};
 
 use moves::Touch;
-use court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT, NET_HALF_WIDTH, RUNOFF};
+use court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT, NET_HALF_WIDTH};
 
 pub const TICK_HZ: u32 = 60;
 pub const DT: f32 = 1.0 / TICK_HZ as f32;
@@ -38,7 +38,9 @@ const SET_PAUSE_TICKS: u32 = 240;
 pub(crate) const OVER_DEPTH: f32 = HALF_LENGTH * 0.5;
 const SPIKE_DEPTH: f32 = HALF_LENGTH * 0.6;
 /// Default spot for a team's first touch: mid-court, for a teammate to set.
-const RECEIVE_DEPTH: f32 = 3.0;
+const RECEIVE_DEPTH: f32 = 4.0;
+/// Aimed shots land at least this far from the walls.
+const WALL_MARGIN: f32 = 1.0;
 /// Default spot for a set: close to the net, for a teammate to spike.
 pub(crate) const SET_DEPTH: f32 = 1.3;
 
@@ -93,7 +95,7 @@ pub struct MatchConfig {
 impl Default for MatchConfig {
     fn default() -> Self {
         Self {
-            players_per_team: 2,
+            players_per_team: 3,
             set_points: 21,
             deciding_set_points: 15,
             sets_to_win: 2,
@@ -165,7 +167,6 @@ struct Plan {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointReason {
     LandedIn,
-    LandedOut,
     TooManyTouches,
     DoubleTouch,
 }
@@ -188,7 +189,9 @@ pub enum Event {
     Blocked { player: usize, stuffed: bool },
     HitNet { at: Vec3 },
     /// `velocity` is the ball's as it hit the floor.
-    Landed { at: Vec3, velocity: Vec3, inside: bool },
+    Landed { at: Vec3, velocity: Vec3 },
+    /// Bounced off an arena wall.
+    WallBounce { at: Vec3 },
     Point { team: usize, reason: PointReason },
     /// The teams will switch sides before the next rally.
     SidesSwitched,
@@ -385,17 +388,20 @@ impl Sim {
         team * self.config.players_per_team + slot
     }
 
-    /// Where a player lines up at the start of a rally: mid-way back, spread
-    /// across the court.
+    /// Where a player lines up at the start of a rally. With three or more, the
+    /// first plays up front and the rest spread across the back; with fewer,
+    /// they spread across the middle.
     pub fn home_position(&self, player: usize) -> Vec3 {
         let per_team = self.config.players_per_team;
         let slot = player % per_team;
-        let z = if per_team == 1 {
-            0.0
-        } else {
-            HALF_WIDTH * (slot as f32 / (per_team - 1) as f32 - 0.5)
+        let side = self.side(self.players[player].team);
+        let spread = |i: usize, n: usize| if n <= 1 { 0.0 } else { HALF_WIDTH * (i as f32 / (n - 1) as f32 - 0.5) };
+        let (depth, z) = match per_team {
+            1 | 2 => (0.5, spread(slot, per_team)),
+            _ if slot == 0 => (0.3, 0.0),
+            _ => (0.6, spread(slot - 1, per_team - 1)),
         };
-        Vec3::new(self.side(self.players[player].team) * HALF_LENGTH * 0.5, 0.0, z)
+        Vec3::new(side * HALF_LENGTH * depth, 0.0, z)
     }
 
     fn start_rally(&mut self) {
@@ -418,7 +424,7 @@ impl Sim {
         }
 
         let server = self.player_index(self.serving_team, self.serve_rotation[self.serving_team]);
-        self.players[server].position = Vec3::new(self.side(self.serving_team) * (HALF_LENGTH + 1.0), 0.0, 0.0);
+        self.players[server].position = Vec3::new(self.side(self.serving_team) * (HALF_LENGTH - 1.5), 0.0, 0.0);
         self.ball = Ball::Held { by: server };
     }
 
@@ -493,8 +499,10 @@ impl Sim {
         let now = flight.elapsed(self.tick);
         let landing = flight.landing_time();
 
-        if let Some(crossing) = flight.net_crossing_time()
-            && crossing > before
+        if flight.wall_bounces(now) > flight.wall_bounces(before) && now < landing {
+            events.push(Event::WallBounce { at: flight.position_at_time(now) });
+        }
+        if let Some(crossing) = flight.next_net_crossing(before)
             && crossing <= now
             && crossing < landing
         {
@@ -535,14 +543,10 @@ impl Sim {
         }
 
         if now >= landing {
+            // Walls keep everything in: wherever it lands, that side loses the point.
             let at = flight.landing_point();
-            let inside = court::is_inside(at);
-            events.push(Event::Landed { at, velocity: flight.velocity_at_time(landing), inside });
-            if inside {
-                self.award_point(1 - self.team_on(at.x), PointReason::LandedIn, at, events);
-            } else {
-                self.award_point(1 - self.touches.team, PointReason::LandedOut, at, events);
-            }
+            events.push(Event::Landed { at, velocity: flight.velocity_at_time(landing) });
+            self.award_point(1 - self.team_on(at.x), PointReason::LandedIn, at, events);
             return;
         }
 
@@ -695,12 +699,11 @@ fn carried_ball_position(player: &Player) -> Vec3 {
 }
 
 /// Where a shot over the net from the half at `side` lands: the aimed spot, kept
-/// on the other half, or `depth` past the net if unaimed. Aiming outside the
-/// lines lands out.
+/// on the other half and off the walls, or `depth` past the net if unaimed.
 pub(crate) fn over_net_target(side: f32, aim: Option<Vec2>, depth: f32) -> Vec3 {
     let spot = aim.unwrap_or(Vec2::new(-side * depth, 0.0));
-    let (min_x, max_x) = court::x_range(-side, 1.0, HALF_LENGTH + RUNOFF);
-    let max_z = HALF_WIDTH + RUNOFF;
+    let (min_x, max_x) = court::x_range(-side, 1.0, HALF_LENGTH - WALL_MARGIN);
+    let max_z = HALF_WIDTH - WALL_MARGIN;
     Vec3::new(spot.x.clamp(min_x, max_x), BALL_RADIUS, spot.y.clamp(-max_z, max_z))
 }
 
@@ -708,8 +711,8 @@ pub(crate) fn over_net_target(side: f32, aim: Option<Vec2>, depth: f32) -> Vec3 
 /// half, or `depth` from the net if unaimed.
 fn own_side_target(side: f32, aim: Option<Vec2>, depth: f32) -> Vec3 {
     let spot = aim.unwrap_or(Vec2::new(side * depth, 0.0));
-    let (min_x, max_x) = court::x_range(side, 0.8, HALF_LENGTH - 0.5);
-    let max_z = HALF_WIDTH - 0.5;
+    let (min_x, max_x) = court::x_range(side, 0.8, HALF_LENGTH - WALL_MARGIN);
+    let max_z = HALF_WIDTH - WALL_MARGIN;
     Vec3::new(spot.x.clamp(min_x, max_x), BALL_RADIUS, spot.y.clamp(-max_z, max_z))
 }
 

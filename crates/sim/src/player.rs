@@ -1,16 +1,18 @@
 use glam::{Vec2, Vec3};
 
-use crate::court::{self, HALF_LENGTH, HALF_WIDTH, RUNOFF};
+use crate::court::{self, BODY_RADIUS, HALF_LENGTH, HALF_WIDTH};
 use crate::moves::{ALL_ROUNDER, Button, Kit, MoveId, Stance};
 use crate::{DT, PlayerInput, attack};
 
 /// How quickly players speed up and slow down, in m/s². On the ground they reach
 /// running speed or stop in about an eighth of a second; in the air they steer less.
-const ACCELERATION: f32 = 55.0;
-const AIR_ACCELERATION: f32 = 15.0;
+const ACCELERATION: f32 = 70.0;
+const AIR_ACCELERATION: f32 = 18.0;
+/// A server may stand anywhere this deep from the end wall.
+const SERVE_ZONE: f32 = 4.0;
 /// An armed attack pulls the body toward a ball within its move's steering
 /// range this hard, so a jump that's a little off still meets it.
-const STEER_ACCELERATION: f32 = 35.0;
+const STEER_ACCELERATION: f32 = 45.0;
 /// Gravity while carrying the ball, as a fraction of normal: the carrier hangs.
 const CARRY_GRAVITY: f32 = 0.25;
 /// Steering aims to close the gap in about this long.
@@ -369,11 +371,12 @@ impl Player {
         self.position.z += self.velocity.y * DT;
 
         let (min_x, max_x) = if serving {
-            court::x_range(self.side, HALF_LENGTH + 0.3, HALF_LENGTH + RUNOFF)
+            // Serving from the back of the arena.
+            court::x_range(self.side, HALF_LENGTH - SERVE_ZONE, HALF_LENGTH - BODY_RADIUS)
         } else {
-            court::x_range(self.side, 0.4, HALF_LENGTH + RUNOFF)
+            court::x_range(self.side, BODY_RADIUS, HALF_LENGTH - BODY_RADIUS)
         };
-        let max_z = HALF_WIDTH + RUNOFF;
+        let max_z = HALF_WIDTH - BODY_RADIUS;
         let unclamped = self.position;
         self.position.x = self.position.x.clamp(min_x, max_x);
         self.position.z = self.position.z.clamp(-max_z, max_z);

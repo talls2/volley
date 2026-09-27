@@ -109,6 +109,7 @@ fn play_game_sounds(
                 }
             }
             Event::HitNet { at } => play(&mut commands, &sounds.net, 0.8, Some(at)),
+            Event::WallBounce { at } => play(&mut commands, next(&sounds.block, &mut turn), 0.6, Some(at)),
             Event::Landed { at, .. } => play(&mut commands, next(&sounds.sand, &mut turn), 0.9, Some(at)),
             Event::MoveStarted { player, id: MoveId::Dive | MoveId::FootSave } => {
                 play(&mut commands, next(&sounds.step, &mut turn), 1.0, Some(game.current.players[player].position));

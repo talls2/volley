@@ -14,7 +14,7 @@ use crate::feel::Shake;
 use crate::input::{self, LOCAL_TEAM};
 use crate::scene::player_feet;
 
-const DISTANCE: f32 = 6.0;
+const DISTANCE: f32 = 7.0;
 /// The camera looks at this point above the feet, so the player sits low in the frame.
 const LOOK_HEIGHT: f32 = 2.6;
 /// How much of a jump the camera follows; less keeps the view steady.

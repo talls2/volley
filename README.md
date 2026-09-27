@@ -1,10 +1,12 @@
 # Volley
 
-3v3 online beach volleyball with superpowers, built with Rust and Bevy.
+3v3 online arena volleyball with superpowers, built with Rust and Bevy: a mix
+of Knockout City and Rematch on the sand. Like Rematch isn't quite soccer and
+Rocket League isn't quite anything, Volley keeps volleyball's net and three
+touches but plays in a big walled arena built for dashes, leaps and powers.
 
-Right now it's a local 2v2 against bots: you and a bot teammate against two bots.
-The goal of this stage is polished normal volleyball, Mario Tennis style, before
-adding hero characters with powers and then online play.
+Right now it's a local 3v3 against bots: you and two bot teammates against three
+bots, with heroes picked before each match. Online play comes later.
 
 ## Layout
 
@@ -49,10 +51,12 @@ buttons when you use one.
 
 Before each match you pick a hero. You play Red with an All-rounder bot
 teammate, against Cross and an All-rounder. The camera follows you from behind, and movement
-is relative to where it faces. The court is a third bigger than a real one (24 x 12 m).
+is relative to where it faces. The arena is 48 x 24 m, more than twice a real court, with glass walls all
+around: the ball bounces off them and stays in play, so nothing is ever out.
+It only ends when it hits the sand, and that side loses the point.
 
-- **Movement:** a running jump goes about a third higher than a standing one, so run in to attack. Tap jump for a short hop, hold it for the full jump. **Dash** bursts about two meters along the sand toward where you're moving (you can hit or jump out of it; jumping out keeps its speed for a flying approach) and then needs a moment to recharge. Landing fast skids a little in the sand.
-- **Aiming:** hits go where the center of the screen points. Turn to pick a direction; look higher to hit farther. The yellow ring on the floor shows where your next hit lands (red means out). Passes stay on your side; serves, spikes and third touches go over.
+- **Movement:** a running jump goes about a third higher than a standing one, so run in to attack. Tap jump for a short hop, hold it for the full jump. **Dash** bursts about three meters along the sand toward where you're moving (you can hit or jump out of it; jumping out keeps its speed for a flying approach) and then needs a moment to recharge. Landing fast skids a little in the sand.
+- **Aiming:** hits go where the center of the screen points. Turn to pick a direction; look higher to hit farther. The yellow ring on the floor shows where your next hit lands. Bank shots off the walls are fair game. Passes stay on your side; serves, spikes and third touches go over.
 - **Serving:** press pass. Each rally starts with the camera facing the net and the aim mid-way into the other court.
 - **Pass:** your team's first touch goes mid-court, the second is a set near the net, and the third goes over automatically.
 - **No touching twice in a row:** pass to your teammate, then go spike their set.
@@ -67,7 +71,7 @@ is relative to where it faces. The court is a third bigger than a real one (24 x
 
 ## Match rules
 
-Beach volleyball: sets to 21 won by two, a deciding third set to 15, best of
+Volleyball's scoring, beach style: sets to 21 won by two, a deciding third set to 15, best of
 three. Teams switch sides every 7 points (every 5 in the deciding set). The
 team that loses a set serves first in the next. A title screen starts the
 match; a match-over screen offers a rematch.

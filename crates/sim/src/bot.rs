@@ -21,8 +21,8 @@ const REACTION_TICKS: u32 = 15;
 /// Fast balls take this long plus up to `REACTION_SPREAD_TICKS` more, varying
 /// ball to ball like a person's would; a fixed delay makes every spike either
 /// always dug or never dug.
-const FAST_BALL_REACTION_TICKS: u32 = 18;
-const REACTION_SPREAD_TICKS: u32 = 7;
+const FAST_BALL_REACTION_TICKS: u32 = 12;
+const REACTION_SPREAD_TICKS: u32 = 9;
 /// Balls faster than this (m/s, as hit) count as fast: spikes, mostly.
 const FAST_BALL_SPEED: f32 = 15.0;
 /// A no-look hit takes this much longer to read.
@@ -35,6 +35,10 @@ const SPIKE_HEIGHT: f32 = 3.1;
 const SPIKE_RANGE: f32 = 4.5;
 /// Where an attacker waits for the set.
 const APPROACH_DEPTH: f32 = 3.5;
+/// Defenders wait this far back (as a fraction of the half's length), spread
+/// across this fraction of its width.
+const DEFENSE_DEPTH: f32 = 0.45;
+const DEFENSE_WIDTH: f32 = 0.6;
 /// Where a blocker stands, from the net.
 const BLOCK_SPOT: f32 = 0.6;
 /// One attack in this many goes unblocked, varying with the set.
@@ -89,8 +93,8 @@ pub fn input_for(sim: &Sim, me: usize) -> PlayerInput {
     // attack. While a teammate blocks, cover the side the block leaves open.
     let spot = if sim.team_touches(team) == 1 && matches!(sim.ball, Ball::InFlight(_)) {
         sim.home_position(me).with_x(side * APPROACH_DEPTH)
-    } else if let Some(attack) = incoming_attack(sim, team) {
-        Vec3::new(side * HALF_LENGTH * 0.55, 0.0, (-attack.z).clamp(-3.0, 3.0))
+    } else if incoming_attack(sim, team).is_some() {
+        defense_spot(sim, me)
     } else {
         sim.home_position(me)
     };
@@ -181,7 +185,10 @@ fn would_connect(sim: &Sim, me: usize, flight: &Flight, id: MoveId, direction: V
 fn spike(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32) -> PlayerInput {
     let player = &sim.players[me];
     let mut input = PlayerInput::default();
-    input.movement = (to_ball / 0.4).clamp_length_max(1.0);
+    // Run in at the pace that arrives as the ball does: flying in faster
+    // would carry the jump past it.
+    let pace = to_ball.length() / seconds_left.max(0.15) / player.kit.run_speed;
+    input.movement = to_ball.normalize_or_zero() * pace.min(1.0);
     if !player.grounded() {
         // Arm the attack right away; it steers the rest of the way. A blocker
         // lined up gets crossed over instead, carrying the ball away from them.
@@ -274,6 +281,19 @@ fn block(sim: &Sim, me: usize) -> Option<PlayerInput> {
         pass: player.grounded() && in_range && until_spike.is_some_and(|t| t <= rise_time - 0.1),
         ..default()
     })
+}
+
+/// Where to wait for an attack: everyone takes a lane across the back, in
+/// their order across the court. Whoever goes up to block leaves theirs, and
+/// the block covers what it leaves open behind it.
+fn defense_spot(sim: &Sim, me: usize) -> Vec3 {
+    let team = sim.players[me].team;
+    let mut order: Vec<usize> = (0..sim.config.players_per_team).map(|slot| sim.player_index(team, slot)).collect();
+    order.sort_by(|&a, &b| sim.players[a].position.z.total_cmp(&sim.players[b].position.z));
+    let lane = order.iter().position(|&i| i == me).unwrap_or(0) as f32;
+    let lanes = order.len() as f32;
+    let z = if lanes > 1.0 { HALF_WIDTH * DEFENSE_WIDTH * (2.0 * lane / (lanes - 1.0) - 1.0) } else { 0.0 };
+    Vec3::new(sim.side(team) * HALF_LENGTH * DEFENSE_DEPTH, 0.0, z)
 }
 
 /// Where the other team is about to spike from, if they are.

@@ -162,7 +162,7 @@ const DIVE: Move = Move {
     reach: 1.5,
     low: 0.0,
     high: 1.3,
-    lunge: Some(9.0),
+    lunge: Some(11.0),
     touch: Touch::Keep(HitKind::Dig),
     hang: 0.3,
     ..PASS
@@ -269,9 +269,9 @@ impl Kit {
 
 pub const ALL_ROUNDER: Kit = Kit {
     name: "All-rounder",
-    run_speed: 6.5,
+    run_speed: 8.5,
     jump_speed: 7.0,
-    dash_speed: 11.0,
+    dash_speed: 15.0,
     moves: &[MoveId::Pass, MoveId::Spike, MoveId::Dive, MoveId::FootSave],
     passives: &[],
 };
@@ -280,9 +280,9 @@ pub const ALL_ROUNDER: Kit = Kit {
 /// handler, but no foot save, so low balls are trouble.
 pub const CROSS: Kit = Kit {
     name: "Cross",
-    run_speed: 7.0,
+    run_speed: 9.2,
     jump_speed: 7.6,
-    dash_speed: 11.5,
+    dash_speed: 16.0,
     moves: &[MoveId::Pass, MoveId::Spike, MoveId::Dive, MoveId::Crossover, MoveId::Posterizer],
     passives: &[Passive::Dribble, Passive::NoLook],
 };

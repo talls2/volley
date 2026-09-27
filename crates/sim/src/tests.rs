@@ -106,16 +106,51 @@ fn landing(sim: &Sim) -> Vec2 {
     Vec2::new(at.x, at.z)
 }
 
-#[test]
-fn passes_stay_on_your_side() {
-    let target = own_side_target(-1.0, Some(Vec2::new(8.0, 20.0)), SET_DEPTH);
-    assert!(target.x < 0.0 && court::is_inside(target), "{target}");
+fn off_the_walls(at: Vec3) -> bool {
+    at.x.abs() <= HALF_LENGTH - WALL_MARGIN && at.z.abs() <= HALF_WIDTH - WALL_MARGIN
 }
 
 #[test]
-fn aiming_out_lands_out() {
-    let target = over_net_target(-1.0, Some(Vec2::new(HALF_LENGTH + 2.0, 0.0)), OVER_DEPTH);
-    assert!(!court::is_inside(target), "{target}");
+fn passes_stay_on_your_side() {
+    let target = own_side_target(-1.0, Some(Vec2::new(8.0, 40.0)), SET_DEPTH);
+    assert!(target.x < 0.0 && off_the_walls(target), "{target}");
+}
+
+#[test]
+fn aims_stay_off_the_walls() {
+    let target = over_net_target(-1.0, Some(Vec2::new(HALF_LENGTH + 5.0, -30.0)), OVER_DEPTH);
+    assert!(target.x > 0.0 && off_the_walls(target), "{target}");
+}
+
+#[test]
+fn walls_bounce_the_ball_back_in() {
+    // Hit hard at the side wall: it comes back off it, still flying.
+    let flight = Flight::to_target(Vec3::new(-5.0, 2.0, 8.0), Vec3::new(-5.0, BALL_RADIUS, 20.0), 1.0, 0);
+    let landed = flight.landing_point();
+    assert!(landed.z.abs() < HALF_WIDTH, "landed at {landed}");
+    assert!((landed.z - (2.0 * (HALF_WIDTH - BALL_RADIUS) - 20.0)).abs() < 0.01, "mirrored off the wall: {landed}");
+    assert_eq!(flight.wall_bounces(1.0), 1);
+    assert!(flight.velocity_at_time(1.0).z < 0.0, "heading back from the wall");
+
+    // In the arena: the bounce is an event, and the ball still scores where it lands.
+    let mut sim = Sim::new(MatchConfig::default());
+    sim.ball = Ball::InFlight(Flight { start_tick: sim.tick, ..flight });
+    let mut events = Vec::new();
+    for _ in 0..2 * TICK_HZ {
+        events.extend(sim.step(&idle(&sim)));
+    }
+    assert!(events.iter().any(|e| matches!(e, Event::WallBounce { .. })), "{events:?}");
+    assert!(events.contains(&Event::Point { team: 1, reason: PointReason::LandedIn }), "{events:?}");
+}
+
+#[test]
+fn a_ball_off_the_end_wall_can_come_back_over_the_net() {
+    // Hit flat and fast toward the far end wall, low enough to rebound into the net.
+    let flight = Flight { origin: Vec3::new(20.0, 2.2, 0.0), velocity: Vec3::new(40.0, 1.5, 0.0), start_tick: 0 };
+    let back = flight.next_net_crossing(0.0).expect("crosses back");
+    assert!(back > (HALF_LENGTH - 20.0) / 40.0, "only after the wall: {back}");
+    assert!(flight.position_at_time(back).x.abs() < 1e-3);
+    assert!(flight.velocity_at_time(back).x < 0.0, "heading back toward the net");
 }
 
 /// A spike from team 0 straight at the net, with team 1's first player in the
@@ -337,7 +372,7 @@ fn bots_play_real_rallies() {
                     last_team = Some(sim.players[player].team);
                 }
                 // Dropped on their own side after touching it: a fumble, not a point won by the other team.
-                Event::Landed { at, inside, .. } if inside && Some(sim.team_on(at.x)) == last_team => {
+                Event::Landed { at, .. } if Some(sim.team_on(at.x)) == last_team => {
                     unforced_errors += 1;
                 }
                 _ => {}
@@ -861,3 +896,4 @@ fn heroes_with_kits_play_real_rallies() {
     let faults = count(&events, |e| matches!(e, Event::Point { reason: PointReason::DoubleTouch | PointReason::TooManyTouches, .. }));
     assert_eq!(faults, 0);
 }
+

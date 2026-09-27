@@ -5,13 +5,13 @@
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::prelude::*;
-use volley_sim::{Ball, court};
+use volley_sim::Ball;
 
 use crate::Match;
 use crate::input::{LOCAL_TEAM, LocalDriver};
 
 /// Aiming at or above the horizon reaches this far.
-const MAX_DISTANCE: f32 = 30.0;
+const MAX_DISTANCE: f32 = 60.0;
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Update, draw_aim_marker);
@@ -32,9 +32,8 @@ pub fn floor_point(camera: &Transform) -> Vec2 {
     from + horizontal.normalize_or_zero() * reach.min(MAX_DISTANCE)
 }
 
-/// Shows where your next hit would go while the ball is yours to play: yellow
-/// if it lands in, red if out. An outer ring shows how far off a hit from a
-/// bad position may stray.
+/// Shows where your next hit would go while the ball is yours to play. An
+/// outer ring shows how far off a hit from a bad position may stray.
 fn draw_aim_marker(game: Res<Match>, driver: Res<LocalDriver>, mut gizmos: Gizmos) {
     if *driver != LocalDriver::Human {
         return;
@@ -54,7 +53,7 @@ fn draw_aim_marker(game: Res<Match>, driver: Res<LocalDriver>, mut gizmos: Gizmo
     }
     let preview = sim.preview_hit(me);
     let spot = preview.target;
-    let color = if court::is_inside(spot) { Color::srgb(1.0, 0.95, 0.4) } else { Color::srgb(1.0, 0.25, 0.2) };
+    let color = Color::srgb(1.0, 0.95, 0.4);
     let at = spot.with_y(0.03);
     let flat = Quat::from_rotation_x(FRAC_PI_2);
     // Big enough to read at the far end of the court.

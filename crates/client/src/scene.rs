@@ -1,9 +1,10 @@
-//! The 3D view: the beach, court, net and ball, placed from the simulation
-//! each frame. Players are in `characters`.
+//! The 3D view: the beach, the walled arena, the net and the ball, placed from
+//! the simulation each frame. Players are in `characters`.
 
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
+use bevy::light::NotShadowCaster;
 use bevy::math::Affine2;
 use bevy::prelude::*;
 use volley_sim::{Ball, Event, Sim};
@@ -24,7 +25,12 @@ pub fn plugin(app: &mut App) {
 pub struct BallView;
 
 /// The beach: a sand floor, an ocean around it, sky and haze.
-const SAND_SIZE: f32 = 90.0;
+const SAND_SIZE: f32 = 160.0;
+/// The arena's glass walls: how tall they look (to the ball they go up forever),
+/// the padded band along their base, and the frame posts' spacing.
+const WALL_HEIGHT: f32 = 8.0;
+const PAD_HEIGHT: f32 = 1.0;
+const POST_SPACING: f32 = 4.0;
 /// Real-world size of one tile of the sand texture.
 const SAND_TILE: f32 = 1.5;
 const LINE_COLOR: Color = Color::srgb(0.1, 0.35, 0.85);
@@ -80,7 +86,9 @@ fn spawn_scene(
         Transform::from_xyz(0.0, -0.25, 0.0),
     ));
 
-    // Boundary straps: beach courts have no center or attack lines.
+    spawn_walls(&mut commands, &mut meshes, &mut materials);
+
+    // Straps along the walls, and one under the net.
     let line = 0.08;
     let strap = materials.add(LINE_COLOR);
     for (size, at) in [
@@ -88,6 +96,7 @@ fn spawn_scene(
         (Vec3::new(2.0 * HALF_LENGTH + line, 0.01, line), Vec3::new(0.0, 0.005, HALF_WIDTH)),
         (Vec3::new(line, 0.01, 2.0 * HALF_WIDTH), Vec3::new(-HALF_LENGTH, 0.005, 0.0)),
         (Vec3::new(line, 0.01, 2.0 * HALF_WIDTH), Vec3::new(HALF_LENGTH, 0.005, 0.0)),
+        (Vec3::new(line, 0.01, 2.0 * HALF_WIDTH), Vec3::new(0.0, 0.005, 0.0)),
     ] {
         commands.spawn((Mesh3d(meshes.add(Cuboid::from_size(size))), MeshMaterial3d(strap.clone()), Transform::from_translation(at)));
     }
@@ -123,6 +132,63 @@ fn spawn_scene(
         MeshMaterial3d(materials.add(Color::srgb(1.0, 0.92, 0.45))),
         Transform::default(),
     ));
+}
+
+/// Glass walls around the arena, padded along the base in each half's team
+/// color, with frame posts and a top rail.
+fn spawn_walls(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) {
+    let glass = materials.add(StandardMaterial {
+        base_color: Color::srgba(0.75, 0.9, 1.0, 0.12),
+        alpha_mode: AlphaMode::Blend,
+        perceptual_roughness: 0.05,
+        reflectance: 0.8,
+        ..default()
+    });
+    let frame = materials.add(Color::srgb(0.92, 0.93, 0.95));
+    let pads = [materials.add(TEAM_COLORS[0].darker(0.1)), materials.add(TEAM_COLORS[1].darker(0.1))];
+    let thickness = 0.1;
+    // Each wall as (center, length along it, whether it runs along x).
+    let walls = [
+        (Vec3::new(0.0, 0.0, -HALF_WIDTH - thickness / 2.0), 2.0 * HALF_LENGTH, true),
+        (Vec3::new(0.0, 0.0, HALF_WIDTH + thickness / 2.0), 2.0 * HALF_LENGTH, true),
+        (Vec3::new(-HALF_LENGTH - thickness / 2.0, 0.0, 0.0), 2.0 * HALF_WIDTH, false),
+        (Vec3::new(HALF_LENGTH + thickness / 2.0, 0.0, 0.0), 2.0 * HALF_WIDTH, false),
+    ];
+    for (center, length, along_x) in walls {
+        let size = |long: f32, tall: f32, thick: f32| if along_x { Vec3::new(long, tall, thick) } else { Vec3::new(thick, tall, long) };
+        commands.spawn((
+            Mesh3d(meshes.add(Cuboid::from_size(size(length, WALL_HEIGHT, thickness)))),
+            MeshMaterial3d(glass.clone()),
+            Transform::from_translation(center + Vec3::Y * WALL_HEIGHT / 2.0),
+            NotShadowCaster,
+        ));
+        commands.spawn((
+            Mesh3d(meshes.add(Cuboid::from_size(size(length, 0.12, 0.16)))),
+            MeshMaterial3d(frame.clone()),
+            Transform::from_translation(center + Vec3::Y * WALL_HEIGHT),
+        ));
+        // Pads: a side wall spans both halves, so it gets one per half.
+        let halves: &[(f32, f32)] = if along_x { &[(-HALF_LENGTH / 2.0, HALF_LENGTH), (HALF_LENGTH / 2.0, HALF_LENGTH)] } else { &[(0.0, 2.0 * HALF_WIDTH)] };
+        for &(offset, long) in halves {
+            let at = center + if along_x { Vec3::new(offset, 0.0, 0.0) } else { Vec3::ZERO };
+            let pad = &pads[usize::from(at.x > 0.0)];
+            commands.spawn((
+                Mesh3d(meshes.add(Cuboid::from_size(size(long, PAD_HEIGHT, 0.25)))),
+                MeshMaterial3d(pad.clone()),
+                Transform::from_translation(at + Vec3::Y * PAD_HEIGHT / 2.0),
+            ));
+        }
+        let posts = (length / POST_SPACING).round() as i32;
+        for i in 0..=posts {
+            let along = -length / 2.0 + length * i as f32 / posts as f32;
+            let offset = if along_x { Vec3::new(along, 0.0, 0.0) } else { Vec3::new(0.0, 0.0, along) };
+            commands.spawn((
+                Mesh3d(meshes.add(Cuboid::new(0.12, WALL_HEIGHT, 0.12))),
+                MeshMaterial3d(frame.clone()),
+                Transform::from_translation(center + offset + Vec3::Y * WALL_HEIGHT / 2.0),
+            ));
+        }
+    }
 }
 
 /// How far between the previous and current tick to draw, or `None` right

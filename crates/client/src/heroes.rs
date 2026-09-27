@@ -52,11 +52,11 @@ pub fn buttons(device: ActiveDevice) -> (&'static str, &'static str) {
     }
 }
 
-/// A new match with you as `choice` and an All-rounder teammate, against a
-/// Cross and an All-rounder, so there's always a Cross to face.
+/// A new match with you as `choice` and two All-rounder teammates, against a
+/// Cross and two All-rounders, so there's always a Cross to face.
 pub fn new_match(choice: usize) -> Sim {
     let mut sim = Sim::new(MatchConfig::default());
-    let lineup = [[HEROES[choice], ALL_ROUNDER], [CROSS, ALL_ROUNDER]];
+    let lineup = [[HEROES[choice], ALL_ROUNDER, ALL_ROUNDER], [CROSS, ALL_ROUNDER, ALL_ROUNDER]];
     for (team, kits) in lineup.into_iter().enumerate() {
         let team = if team == 0 { LOCAL_TEAM } else { 1 - LOCAL_TEAM };
         for (slot, kit) in kits.into_iter().enumerate() {

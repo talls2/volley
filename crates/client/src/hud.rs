@@ -43,7 +43,7 @@ struct AbilityPanel;
 #[derive(Component)]
 struct NameTag(usize);
 
-fn spawn_hud(mut commands: Commands) {
+fn spawn_hud(mut commands: Commands, game: Res<Match>) {
     commands.spawn((
         Node {
             width: Val::Percent(100.0),
@@ -84,7 +84,7 @@ fn spawn_hud(mut commands: Commands) {
         SHADOW,
         Node { position_type: PositionType::Absolute, right: Val::Px(18.0), bottom: Val::Px(14.0), ..default() },
     ));
-    for player in 0..4 {
+    for player in 0..game.current.players.len() {
         commands.spawn((
             NameTag(player),
             Text::default(),
@@ -137,7 +137,6 @@ fn announce_points(
             Event::Point { team, reason } => {
                 let why = match reason {
                     PointReason::LandedIn => "ball landed in",
-                    PointReason::LandedOut => "ball out",
                     PointReason::TooManyTouches => "four touches",
                     PointReason::DoubleTouch => "double touch",
                 };
@@ -213,7 +212,7 @@ fn update_controls_help(
     help.0 = match (*driver, *device) {
         (LocalDriver::Human, ActiveDevice::Keyboard) => format!(
             "You are {you}. Click to look with the mouse, Esc to release it. Hits go where you look:\n\
-             the yellow ring shows where (red = out). Look higher to hit farther.\n\
+             the yellow ring shows where. Look higher to hit farther; the walls bounce everything back in.\n\
              WASD move | C dash | Space jump (hold for full height; run in to jump higher) | Q pass / serve (at the net: block)\n\
              E attack (in the air: spike, volley or bicycle kick) | Shift dive | F foot save | R ability | G ultimate | P pause | 1 let a bot play",
         ),

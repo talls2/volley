@@ -28,6 +28,46 @@ The first build compiles Bevy and takes several minutes; after that it's quick.
 Run the client with `cargo run`: Bevy finds `crates/client/assets` through the
 variables cargo sets, so launching the binary directly won't load the characters.
 
+## How to playtest
+
+**Setup, once:**
+
+1. Install Rust with [rustup](https://rustup.rs) (1.85 or newer, for the 2024
+   edition). On Linux, Bevy also needs the audio and input headers, e.g.
+   `sudo apt install g++ pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0`.
+2. Clone the game and play:
+
+   ```bash
+   git clone https://github.com/talls2/volley
+   cd volley
+   cargo run -p volley_client
+   ```
+
+   The first build takes several minutes; later ones are quick.
+
+**Each session:** get the latest build with `git pull`, then `cargo run -p volley_client`
+again. `git log -1` shows which version you're on; mention it when you report.
+
+**What to try:** play full matches against the bots, with keyboard and mouse
+and with a controller if you have one. The [controls](#controls) are below, and
+the on-screen help follows the device you use. Pick different heroes. `P`
+pauses; `1` hands your player to a bot, which is handy for watching a rally.
+
+**What to report:** anything that feels wrong, not only crashes. The most useful
+notes are:
+
+- **Feel:** a hit that went somewhere you didn't mean, a jump or dash that felt
+  late, a ball you couldn't follow, a hero that feels too strong or too weak.
+- **Bots:** plays that look silly, or bots that are too easy or impossible.
+- **Bugs:** crashes, stuck players, the ball going through something, wrong
+  scores, missing sounds or animations.
+- **Fun:** what you kept wanting to do again, and when you got bored.
+
+Open a [GitHub issue](https://github.com/talls2/volley/issues) per problem with
+what you did, what you expected and what happened, and how often it happens.
+A short clip or screenshot helps a lot. For a crash, paste the last lines the
+terminal printed.
+
 ## Controls
 
 | | Keyboard & mouse | Xbox controller |

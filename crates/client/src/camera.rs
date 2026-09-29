@@ -80,7 +80,12 @@ fn ball_cam(
     if !ball_cam.0 || !matches!(game.current.ball, Ball::InFlight(_) | Ball::Carried { .. }) {
         return;
     }
-    let Ok(ball) = views.single().map(|view| view.translation) else { return };
+    let Ok(mut ball) = views.single().map(|view| view.translation) else { return };
+    // With a decoy flying too, look between the two: locking onto the real one
+    // would give it away.
+    if let Some(decoy) = game.current.decoy() {
+        ball = ball.lerp(decoy.position_at(game.current.tick), 0.5);
+    }
     let feet = player_feet(&game, &fixed, game.current.player_index(LOCAL_TEAM, 0));
     let to_ball = Vec2::new(ball.x - feet.x, ball.z - feet.z);
     if to_ball.length() < BALL_CAM_DEAD_ZONE {

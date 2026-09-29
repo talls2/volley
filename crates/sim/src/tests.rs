@@ -146,7 +146,7 @@ fn walls_bounce_the_ball_back_in() {
 #[test]
 fn a_ball_off_the_end_wall_can_come_back_over_the_net() {
     // Hit flat and fast toward the far end wall, low enough to rebound into the net.
-    let flight = Flight { origin: Vec3::new(20.0, 2.2, 0.0), velocity: Vec3::new(40.0, 1.5, 0.0), start_tick: 0 };
+    let flight = Flight { origin: Vec3::new(20.0, 2.2, 0.0), velocity: Vec3::new(40.0, 1.5, 0.0), start_tick: 0, curve: 0.0 };
     let back = flight.next_net_crossing(0.0).expect("crosses back");
     assert!(back > (HALF_LENGTH - 20.0) / 40.0, "only after the wall: {back}");
     assert!(flight.position_at_time(back).x.abs() < 1e-3);
@@ -580,7 +580,7 @@ fn armed_spike_waits_for_the_sweet_spot() {
     let rise = sim.players[player].kit.jump_speed / player::PLAYER_GRAVITY;
     let velocity = Vec3::new(-0.5, -3.0, 0.0);
     let origin = apex - velocity * rise + Vec3::Y * 0.5 * court::BALL_GRAVITY * rise * rise;
-    sim.ball = Ball::InFlight(Flight { origin, velocity, start_tick: sim.tick });
+    sim.ball = Ball::InFlight(Flight { origin, velocity, start_tick: sim.tick, curve: 0.0 });
 
     let mut inputs = idle(&sim);
     inputs[player].jump = true;
@@ -609,7 +609,7 @@ fn ball_behind_the_head_gets_a_bicycle_kick() {
     sim.players[player].position = Vec3::new(-4.0, 0.3, 0.0);
     sim.players[player].vertical_velocity = 5.0;
     sim.players[player].action = Some(Action { id: MoveId::Spike, start_tick: tick, direction: Vec2::X, spent: false });
-    sim.ball = Ball::InFlight(Flight { origin: Vec3::new(-4.9, 3.0, 0.2), velocity: Vec3::ZERO, start_tick: tick });
+    sim.ball = Ball::InFlight(Flight { origin: Vec3::new(-4.9, 3.0, 0.2), velocity: Vec3::ZERO, start_tick: tick, curve: 0.0 });
     let events = run_bots_idle(&mut sim, TICK_HZ);
     assert!(events.iter().any(|e| matches!(e, Event::Touched { player: 0, kind: HitKind::Bicycle, .. })), "{events:?}");
 }
@@ -733,7 +733,7 @@ fn cross_under_ball(ball: Vec3, touches: u32, last: Option<usize>) -> (Sim, usiz
     let cross = sim.player_index(0, 0);
     sim.set_kit(cross, moves::CROSS);
     sim.players[cross].position = Vec3::new(ball.x, 0.0, ball.z);
-    sim.ball = Ball::InFlight(Flight { origin: ball, velocity: Vec3::ZERO, start_tick: sim.tick });
+    sim.ball = Ball::InFlight(Flight { origin: ball, velocity: Vec3::ZERO, start_tick: sim.tick, curve: 0.0 });
     sim.touches = Touches { count: touches, last, ..Touches::new(0) };
     (sim, cross)
 }
@@ -964,4 +964,102 @@ fn holding_pass_waits_for_the_ball() {
         events.extend(sim.step(&idle(&sim)));
     }
     assert!(!events.iter().any(|e| matches!(e, Event::Touched { .. })), "{events:?}");
+}
+
+
+#[test]
+fn banana_kicks_bend_onto_their_spot() {
+    let (from, target) = (Vec3::new(-3.0, 1.0, 0.0), Vec3::new(10.0, BALL_RADIUS, 4.0));
+    let flight = Flight::curving_to_target(from, target, 1.0, -14.0, 0);
+    assert!(flight.landing_point().distance(target) < 0.01, "lands on its spot: {}", flight.landing_point());
+    // Halfway there it's out wide of the straight line, bending back in.
+    let straight = from.lerp(target, 0.5).z;
+    let midway = flight.position_at_time(0.5).z;
+    assert!(midway > straight + 1.0, "bows out: {midway} vs {straight}");
+}
+
+#[test]
+fn golazo_cant_block() {
+    let mut sim = Sim::new(MatchConfig::default());
+    let player = sim.player_index(1, 0);
+    sim.set_kit(player, moves::GOLAZO);
+    sim.players[player].position = Vec3::new(0.6, 0.0, 0.0);
+    sim.ball = Ball::Dead { at: Vec3::new(-3.0, 1.0, 0.0) };
+    let mut inputs = idle(&sim);
+    inputs[player].pass = true;
+    sim.step(&inputs);
+    assert!(!sim.players[player].blocking());
+}
+
+#[test]
+fn great_feet_reach_higher_balls() {
+    let mut body = Player::new(0, -1.0, Vec3::new(-5.0, 0.0, 0.0));
+    let waist_high = Vec3::new(-5.0, 1.2, 2.3);
+    assert!(!body.reaches(MoveId::FootSave, waist_high));
+    body.kit = moves::GOLAZO;
+    assert!(body.reaches(MoveId::FootSave, waist_high));
+}
+
+#[test]
+fn a_chilena_sends_a_decoy_that_pops_when_played() {
+    let mut sim = Sim::new(MatchConfig::default());
+    let golazo = sim.player_index(0, 0);
+    sim.set_kit(golazo, moves::GOLAZO);
+    sim.players[golazo].position = Vec3::new(-2.0, 1.2, 0.0);
+    sim.players[golazo].aim = Some(Aim::Spot(Vec2::new(12.0, 5.0)));
+    sim.touches = Touches { count: 2, last: Some(1), ..Touches::new(0) };
+    let from = Vec3::new(-2.0, 3.0, 0.0);
+    let plan = sim.plan_hit(golazo, MoveId::Chilena, 3, from);
+    let mut events = Vec::new();
+    sim.hit(golazo, plan, from, &mut events);
+    assert!(events.contains(&Event::Split { player: golazo }));
+    let decoy = sim.decoy().expect("a decoy flies too");
+    assert!((decoy.landing_point().z - 5.0).abs() > 4.0, "somewhere else: {}", decoy.landing_point());
+
+    // A defender waiting where the decoy comes down plays it: it vanishes.
+    let defender = sim.player_index(1, 0);
+    let t = decoy.descending_time_at_height(1.2).unwrap();
+    let at = decoy.position_at_time(t);
+    sim.players[defender].position = at.with_y(0.0);
+    let mut events = Vec::new();
+    for _ in 0..3 * TICK_HZ {
+        let mut inputs = idle(&sim);
+        inputs[defender] = PlayerInput { pass: true, pass_held: true, ..default() };
+        events.extend(sim.step(&inputs));
+        if events.iter().any(|e| matches!(e, Event::Point { .. })) {
+            break;
+        }
+    }
+    assert!(events.contains(&Event::DecoyPopped { player: defender }), "{events:?}");
+    assert!(sim.decoy().is_none());
+    // The real ball lands untouched: Golazo's team scores.
+    assert!(events.contains(&Event::Point { team: 0, reason: PointReason::LandedIn }), "{events:?}");
+}
+
+#[test]
+fn all_heroes_play_real_rallies() {
+    let mut sim = Sim::new(MatchConfig::default());
+    for team in 0..2 {
+        sim.set_kit(sim.player_index(team, 0), moves::GOLAZO);
+        sim.set_kit(sim.player_index(team, 1), moves::CROSS);
+    }
+    let events = run_bots(&mut sim, 300 * TICK_HZ);
+    let points = count(&events, |e| matches!(e, Event::Point { .. }));
+    assert!((15..=60).contains(&points), "{points} points");
+    assert!(count(&events, |e| matches!(e, Event::Touched { kind: HitKind::Curve, .. })) > 0, "no banana kicks");
+    let faults = count(&events, |e| matches!(e, Event::Point { reason: PointReason::DoubleTouch | PointReason::TooManyTouches, .. }));
+    assert_eq!(faults, 0);
+}
+
+#[test]
+fn great_feet_only_kick() {
+    let mut body = Player::new(0, -1.0, Vec3::new(-3.0, 1.0, 0.0));
+    body.kit = moves::GOLAZO;
+    // A ball right where a hand would spike it gets kicked instead.
+    let (kind, quality) = attack::best_technique(&body, body.position + Vec3::new(0.3, 2.1, 0.0));
+    assert_eq!(kind, HitKind::Volley);
+    // Chest high in front is his volley's sweet spot.
+    let (kind, quality_chest) = attack::best_technique(&body, body.position + Vec3::new(0.5, 1.4, 0.0));
+    assert_eq!((kind, quality_chest), (HitKind::Volley, 1.0));
+    assert!(quality < 1.0);
 }

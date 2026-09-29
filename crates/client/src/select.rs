@@ -74,7 +74,7 @@ fn spawn_select(mut commands: Commands) {
             .spawn((
                 Card(index),
                 Node {
-                    width: Val::Px(400.0),
+                    width: Val::Px(360.0),
                     flex_direction: FlexDirection::Column,
                     row_gap: Val::Px(8.0),
                     padding: UiRect::all(Val::Px(20.0)),

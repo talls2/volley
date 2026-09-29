@@ -46,13 +46,27 @@ pub struct Flight {
     pub origin: Vec3,
     pub velocity: Vec3,
     pub start_tick: u32,
+    /// Sideways acceleration (along z, across the court), for a ball hit with
+    /// spin that bends in flight. Across the court only, so where it crosses
+    /// the net stays simple to find.
+    pub curve: f32,
 }
 
 impl Flight {
     /// Launches from `origin` so the ball arrives at `target` after `seconds`.
     pub fn to_target(origin: Vec3, target: Vec3, seconds: f32, start_tick: u32) -> Self {
-        let velocity = (target - origin - 0.5 * GRAVITY * seconds * seconds) / seconds;
-        Self { origin, velocity, start_tick }
+        Self::curving_to_target(origin, target, seconds, 0.0, start_tick)
+    }
+
+    /// Like [`Flight::to_target`], bending sideways at `curve` m/s² on the way.
+    pub fn curving_to_target(origin: Vec3, target: Vec3, seconds: f32, curve: f32, start_tick: u32) -> Self {
+        let acceleration = GRAVITY + Vec3::Z * curve;
+        let velocity = (target - origin - 0.5 * acceleration * seconds * seconds) / seconds;
+        Self { origin, velocity, start_tick, curve }
+    }
+
+    fn acceleration(&self) -> Vec3 {
+        GRAVITY + Vec3::Z * self.curve
     }
 
     /// Seconds since launch at `tick`.
@@ -62,7 +76,7 @@ impl Flight {
 
     /// Where the ball would be at `t` with no walls.
     fn free(&self, t: f32) -> Vec3 {
-        self.origin + self.velocity * t + 0.5 * GRAVITY * t * t
+        self.origin + self.velocity * t + 0.5 * self.acceleration() * t * t
     }
 
     pub fn position_at_time(&self, t: f32) -> Vec3 {
@@ -75,7 +89,7 @@ impl Flight {
     }
 
     pub fn velocity_at_time(&self, t: f32) -> Vec3 {
-        let (free, v) = (self.free(t), self.velocity + GRAVITY * t);
+        let (free, v) = (self.free(t), self.velocity + self.acceleration() * t);
         Vec3::new(v.x * fold(free.x, REACH_X).1, v.y, v.z * fold(free.z, REACH_Z).1)
     }
 

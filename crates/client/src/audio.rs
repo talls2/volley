@@ -91,7 +91,7 @@ fn play_game_sounds(
                 *last_hit = Some(kind);
                 let (set, volume) = match kind {
                     // A mishit sounds like one.
-                    HitKind::Spike | HitKind::Volley | HitKind::Bicycle => (&sounds.spike, 0.4 + 0.6 * quality),
+                    HitKind::Spike | HitKind::Volley | HitKind::Bicycle | HitKind::Curve => (&sounds.spike, 0.4 + 0.6 * quality),
                     HitKind::Dunk => {
                         play(&mut commands, &sounds.roar, 0.7, None);
                         (&sounds.spike, 1.2)
@@ -118,6 +118,11 @@ fn play_game_sounds(
             // The catch: a soft slap of the palm.
             Event::Carried { .. } => play(&mut commands, next(&sounds.pass, &mut turn), 0.5, Some(ball)),
             Event::Dribbled { .. } => {}
+            Event::Split { .. } => play(&mut commands, &sounds.roar, 0.7, None),
+            Event::DecoyPopped { player } => {
+                play(&mut commands, next(&sounds.pass, &mut turn), 0.4, Some(game.current.players[player].position));
+                play(&mut commands, &sounds.cheer, 0.4, None);
+            }
             Event::Posterized { player } => {
                 play(&mut commands, next(&sounds.block, &mut turn), 1.0, Some(game.current.players[player].position));
                 play(&mut commands, &sounds.roar, 0.8, None);

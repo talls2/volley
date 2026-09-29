@@ -202,6 +202,7 @@ fn announce_points(
             Event::Touched { player, kind, quality } if kind.is_attack() && player == game.current.player_index(LOCAL_TEAM, 0) => {
                 let how = match kind {
                     HitKind::Dunk => "Slam dunk",
+                    HitKind::Curve => "Banana kick",
                     HitKind::Volley => "Volley kick",
                     HitKind::Bicycle => "Bicycle kick",
                     _ => "Spike",
@@ -216,16 +217,22 @@ fn announce_points(
                 color.0 = Color::srgb(1.0, 0.85 * quality + 0.15, 0.3);
                 *callout_until = Some(time.elapsed_secs() + CALLOUT_SECONDS);
             }
-            Event::Dribbled { player } | Event::Carried { player } | Event::Posterized { player } => {
+            Event::Dribbled { player }
+            | Event::Carried { player }
+            | Event::Posterized { player }
+            | Event::Split { player }
+            | Event::DecoyPopped { player } => {
                 text.0 = match *event {
                     Event::Dribbled { .. } => "Dribble!",
                     Event::Carried { .. } => "Crossover!",
+                    Event::Split { .. } => "CHILENA! Which ball is real?",
+                    Event::DecoyPopped { .. } => "Fooled! That one was the decoy",
                     _ => "POSTERIZED!",
                 }
                 .to_string();
-                // A knockdown is the other team's highlight.
+                // Knockdowns and decoys fooling someone are the other team's highlights.
                 let team = game.current.players[player].team;
-                let team = if matches!(event, Event::Posterized { .. }) { 1 - team } else { team };
+                let team = if matches!(event, Event::Posterized { .. } | Event::DecoyPopped { .. }) { 1 - team } else { team };
                 color.0 = TEAM_COLORS[team];
                 *callout_until = Some(time.elapsed_secs() + CALLOUT_SECONDS);
             }
@@ -386,7 +393,8 @@ fn point_to_ball(
     let (camera, camera_transform) = *camera;
     let (node, visibility) = &mut *pointer;
     let at = ball.translation();
-    let in_play = matches!(game.current.ball, Ball::InFlight(_) | Ball::Carried { .. });
+    // Pointing at the real ball would give a decoy away.
+    let in_play = matches!(game.current.ball, Ball::InFlight(_) | Ball::Carried { .. }) && game.current.decoy().is_none();
     let Some(size) = camera.logical_viewport_size() else { return };
     let on_screen = camera
         .world_to_viewport(camera_transform, at)

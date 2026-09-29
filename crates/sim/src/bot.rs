@@ -8,7 +8,7 @@ fn default<T: Default>() -> T {
     T::default()
 }
 
-use crate::moves::MoveId;
+use crate::moves::{Button, MoveId};
 use crate::player::{BLOCK_DISTANCE, DASH_TICKS, PLAYER_GRAVITY, Player};
 use crate::court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT};
 use crate::{Aim, Ball, DT, Flight, HitKind, MAX_TOUCHES, OVER_DEPTH, Passive, PlayerInput, SET_DEPTH, Sim, TICK_HZ, dice, flight_seconds};
@@ -61,8 +61,20 @@ pub fn input_for(sim: &Sim, me: usize) -> PlayerInput {
             return input;
         }
         Ball::InFlight(flight) if sim.tick >= flight.start_tick + reaction_ticks(sim, me, &flight) => {
+            // A split ball: guess which one is real, and sometimes chase the decoy.
+            let flight = match sim.decoy() {
+                Some(decoy) if dice(decoy.start_tick, team as u32 + 1) % 2 == 0 => decoy,
+                _ => flight,
+            };
             let attack = sim.team_touches(team) == 2 && attack_point(&flight, side).is_some();
-            let meet_at = if attack { SPIKE_HEIGHT } else { PASS_HEIGHT };
+            // A banana kick takes the set low, from the ground, instead of jumping
+            // for it; a charged leaping ultimate comes first, though.
+            let ultimate_ready = player
+                .kit
+                .move_on(Button::Ultimate)
+                .is_some_and(|id| id.spec().leap.is_some() && player.ready(id, sim.tick));
+            let banana = attack && !ultimate_ready && player.kit.has_move(MoveId::BananaKick) && player.ready(MoveId::BananaKick, sim.tick);
+            let meet_at = if attack && !banana { SPIKE_HEIGHT } else { PASS_HEIGHT };
             let intercept = flight
                 .descending_time_at_height(meet_at)
                 .map(|t| (t, flight.position_at_time(t)))
@@ -75,7 +87,9 @@ pub fn input_for(sim: &Sim, me: usize) -> PlayerInput {
             {
                 let seconds_left = time - flight.elapsed(sim.tick);
                 let to_ball = Vec2::new(at.x - player.position.x, at.z - player.position.z);
-                return if attack {
+                return if banana {
+                    banana_kick(sim, me, &flight, to_ball)
+                } else if attack {
                     spike(sim, me, &flight, to_ball, seconds_left)
                 } else {
                     pass(sim, me, &flight, to_ball, seconds_left)
@@ -206,11 +220,13 @@ fn spike(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32
         input.aim = Some(Aim::Spot(spike_aim(sim, player.team, ball)));
         return input;
     }
-    // A charged ultimate leaps from farther out, high over the ball, and
-    // hammers it on the way down: leave the ground so the feet come back down
+    // A charged leaping ultimate goes from farther out, high over the ball,
+    // and hits it on the way down: leave the ground so the feet come back down
     // to spiking height as the ball arrives.
-    if player.kit.has_move(MoveId::Posterizer) && player.ready(MoveId::Posterizer, sim.tick) {
-        let spec = MoveId::Posterizer.spec();
+    if let Some(ultimate) = player.kit.move_on(Button::Ultimate).filter(|id| id.spec().leap.is_some())
+        && player.ready(ultimate, sim.tick)
+    {
+        let spec = ultimate.spec();
         let speed = player.takeoff_speed() * spec.leap.unwrap_or(1.0);
         let gravity = PLAYER_GRAVITY * spec.gravity;
         let feet = SPIKE_HEIGHT - 2.1;
@@ -224,6 +240,18 @@ fn spike(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32
     // attack's steering covers the last couple of meters.
     let rise_time = player.takeoff_speed() / PLAYER_GRAVITY;
     input.jump = to_ball.length() < 2.5 && seconds_left <= rise_time;
+    input
+}
+
+/// Runs under the set and bends it over the net with a banana kick, around the
+/// block.
+fn banana_kick(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2) -> PlayerInput {
+    let player = &sim.players[me];
+    let mut input = PlayerInput { movement: (to_ball / 0.5).clamp_length_max(1.0), ..default() };
+    if ball_close(sim, me, flight) {
+        input.ability = true;
+        input.aim = Some(Aim::Spot(spike_aim(sim, player.team, flight.position_at(sim.tick))));
+    }
     input
 }
 
@@ -243,6 +271,9 @@ fn blocker_ahead(sim: &Sim, me: usize, ball: Vec3) -> Option<Vec3> {
 fn block(sim: &Sim, me: usize) -> Option<PlayerInput> {
     let Ball::InFlight(flight) = sim.ball else { return None };
     let player = &sim.players[me];
+    if player.kit.has(Passive::NoBlock) {
+        return None;
+    }
     let side = sim.side(player.team);
     // Already up: keep drifting to the net with hands up until landing,
     // instead of chasing the spike and leaving the block.

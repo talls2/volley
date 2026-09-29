@@ -42,6 +42,7 @@ fn color_for(kind: HitKind) -> Color {
         HitKind::Volley => Color::srgb(1.0, 0.15, 0.3),
         HitKind::Bicycle => Color::srgb(0.75, 0.3, 1.0),
         HitKind::Dunk => Color::srgb(1.0, 0.95, 0.45),
+        HitKind::Curve => Color::srgb(0.2, 1.0, 0.55),
     }
 }
 
@@ -116,7 +117,10 @@ fn record_trail(
         trail.points.clear();
     }
     let now = time.elapsed_secs();
-    if matches!(game.current.ball, Ball::InFlight(_)) {
+    // With a decoy flying too, a streak behind only the real ball would give it away.
+    if game.current.decoy().is_some() {
+        trail.points.clear();
+    } else if matches!(game.current.ball, Ball::InFlight(_)) {
         trail.points.push_back((ball.translation, now));
     }
     while trail.points.front().is_some_and(|&(_, t)| now - t > TRAIL_SECONDS) {

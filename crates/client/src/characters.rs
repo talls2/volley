@@ -18,7 +18,7 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy::world_serialization::WorldInstanceReady;
 use volley_sim::court::BALL_RADIUS;
-use volley_sim::moves::CROSS;
+use volley_sim::moves::{CROSS, GOLAZO};
 use volley_sim::{Ball, DT, Event, HitKind, Kit, MoveId, MovePhase, Passive, Phase, Sim, attack};
 
 use crate::flow::Screen;
@@ -47,12 +47,21 @@ const LOOKS: [Look; 2] = [
     },
 ];
 
-/// Cross's stand-in until he has his own model: the male body painted in his
-/// kit, fade included (see `tools/blender/paint_cross.py`).
+/// Heroes' stand-ins until they have their own models: the male body painted
+/// in their kits (see `tools/blender/paint_heroes.py`). Cross's fade is
+/// painted on; Golazo wears the parted hair.
 const CROSS_LOOK: Look = Look { body: "characters/Cross.glb", hair: None };
+const GOLAZO_LOOK: Look = Look {
+    body: "characters/Golazo.glb",
+    hair: Some(("characters/Hair_SimpleParted.gltf", Color::srgb(0.06, 0.045, 0.035))),
+};
 
 fn look_for(kit: &Kit, index: usize) -> &'static Look {
-    if kit.name == CROSS.name { &CROSS_LOOK } else { &LOOKS[index % LOOKS.len()] }
+    match kit.name {
+        name if name == CROSS.name => &CROSS_LOOK,
+        name if name == GOLAZO.name => &GOLAZO_LOOK,
+        _ => &LOOKS[index % LOOKS.len()],
+    }
 }
 /// Quaternius's general library; our volleyball moves made for its skeleton
 /// (see `tools/blender/volley_animations.py`); and Mixamo motion capture
@@ -123,6 +132,14 @@ enum Clip {
     Dunk,
     /// Flattened by a dunk through the block.
     KnockedDown,
+    /// A player who only plays with their feet (Golazo) uses these instead of
+    /// the bump, set, spike, serve and dive: an instep lift, a high front kick,
+    /// a scissor volley, a drop-kick serve and a feet-first slide.
+    KickPassLow,
+    KickPassHigh,
+    HighVolley,
+    KickServe,
+    SlideTackle,
     Celebrate,
 }
 
@@ -135,7 +152,7 @@ struct Swing {
 }
 
 impl Clip {
-    const ALL: [Clip; 22] = [
+    const ALL: [Clip; 27] = [
         Clip::Idle,
         Clip::Jog,
         Clip::Sprint,
@@ -157,6 +174,11 @@ impl Clip {
         Clip::CrossoverRight,
         Clip::Dunk,
         Clip::KnockedDown,
+        Clip::KickPassLow,
+        Clip::KickPassHigh,
+        Clip::HighVolley,
+        Clip::KickServe,
+        Clip::SlideTackle,
         Clip::Celebrate,
     ];
 
@@ -184,6 +206,11 @@ impl Clip {
             Clip::CrossoverRight => (VOLLEY, "Crossover_Right"),
             Clip::Dunk => (VOLLEY, "Dunk"),
             Clip::KnockedDown => (MOCAP, "Knocked_Down"),
+            Clip::KickPassLow => (VOLLEY, "Kick_Pass_Low"),
+            Clip::KickPassHigh => (VOLLEY, "Kick_Pass_High"),
+            Clip::HighVolley => (VOLLEY, "High_Volley"),
+            Clip::KickServe => (VOLLEY, "Kick_Serve"),
+            Clip::SlideTackle => (VOLLEY, "Slide_Tackle"),
             Clip::Celebrate => (MOCAP, "Celebrate"),
         }
     }
@@ -222,6 +249,10 @@ impl Clip {
             Clip::BicycleKick => Some(Swing { wind_up: 0.12, contact: 0.24 }),
             Clip::Serve => Some(Swing { wind_up: 0.0, contact: 0.22 }),
             Clip::Dunk => Some(Swing { wind_up: 0.3, contact: 0.4 }),
+            Clip::KickPassLow => Some(Swing { wind_up: 0.12, contact: 0.2 }),
+            Clip::KickPassHigh => Some(Swing { wind_up: 0.12, contact: 0.22 }),
+            Clip::HighVolley => Some(Swing { wind_up: 0.1, contact: 0.18 }),
+            Clip::KickServe => Some(Swing { wind_up: 0.0, contact: 0.3 }),
             _ => None,
         }
     }
@@ -236,7 +267,24 @@ impl Clip {
     }
 
     fn is_attack(self) -> bool {
-        matches!(self, Clip::Spike | Clip::VolleyKick | Clip::BicycleKick)
+        matches!(self, Clip::Spike | Clip::VolleyKick | Clip::BicycleKick | Clip::HighVolley)
+    }
+
+    /// The clip a player who only plays with their feet uses instead.
+    fn with_feet(self) -> Clip {
+        match self {
+            Clip::Bump => Clip::KickPassLow,
+            Clip::Set => Clip::KickPassHigh,
+            Clip::Spike | Clip::VolleyKick => Clip::HighVolley,
+            Clip::Serve => Clip::KickServe,
+            Clip::Dive => Clip::SlideTackle,
+            clip => clip,
+        }
+    }
+
+    /// Kicks whose leg reaches for the real ball.
+    fn kicks(self) -> bool {
+        matches!(self, Clip::KickPassLow | Clip::KickPassHigh | Clip::HighVolley | Clip::VolleyKick | Clip::KickServe)
     }
 
     /// Moves started by the game rather than by running and jumping. Takeoffs and
@@ -267,6 +315,9 @@ fn hit_clip(sim: &Sim, player: usize, id: MoveId) -> Clip {
         // Cocked to spike, until the ball is caught.
         MoveId::Crossover => Clip::Spike,
         MoveId::Posterizer => Clip::Dunk,
+        MoveId::BananaKick if me.grounded() => Clip::KickPassLow,
+        MoveId::BananaKick => Clip::VolleyKick,
+        MoveId::Chilena => Clip::BicycleKick,
         _ if ball.y - me.position.y > SET_HEIGHT => Clip::Set,
         _ => Clip::Bump,
     }
@@ -293,6 +344,8 @@ struct Animations {
 struct Character {
     index: usize,
     look: &'static Look,
+    /// Plays only with the feet: kicks instead of hand hits.
+    feet: bool,
     /// The skeleton's top node, which holds the `AnimationPlayer`. Set once the model spawns.
     armature: Option<Entity>,
     playing: Option<Clip>,
@@ -329,10 +382,11 @@ struct Character {
 }
 
 impl Character {
-    fn new(index: usize, yaw: f32, look: &'static Look) -> Self {
+    fn new(index: usize, yaw: f32, look: &'static Look, feet: bool) -> Self {
         Self {
             index,
             look,
+            feet,
             armature: None,
             playing: None,
             action: None,
@@ -354,7 +408,14 @@ impl Character {
         }
     }
 
+    /// The clip this character plays for `clip`: the feet version, for a
+    /// player who only plays with their feet.
+    fn style(&self, clip: Clip) -> Clip {
+        if self.feet { clip.with_feet() } else { clip }
+    }
+
     fn start(&mut self, clip: Clip, seek: Option<f32>) {
+        let clip = self.style(clip);
         self.action = Some(clip);
         self.restart = true;
         self.seek = seek;
@@ -403,7 +464,7 @@ fn spawn_characters(mut commands: Commands, assets: Res<AssetServer>, game: Res<
         let yaw = -player.side * FRAC_PI_2;
         commands
             .spawn((
-                Character::new(index, yaw, look),
+                Character::new(index, yaw, look, player.kit.has(Passive::Feet)),
                 WorldAssetRoot(model),
                 Transform::default(),
             ))
@@ -529,9 +590,13 @@ fn react_to_events(
                             Clip::attack(kind)
                         }
                         HitKind::Dunk => Clip::Dunk,
+                        // A banana kick from the ground is a pass-style strike; in the air, a volley.
+                        HitKind::Curve if game.current.players[me].grounded() => Clip::KickPassLow,
+                        HitKind::Curve => Clip::VolleyKick,
                         // Digs and kicks happen mid-move, which keeps playing.
                         HitKind::Dig | HitKind::Kick => continue,
                     };
+                    let clip = character.style(clip);
                     if character.winding_up && character.action == Some(clip) {
                         character.release = true;
                     } else {
@@ -549,7 +614,7 @@ fn react_to_events(
                         }
                         // A pressed hit winds up and waits for the ball. Serves
                         // happen on the press itself, so they skip this.
-                        MoveId::Pass | MoveId::Spike | MoveId::Crossover | MoveId::Posterizer => {
+                        MoveId::Pass | MoveId::Spike | MoveId::Crossover | MoveId::Posterizer | MoveId::BananaKick | MoveId::Chilena => {
                             let serving = game.current.ball == Ball::Held { by: me };
                             if !serving && !character.action.is_some_and(Clip::is_game_action) {
                                 character.start(hit_clip(&game.current, me, id), None);
@@ -666,7 +731,7 @@ fn animate_characters(
             && let Some(clip) = character.action.filter(|clip| clip.is_attack())
             && me.active_move(sim.tick) == Some(MoveId::Spike)
         {
-            let wanted = hit_clip(sim, character.index, MoveId::Spike);
+            let wanted = character.style(hit_clip(sim, character.index, MoveId::Spike));
             if wanted != clip {
                 character.start(wanted, None);
                 character.winding_up = true;
@@ -703,7 +768,7 @@ fn animate_characters(
                 active.set_speed(CATCH_UP_SPEED);
                 character.catch_up_to = Some(swing.contact);
                 character.winding_up = false;
-            } else if if action == Clip::Serve { !serving } else { me.active_move(sim.tick).is_none() } {
+            } else if if matches!(action, Clip::Serve | Clip::KickServe) { !serving } else { me.active_move(sim.tick).is_none() } {
                 // Nothing to hit: swing through anyway.
                 active.set_speed(action.speed());
                 character.winding_up = false;
@@ -792,6 +857,8 @@ const CHEST_HEIGHT: f32 = 1.3;
 const REACH_WEIGHT: f32 = 0.6;
 /// A foot save's leg reaches for a ball this close; otherwise it kicks straight out.
 const KICK_REACH_START: f32 = 2.5;
+/// How far a kick's animated leg bends toward the real ball.
+const KICK_REACH_WEIGHT: f32 = 0.6;
 
 /// Where a bump, set or spike's arms should reach: toward the ball, and how
 /// strongly (0 to 1).
@@ -856,7 +923,21 @@ fn pose_limbs(
             let extended = me.position + Vec3::new(action.direction.x, 0.0, action.direction.y) * 1.8 + Vec3::Y * 0.2;
             character.leg_goal = if near_and_low && action.phase(sim.tick) != Some(MovePhase::Recovery) { ball } else { extended };
         }
-        let target = if kicking.is_some() { 1.0 } else { 0.0 };
+        // A kick's leg reaches for the real ball as it comes close.
+        let ball = sim.ball_position();
+        let kick_reach = character.action.is_some_and(Clip::kicks)
+            && matches!(sim.ball, Ball::InFlight(_))
+            && ball.distance(me.position) < KICK_REACH_START;
+        if kick_reach && kicking.is_none() {
+            character.leg_goal = ball;
+        }
+        let target = if kicking.is_some() {
+            1.0
+        } else if kick_reach {
+            KICK_REACH_WEIGHT
+        } else {
+            0.0
+        };
         character.leg_weight += (target - character.leg_weight).clamp(-step, step);
         if character.leg_weight > 0.0
             && let Some(leg) = character.leg

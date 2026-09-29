@@ -1,7 +1,7 @@
 use glam::{Vec2, Vec3};
 
 use crate::court::{self, BODY_RADIUS, HALF_LENGTH, HALF_WIDTH};
-use crate::moves::{ALL_ROUNDER, Button, Kit, MoveId, Stance};
+use crate::moves::{ALL_ROUNDER, Button, Kit, MoveId, Passive, Stance};
 use crate::{Aim, DT, PlayerInput, attack};
 
 /// How quickly players speed up and slow down, in m/s². On the ground they reach
@@ -43,6 +43,9 @@ const STUFF_HALF_WIDTH: f32 = 0.3;
 /// Heights above the feet the blocking hands cover, from forearms to fingertips.
 const BLOCK_LOW: f32 = 1.3;
 const BLOCK_HIGH: f32 = 2.4;
+/// With great feet, a foot save reaches this much farther, and this high.
+const FEET_REACH: f32 = 0.4;
+const FEET_HIGH: f32 = 1.5;
 
 /// A move in progress.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -221,12 +224,24 @@ impl Player {
 
     /// Whether the move `id` could touch a ball at `ball`.
     pub fn reaches(&self, id: MoveId, ball: Vec3) -> bool {
+        self.reaches_scaled(id, ball, 1.0)
+    }
+
+    /// Whether the move `id` could touch a ball at `ball`, reaching `scale`
+    /// times as far as usual.
+    pub fn reaches_scaled(&self, id: MoveId, ball: Vec3, scale: f32) -> bool {
         let spec = id.spec();
+        let (mut reach, mut high) = (spec.reach, spec.high);
+        // Great feet get a foot to balls well up the body, and farther out.
+        if id == MoveId::FootSave && self.kit.has(Passive::Feet) {
+            reach += FEET_REACH;
+            high = FEET_HIGH;
+        }
         let horizontal = Vec2::new(ball.x - self.position.x, ball.z - self.position.z).length();
         let height = ball.y - self.position.y;
         // No reaching across the net into the other half.
         let on_our_side = self.side * ball.x > -court::BALL_RADIUS;
-        horizontal <= spec.reach && (spec.low..=spec.high).contains(&height) && on_our_side
+        horizontal <= reach * scale && (spec.low..=high).contains(&height) && on_our_side
     }
 
     /// Whether the move underway could touch a ball at `ball` (a pass, if none is).
@@ -286,7 +301,8 @@ impl Player {
             action.start_tick = tick;
         }
         let committed = self.action.is_some_and(|action| action.committed());
-        if input.pass && !committed && self.position.x.abs() < BLOCK_DISTANCE && self.side * ball.x < 0.0 {
+        let can_block = !self.kit.has(Passive::NoBlock);
+        if input.pass && can_block && !committed && self.position.x.abs() < BLOCK_DISTANCE && self.side * ball.x < 0.0 {
             // Block: hands up, jumping first if still on the ground.
             self.hands_up = true;
             if self.grounded() {

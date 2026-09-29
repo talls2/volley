@@ -38,6 +38,11 @@ pub enum Touch {
     /// A slam dunk: an attack faster than a spike that blocks can't stop, and
     /// that knocks down anyone who tries.
     Dunk,
+    /// Kicked over the net with spin, bending sideways around blocks and defenders.
+    Curve,
+    /// A bicycle kick over the net that sends a decoy ball flying too: until
+    /// one of them is touched, the defense has to guess which is real.
+    Split,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -85,11 +90,21 @@ pub enum MoveId {
     FootSave,
     Crossover,
     Posterizer,
+    BananaKick,
+    Chilena,
 }
 
 impl MoveId {
-    pub const ALL: [MoveId; 6] =
-        [MoveId::Pass, MoveId::Spike, MoveId::Dive, MoveId::FootSave, MoveId::Crossover, MoveId::Posterizer];
+    pub const ALL: [MoveId; 8] = [
+        MoveId::Pass,
+        MoveId::Spike,
+        MoveId::Dive,
+        MoveId::FootSave,
+        MoveId::Crossover,
+        MoveId::Posterizer,
+        MoveId::BananaKick,
+        MoveId::Chilena,
+    ];
 
     pub fn spec(self) -> &'static Move {
         match self {
@@ -99,6 +114,8 @@ impl MoveId {
             MoveId::FootSave => &FOOT_SAVE,
             MoveId::Crossover => &CROSSOVER,
             MoveId::Posterizer => &POSTERIZER,
+            MoveId::BananaKick => &BANANA_KICK,
+            MoveId::Chilena => &CHILENA,
         }
     }
 
@@ -220,6 +237,38 @@ const POSTERIZER: Move = Move {
     ..SPIKE
 };
 
+/// Golazo's ability: a kick with spin, standing or in the air, that bends
+/// around the block on its way over.
+const BANANA_KICK: Move = Move {
+    name: "Banana Kick",
+    button: Button::Ability,
+    stance: Stance::Either,
+    windup: 1,
+    active: HIT_WINDOW + 4,
+    reach: 1.6,
+    low: 0.0,
+    high: 1.7,
+    touch: Touch::Curve,
+    cooldown: 6 * crate::TICK_HZ,
+    ..PASS
+};
+
+/// Golazo's ultimate: a leap into an overhead bicycle kick that splits the
+/// ball in two, one of them a decoy.
+const CHILENA: Move = Move {
+    name: "Chilena",
+    button: Button::Ultimate,
+    stance: Stance::Ground,
+    reach: 1.8,
+    high: 3.0,
+    touch: Touch::Split,
+    ultimate: true,
+    leap: Some(1.0),
+    gravity: 0.65,
+    steer: Some(6.0),
+    ..SPIKE
+};
+
 /// Traits a hero always has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Passive {
@@ -227,6 +276,13 @@ pub enum Passive {
     Dribble,
     /// Hits go somewhere other than where the body faces: defenders react late.
     NoLook,
+    /// Plays anything with a foot: foot saves reach higher and go clean, and
+    /// volley and bicycle kicks hit as hard and true as spikes.
+    Feet,
+    /// Balls coming off a wall are easier to reach.
+    WallPass,
+    /// Can't block: at the net, pass is just a pass.
+    NoBlock,
 }
 
 /// A hero: moves, passives and physical stats.
@@ -289,5 +345,16 @@ pub const CROSS: Kit = Kit {
     passives: &[Passive::Dribble, Passive::NoLook],
 };
 
+/// A soccer superstar: plays anything with his feet, bends shots around the
+/// block, and reads the walls, but can't block.
+pub const GOLAZO: Kit = Kit {
+    name: "Golazo",
+    run_speed: 8.8,
+    jump_speed: 7.2,
+    dash_speed: 15.5,
+    moves: &[MoveId::Pass, MoveId::Spike, MoveId::Dive, MoveId::FootSave, MoveId::BananaKick, MoveId::Chilena],
+    passives: &[Passive::Feet, Passive::WallPass, Passive::NoBlock],
+};
+
 /// Every hero, in the order the hero select shows them.
-pub const HEROES: [Kit; 2] = [ALL_ROUNDER, CROSS];
+pub const HEROES: [Kit; 3] = [ALL_ROUNDER, CROSS, GOLAZO];

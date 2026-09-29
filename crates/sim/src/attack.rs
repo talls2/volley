@@ -7,7 +7,7 @@
 use glam::{Vec2, Vec3};
 
 use crate::player::{PLAYER_GRAVITY, Player};
-use crate::{DT, HitKind, MoveId};
+use crate::{DT, HitKind, MoveId, Passive};
 
 /// The ways an armed attack can hit the ball.
 pub const TECHNIQUES: [HitKind; 3] = [HitKind::Spike, HitKind::Volley, HitKind::Bicycle];
@@ -35,8 +35,10 @@ impl Relative {
 /// Each technique's sweet spot. A spike meets the ball above and just in front
 /// of the head; a volley kick, at hip height out in front; a bicycle kick, over
 /// and behind the head as the body flips back.
-fn sweet_spot(kind: HitKind) -> Relative {
+fn sweet_spot(kind: HitKind, feet: bool) -> Relative {
     match kind {
+        // Great feet volley high, scissor-kicking up at chest height.
+        HitKind::Volley if feet => Relative { up: 1.4, forward: 0.5, sideways: 0.0 },
         HitKind::Volley => Relative { up: 0.9, forward: 0.6, sideways: 0.0 },
         HitKind::Bicycle => Relative { up: 1.7, forward: -0.5, sideways: 0.0 },
         _ => Relative { up: 2.1, forward: 0.3, sideways: 0.0 },
@@ -50,14 +52,17 @@ const WORST_MISS: f32 = 1.4;
 
 /// How cleanly `kind` would meet a ball at `ball`: 1 perfectly, 0 barely.
 pub fn quality(player: &Player, ball: Vec3, kind: HitKind) -> f32 {
-    let miss = Relative::of(player, ball).distance(sweet_spot(kind));
+    let miss = Relative::of(player, ball).distance(sweet_spot(kind, player.kit.has(Passive::Feet)));
     (1.0 - (miss - SWEET_RADIUS) / (WORST_MISS - SWEET_RADIUS)).clamp(0.0, 1.0)
 }
 
-/// The technique that meets a ball at `ball` best, and how well.
+/// The technique that meets a ball at `ball` best, and how well. A hero with
+/// great feet only ever kicks.
 pub fn best_technique(player: &Player, ball: Vec3) -> (HitKind, f32) {
+    let feet = player.kit.has(Passive::Feet);
     TECHNIQUES
         .into_iter()
+        .filter(|&kind| !(feet && kind == HitKind::Spike))
         .map(|kind| (kind, quality(player, ball, kind)))
         // Ties go to the earlier technique: a spike if it's as good as a kick.
         .fold((HitKind::Spike, -1.0), |best, next| if next.1 > best.1 { next } else { best })
@@ -81,7 +86,7 @@ pub fn hits_now(player: &Player, id: MoveId, ball: Vec3, next_ball: Vec3) -> boo
 /// steer toward it in the air.
 pub fn steer_position(player: &Player, ball: Vec3) -> Vec2 {
     let (kind, _) = best_technique(player, ball);
-    Vec2::new(ball.x + player.side * sweet_spot(kind).forward, ball.z)
+    Vec2::new(ball.x + player.side * sweet_spot(kind, player.kit.has(Passive::Feet)).forward, ball.z)
 }
 
 /// Seconds an attack of `kind` takes to travel `distance`: slower the worse the
@@ -90,6 +95,7 @@ pub fn flight_seconds(kind: HitKind, distance: f32, quality: f32) -> f32 {
     let miss = 1.0 - quality;
     let clean = match kind {
         HitKind::Dunk => 0.25 + 0.02 * distance,
+        HitKind::Curve => 0.4 + 0.028 * distance,
         HitKind::Volley => 0.4 + 0.03 * distance,
         HitKind::Bicycle => 0.38 + 0.028 * distance,
         _ => 0.35 + 0.026 * distance,
@@ -103,6 +109,7 @@ pub fn wobble(kind: HitKind, quality: f32) -> f32 {
     let miss = 1.0 - quality;
     let base = match kind {
         HitKind::Volley => 0.8,
+        HitKind::Curve => 0.3,
         HitKind::Bicycle => 1.2,
         _ => 0.0,
     };

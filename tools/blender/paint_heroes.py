@@ -1,22 +1,24 @@
-"""Paints Cross's stand-in look onto the Quaternius superhero body.
+"""Paints heroes' stand-in looks onto the Quaternius superhero body.
 
-Until Cross has his own model (see `docs/concept/cross.webp`), this dresses
-the placeholder body in his kit: a black jersey with burnt-orange trims and
-"00" front and back, black shorts with glowing stripes, a compression sleeve
-on the right arm, fingerless gloves, socks, glowing sneakers, an orange
-headband, and a short fade, over dark skin.
+Until each hero has their own model, this dresses the placeholder body in
+their kit. Cross (see `docs/concept/cross.webp`): a black jersey with
+burnt-orange trims and "00", black shorts with glowing stripes, a compression
+sleeve on the right arm, fingerless gloves, glowing sneakers, an orange
+headband and a short fade, over dark skin. Golazo: an emerald soccer jersey
+with white pinstripes and a gold "10", a captain's armband, white shorts, long
+green socks and boots with glowing soles, over medium-brown skin.
 
 Painting works by where things are on the body, not by hand on the texture:
 for every pixel of the texture, the script finds the point on the body (in its
 T-pose) that the pixel covers and colors it by region: chest, shorts, right
-arm, and so on. The original skin shading is kept and darkened. Glowing parts
-also go into an emission texture. The result is exported, skeleton and all, as
-`crates/client/assets/characters/Cross.glb`.
+arm, and so on. The original skin shading is kept and retoned. Glowing parts
+also go into an emission texture. Each hero is exported, skeleton and all, as
+`crates/client/assets/characters/<Hero>.glb`.
 
 Run from the repository root:
 
     ~/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \\
-        -P tools/blender/paint_cross.py -- [--preview DIR]
+        -P tools/blender/paint_heroes.py -- [--hero NAME] [--preview DIR]
 """
 
 import sys
@@ -28,15 +30,16 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[2]
 CHARACTERS = REPO / "crates/client/assets/characters"
 SOURCE = CHARACTERS / "Superhero_Male_FullBody.gltf"
-OUTPUT = CHARACTERS / "Cross.glb"
 
 BLACK = np.array([0.025, 0.025, 0.03])
+GREEN = np.array([0.02, 0.45, 0.2])
+NEON = np.array([0.3, 1.0, 0.35])
+GOLD = np.array([1.0, 0.75, 0.2])
 ORANGE = np.array([1.0, 0.36, 0.05])
 WHITE = np.array([0.85, 0.85, 0.85])
 HAIR = np.array([0.03, 0.022, 0.018])
-# The texture's skin, averaged, and the tone to shift it to.
+# The texture's skin, averaged.
 SKIN_FROM = np.array([0.78, 0.56, 0.43])
-SKIN_TO = np.array([0.43, 0.27, 0.17])
 GLOW = 1.5
 
 # Body landmarks, in meters: the body faces -y, its right side toward -x.
@@ -61,21 +64,34 @@ def digit_zero(u, v, center_u, center_v, width, height, stroke):
     return outer & ~inner
 
 
-def paint(p):
-    """Colors for body points `p` (N x 3): base color, glow, and whether
-    it's skin (which keeps the texture's shading)."""
+def digit_one(u, v, center_u, center_v, height, stroke):
+    """A "1": a single upright bar."""
+    return (np.abs(u - center_u) < stroke / 2) & (np.abs(v - center_v) < height / 2)
+
+
+class Canvas:
+    """Colors for a batch of body points: base color, glow, and whether each
+    is still skin (which keeps the texture's shading)."""
+
+    def __init__(self, n):
+        self.base = np.zeros((n, 3))
+        self.glow = np.zeros((n, 3))
+        self.skin = np.ones(n, dtype=bool)
+
+    def put(self, mask, color, glowing=False):
+        self.base[mask] = color
+        self.skin[mask] = False
+        if glowing:
+            self.glow[mask] = color
+
+
+def paint_cross(p):
+    """Cross's kit, for body points `p` (N x 3)."""
     x, y, z = p[:, 0], p[:, 1], p[:, 2]
     ax = np.abs(x)
-    n = len(p)
-    base = np.zeros((n, 3))
-    glow = np.zeros((n, 3))
-    skin = np.ones(n, dtype=bool)
-
-    def put(mask, color, glowing=False):
-        base[mask] = color
-        skin[mask] = False
-        if glowing:
-            glow[mask] = color
+    canvas = Canvas(len(p))
+    put = canvas.put
+    base, glow, skin = canvas.base, canvas.glow, canvas.skin
 
     front = y < 0.01
     arm = ax > ARM_START
@@ -141,7 +157,58 @@ def paint(p):
     return base, glow, skin
 
 
-def rasterize(mesh, world, original, size):
+def paint_golazo(p):
+    """Golazo's kit, for body points `p` (N x 3)."""
+    x, y, z = p[:, 0], p[:, 1], p[:, 2]
+    ax = np.abs(x)
+    canvas = Canvas(len(p))
+    put = canvas.put
+    front = y < 0.01
+    arm = ax > ARM_START
+    torso = ~arm
+
+    # White shorts with a green stripe down each side.
+    shorts = torso & (z > SHORTS_BOTTOM) & (z < JERSEY_BOTTOM + 0.02)
+    put(shorts, WHITE)
+    put(shorts & (ax > 0.178), GREEN)
+
+    # Emerald jersey with short sleeves, white pinstripes, collar and cuffs,
+    # and a gold "10" on the back.
+    neck = (z > JERSEY_TOP - 0.05) & (ax < 0.08) & front
+    jersey = torso & (z >= JERSEY_BOTTOM) & (z < JERSEY_TOP) & ~neck
+    sleeves = arm & (ax < 0.36) & (z > 1.3)
+    put(jersey | sleeves, GREEN)
+    put(jersey & (np.mod(x + 0.5, 0.06) < 0.008), WHITE)
+    put(jersey & (z > JERSEY_TOP - 0.075) & (ax < 0.1) & front, WHITE)
+    put(sleeves & (ax > 0.34), WHITE)
+    put(sleeves & (x > 0.29) & (x < 0.32), GOLD)
+    back = jersey & ~front
+    # Seen from behind, the body's left (+x) is on the viewer's left: the "1" goes there.
+    number = digit_one(x, z, 0.045, 1.24, 0.13, 0.022) | digit_zero(x, z, -0.04, 1.24, 0.075, 0.13, 0.022)
+    put(back & number, GOLD)
+    crest = jersey & front & (np.hypot(x + 0.07, z - 1.37) < 0.025)
+    put(crest, GOLD)
+
+    # Long green socks with white tops, and boots with glowing soles.
+    socks = torso & (z > SHOES_TOP) & (z < 0.45)
+    put(socks, GREEN)
+    put(socks & (z > 0.41), WHITE)
+    boots = torso & (z <= SHOES_TOP)
+    put(boots, BLACK)
+    put(boots & (z < 0.03), NEON, glowing=True)
+    put(boots & band(z, 0.06, 0.008), NEON)
+    return canvas.base, canvas.glow, canvas.skin
+
+
+# Each hero: how to paint them, their skin tone, and whether their hair is
+# painted on (otherwise the game adds a hair model).
+HEROES = {
+    "Cross": (paint_cross, np.array([0.43, 0.27, 0.17])),
+    "Golazo": (paint_golazo, np.array([0.62, 0.43, 0.31])),
+}
+
+
+def rasterize(mesh, world, original, size, paint, skin_to):
     """For every texture pixel a triangle covers, the point on the body it
     shows; returns painted base and glow images and a mask of painted pixels."""
     height, width = size
@@ -175,7 +242,7 @@ def rasterize(mesh, world, original, size):
         cols = px[:, 0].astype(int)
         rows = px[:, 1].astype(int)
         shade = original[rows, cols, :3]
-        colors[skin] = shade[skin] * (SKIN_TO / SKIN_FROM)
+        colors[skin] = shade[skin] * (skin_to / SKIN_FROM)
         base[rows, cols, :3] = colors
         glow[rows, cols] = glows
         covered[rows, cols] = True
@@ -205,6 +272,13 @@ def to_image(name, pixels):
 def main():
     args = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     preview = args[args.index("--preview") + 1] if "--preview" in args else None
+    names = [args[args.index("--hero") + 1]] if "--hero" in args else list(HEROES)
+    for name in names:
+        paint_hero(name, preview)
+
+
+def paint_hero(name, preview):
+    paint, skin_to = HEROES[name]
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=str(SOURCE))
     for ob in list(bpy.data.objects):
@@ -220,13 +294,13 @@ def main():
     width, height = source.size
     original = np.array(source.pixels[:]).reshape(height, width, 4)
 
-    base, glow = rasterize(body.data, body.matrix_world, original, (height, width))
-    texture.image = to_image("T_Cross_BaseColor", base)
+    base, glow = rasterize(body.data, body.matrix_world, original, (height, width), paint, skin_to)
+    texture.image = to_image(f"T_{name}_BaseColor", base)
     emission = nodes.new("ShaderNodeTexImage")
-    emission.image = to_image("T_Cross_Emission", glow)
+    emission.image = to_image(f"T_{name}_Emission", glow)
     material.node_tree.links.new(emission.outputs["Color"], shader.inputs["Emission Color"])
     shader.inputs["Emission Strength"].default_value = GLOW
-    material.name = "MI_Cross"
+    material.name = f"MI_{name}"
     # Eyebrows use the placeholder hair's gray texture (the game tints hair);
     # darken their copy of it.
     brows = bpy.data.objects["Eyebrows"].data.materials[0]
@@ -234,16 +308,17 @@ def main():
     gray = brows_texture.image
     pixels = np.array(gray.pixels[:]).reshape(gray.size[1], gray.size[0], 4)
     pixels[..., :3] *= HAIR / 0.5
-    brows_texture.image = to_image("T_Cross_Brows", np.clip(pixels, 0.0, 1.0))
+    brows_texture.image = to_image(f"T_{name}_Brows", np.clip(pixels, 0.0, 1.0))
 
     if preview:
-        render_preview(preview)
+        render_preview(preview, name)
 
     bpy.ops.object.select_all(action="DESELECT")
     for ob in bpy.data.objects:
         ob.select_set(True)
+    output = CHARACTERS / f"{name}.glb"
     bpy.ops.export_scene.gltf(
-        filepath=str(OUTPUT),
+        filepath=str(output),
         export_format="GLB",
         use_selection=True,
         export_animations=False,
@@ -251,11 +326,11 @@ def main():
         export_image_format="JPEG",
         export_jpeg_quality=88,
     )
-    print(f"wrote {OUTPUT}")
+    print(f"wrote {output}")
 
 
-def render_preview(directory):
-    """Front and back views of the painted body."""
+def render_preview(directory, name):
+    """Front, back and head views of the painted body."""
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_WORKBENCH"
     scene.display.shading.light = "STUDIO"
@@ -268,13 +343,14 @@ def render_preview(directory):
     scene.camera = camera
     Path(directory).mkdir(parents=True, exist_ok=True)
     from mathutils import Vector
-    for name, location in (("front", Vector((0.0, -4.0, 0.95))), ("back", Vector((0.0, 4.0, 0.95))), ("head", Vector((1.2, -2.5, 1.7)))):
+    hero = name.lower()
+    for view, location in (("front", Vector((0.0, -4.0, 0.95))), ("back", Vector((0.0, 4.0, 0.95))), ("head", Vector((1.2, -2.5, 1.7)))):
         camera.location = location
-        target = Vector((0.0, 0.0, 1.62 if name == "head" else 0.95))
-        camera.data.ortho_scale = 0.6 if name == "head" else 2.1
+        target = Vector((0.0, 0.0, 1.62 if view == "head" else 0.95))
+        camera.data.ortho_scale = 0.6 if view == "head" else 2.1
         camera.rotation_mode = "QUATERNION"
         camera.rotation_quaternion = (target - location).to_track_quat("-Z", "Y")
-        scene.render.filepath = str(Path(directory) / f"cross_{name}.png")
+        scene.render.filepath = str(Path(directory) / f"{hero}_{view}.png")
         bpy.ops.render.render(write_still=True)
 
 

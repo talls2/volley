@@ -2,7 +2,7 @@
 //! heroes themselves, their kits, live in `volley_sim::moves`.
 
 use bevy::prelude::*;
-use volley_sim::moves::{ALL_ROUNDER, CROSS, HEROES};
+use volley_sim::moves::{ALL_ROUNDER, CROSS, GOLAZO, HEROES};
 use volley_sim::{MatchConfig, Sim};
 
 use crate::input::{ActiveDevice, LOCAL_TEAM};
@@ -36,6 +36,18 @@ pub const INFO: [HeroInfo; HEROES.len()] = [
         ],
         color: Color::srgb(1.0, 0.55, 0.15),
     },
+    HeroInfo {
+        title: "Soccer superstar",
+        blurb: "Does everything with his feet, bends shots around the block, and reads the walls. Can't block.",
+        lines: &[
+            "Passive, Feet: foot saves reach waist-high and go clean; volley and bicycle kicks hit like spikes",
+            "Passive, Wall Pass: balls coming off a wall are easier to reach",
+            "Banana Kick {ability}: a kick with spin that bends around the block on its way over",
+            "Ultimate, Chilena {ultimate}: a leaping bicycle kick that splits the ball in two; one is a decoy",
+            "Weakness: can't block",
+        ],
+        color: Color::srgb(0.2, 0.85, 0.45),
+    },
 ];
 
 /// A hero's lines with the buttons filled in.
@@ -53,10 +65,10 @@ pub fn buttons(device: ActiveDevice) -> (&'static str, &'static str) {
 }
 
 /// A new match with you as `choice` and two All-rounder teammates, against a
-/// Cross and two All-rounders, so there's always a Cross to face.
+/// Cross, a Golazo and an All-rounder, so there's always every hero to face.
 pub fn new_match(choice: usize) -> Sim {
     let mut sim = Sim::new(MatchConfig::default());
-    let lineup = [[HEROES[choice], ALL_ROUNDER, ALL_ROUNDER], [CROSS, ALL_ROUNDER, ALL_ROUNDER]];
+    let lineup = [[HEROES[choice], ALL_ROUNDER, ALL_ROUNDER], [CROSS, GOLAZO, ALL_ROUNDER]];
     for (team, kits) in lineup.into_iter().enumerate() {
         let team = if team == 0 { LOCAL_TEAM } else { 1 - LOCAL_TEAM };
         for (slot, kit) in kits.into_iter().enumerate() {

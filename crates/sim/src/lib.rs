@@ -30,6 +30,12 @@ const POINT_PAUSE_TICKS: u32 = 90;
 const KNOCKDOWN_TICKS: u32 = 60;
 /// Ultimate charge from each touch, and for each point the team wins.
 const CHARGE_PER_TOUCH: f32 = 0.05;
+/// How hard a banana kick bends, sideways (m/s²).
+const BANANA_CURVE: f32 = 14.0;
+/// A Chilena's decoy lands at least this far across the court from the real ball.
+const DECOY_SPREAD: f32 = 8.0;
+/// Balls coming off a wall are this much easier to reach for a hero with Wall Pass.
+const WALL_PASS_REACH: f32 = 1.4;
 const CHARGE_PER_POINT: f32 = 0.05;
 const SET_PAUSE_TICKS: u32 = 240;
 
@@ -53,7 +59,9 @@ pub(crate) fn flight_seconds(kind: HitKind, distance: f32) -> f32 {
         // Scrambles like digs and kicks add the move's own hang time on top.
         HitKind::Pass | HitKind::Dig | HitKind::Kick => 1.2 + 0.05 * distance,
         // Attacks depend on how cleanly they're hit.
-        HitKind::Spike | HitKind::Volley | HitKind::Bicycle | HitKind::Dunk => attack::flight_seconds(kind, distance, 1.0),
+        HitKind::Spike | HitKind::Volley | HitKind::Bicycle | HitKind::Dunk | HitKind::Curve => {
+            attack::flight_seconds(kind, distance, 1.0)
+        }
     }
 }
 
@@ -99,7 +107,7 @@ fn aim_distance(kind: HitKind) -> f32 {
         HitKind::Serve => 30.0,
         HitKind::Lob => 16.0,
         HitKind::Pass | HitKind::Dig | HitKind::Kick => 7.0,
-        HitKind::Spike | HitKind::Volley | HitKind::Bicycle | HitKind::Dunk => 18.0,
+        HitKind::Spike | HitKind::Volley | HitKind::Bicycle | HitKind::Dunk | HitKind::Curve => 18.0,
     }
 }
 
@@ -192,12 +200,14 @@ pub enum HitKind {
     Bicycle,
     /// A slam dunk, through any block.
     Dunk,
+    /// Kicked with spin, bending around the block.
+    Curve,
 }
 
 impl HitKind {
     /// Attacks: hit hard over the net from the air.
     pub fn is_attack(self) -> bool {
-        matches!(self, HitKind::Spike | HitKind::Volley | HitKind::Bicycle | HitKind::Dunk)
+        matches!(self, HitKind::Spike | HitKind::Volley | HitKind::Bicycle | HitKind::Dunk | HitKind::Curve)
     }
 }
 
@@ -217,6 +227,10 @@ pub struct HitPreview {
 struct Plan {
     preview: HitPreview,
     seconds: f32,
+    /// Sideways bend in flight (m/s²).
+    curve: f32,
+    /// A decoy ball flying alongside, landing here.
+    decoy: Option<Vec3>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -237,6 +251,10 @@ pub enum Event {
     Dribbled { player: usize },
     /// Knocked down by a dunk through their block.
     Posterized { player: usize },
+    /// A hit split the ball in two: one of them is a decoy.
+    Split { player: usize },
+    /// Someone went for the decoy, and it vanished.
+    DecoyPopped { player: usize },
     /// `quality`: how cleanly an attack was hit, from 0 to 1. Other hits are 1.
     Touched { player: usize, kind: HitKind, quality: f32 },
     /// A block at the net. `stuffed`: sent straight back down on the attackers;
@@ -295,6 +313,8 @@ pub struct Sim {
     /// The kind of the latest hit, and who made it.
     last_hit: Option<HitKind>,
     last_hitter: Option<usize>,
+    /// A decoy ball in flight beside the real one, until either is touched.
+    decoy: Option<Flight>,
     /// Each team's half: -1 or +1.
     sides: [f32; 2],
     /// Switch sides when the next rally starts.
@@ -327,6 +347,7 @@ impl Sim {
             touch_lockout_until: 0,
             last_hit: None,
             last_hitter: None,
+            decoy: None,
             sides,
             switch_pending: false,
         };
@@ -378,6 +399,11 @@ impl Sim {
     /// Who hit the ball last, if anyone this rally.
     pub fn last_hitter(&self) -> Option<usize> {
         self.last_hitter
+    }
+
+    /// The decoy ball flying beside the real one, if a hit split it.
+    pub fn decoy(&self) -> Option<Flight> {
+        self.decoy
     }
 
     pub fn ball_position(&self) -> Vec3 {
@@ -467,6 +493,7 @@ impl Sim {
         self.touch_lockout_until = 0;
         self.last_hit = None;
         self.last_hitter = None;
+        self.decoy = None;
         if self.switch_pending {
             self.switch_pending = false;
             self.sides = [self.sides[1], self.sides[0]];
@@ -516,18 +543,44 @@ impl Sim {
             (HitKind::Spike, over(HitKind::Spike, SPIKE_DEPTH), 1.0)
         } else if spec.touch == Touch::Dunk {
             (HitKind::Dunk, over(HitKind::Dunk, SPIKE_DEPTH), 1.0)
+        } else if spec.touch == Touch::Curve {
+            (HitKind::Curve, over(HitKind::Curve, SPIKE_DEPTH), 1.0)
+        } else if spec.touch == Touch::Split {
+            (HitKind::Bicycle, over(HitKind::Bicycle, SPIKE_DEPTH), 1.0)
         } else {
             let (kind, quality) = attack::best_technique(player, from);
             (kind, over(kind, SPIKE_DEPTH), quality)
         };
         let distance = from.with_y(0.0).distance(target.with_y(0.0));
+        // Great feet kick as hard and true as a hand spikes.
+        let feet = player.kit.has(Passive::Feet);
+        let flies_as = if feet && matches!(kind, HitKind::Volley | HitKind::Bicycle) { HitKind::Spike } else { kind };
         let (seconds, spread) = if kind.is_attack() {
-            (attack::flight_seconds(kind, distance, quality), attack::wobble(kind, quality))
+            (attack::flight_seconds(flies_as, distance, quality), attack::wobble(flies_as, quality))
+        } else if feet && kind == HitKind::Kick {
+            (flight_seconds(kind, distance) + spec.hang, 0.0)
         } else {
             (flight_seconds(kind, distance) + spec.hang, spec.wobble)
         };
         let seconds = seconds * (1.0 - BOOST_SPEED * boost(player.aim));
-        Plan { preview: HitPreview { kind, target, spread, quality }, seconds }
+        // A banana kick heads out wide and bends back onto its spot.
+        let curve = if spec.touch == Touch::Curve {
+            if target.z >= from.z { -BANANA_CURVE } else { BANANA_CURVE }
+        } else {
+            0.0
+        };
+        let decoy = (spec.touch == Touch::Split).then(|| {
+            // Mirrored across the court, or pushed away from the middle.
+            let z = if target.z.abs() > DECOY_SPREAD / 2.0 {
+                -target.z
+            } else if target.z >= 0.0 {
+                target.z - DECOY_SPREAD
+            } else {
+                target.z + DECOY_SPREAD
+            };
+            target.with_z(z.clamp(-(HALF_WIDTH - WALL_MARGIN), HALF_WIDTH - WALL_MARGIN))
+        });
+        Plan { preview: HitPreview { kind, target, spread, quality }, seconds, curve, decoy }
     }
 
     /// Launches a planned hit, landing somewhere within its spread.
@@ -536,9 +589,13 @@ impl Sim {
         let target = target + wobble(spread, self.tick, hitter);
         self.last_hit = Some(kind);
         self.last_hitter = Some(hitter);
-        self.ball = Ball::InFlight(Flight::to_target(from, target, plan.seconds, self.tick));
+        self.ball = Ball::InFlight(Flight::curving_to_target(from, target, plan.seconds, plan.curve, self.tick));
+        self.decoy = plan.decoy.map(|spot| Flight::to_target(from, spot, plan.seconds, self.tick));
         self.touch_lockout_until = self.tick + TOUCH_LOCKOUT_TICKS;
         events.push(Event::Touched { player: hitter, kind, quality });
+        if self.decoy.is_some() {
+            events.push(Event::Split { player: hitter });
+        }
     }
 
     fn update_serve(&mut self, server: usize, events: &mut Vec<Event>) {
@@ -559,6 +616,7 @@ impl Sim {
         if flight.wall_bounces(now) > flight.wall_bounces(before) && now < landing {
             events.push(Event::WallBounce { at: flight.position_at_time(now) });
         }
+        self.update_decoy(events);
         if let Some(crossing) = flight.next_net_crossing(before)
             && crossing <= now
             && crossing < landing
@@ -582,7 +640,7 @@ impl Sim {
                 } else {
                     (-back, Vec3::new(v.x * 0.2, 4.0, v.z * 0.4))
                 };
-                self.ball = Ball::InFlight(Flight { origin: Vec3::new(x, at.y, at.z), velocity, start_tick: self.tick });
+                self.ball = Ball::InFlight(Flight { origin: Vec3::new(x, at.y, at.z), velocity, start_tick: self.tick, curve: 0.0 });
                 // A block isn't one of the team's three touches, and the blocker may play the ball again.
                 self.touches = Touches::new(self.players[blocker].team);
                 self.touch_lockout_until = self.tick + TOUCH_LOCKOUT_TICKS;
@@ -593,7 +651,7 @@ impl Sim {
                 // Drops back down on the side it came from.
                 let origin = Vec3::new(back, at.y, at.z);
                 let velocity = Vec3::new(-v.x * 0.2, v.y.min(0.0) * 0.5, v.z * 0.5);
-                self.ball = Ball::InFlight(Flight { origin, velocity, start_tick: self.tick });
+                self.ball = Ball::InFlight(Flight { origin, velocity, start_tick: self.tick, curve: 0.0 });
                 events.push(Event::HitNet { at });
                 return;
             }
@@ -612,12 +670,14 @@ impl Sim {
         }
         let ball = flight.position_at(self.tick);
         let next_ball = flight.position_at(self.tick + 1);
+        let rebounded = flight.wall_bounces(now) > 0;
         let hitter = (0..self.players.len())
             .filter(|&i| {
                 let player = &self.players[i];
+                let reach = if rebounded && player.kit.has(Passive::WallPass) { WALL_PASS_REACH } else { 1.0 };
                 player.active_move(self.tick).is_some_and(|id| {
-                    player.reaches(id, ball)
-                        && (matches!(id.spec().touch, Touch::Keep(_)) || attack::hits_now(player, id, ball, next_ball))
+                    player.reaches_scaled(id, ball, reach)
+                        && (matches!(id.spec().touch, Touch::Keep(_) | Touch::Curve) || attack::hits_now(player, id, ball, next_ball))
                 })
             })
             .min_by(|&a, &b| {
@@ -630,10 +690,32 @@ impl Sim {
         }
     }
 
+    /// A decoy lasts until it lands, or until someone on the defending side
+    /// goes for it: then it vanishes, and their move is spent on nothing.
+    fn update_decoy(&mut self, events: &mut Vec<Event>) {
+        let Some(decoy) = self.decoy else { return };
+        if decoy.elapsed(self.tick) >= decoy.landing_time() {
+            self.decoy = None;
+            return;
+        }
+        let at = decoy.position_at(self.tick);
+        let attackers = self.last_hitter.map(|hitter| self.players[hitter].team);
+        let fooled = (0..self.players.len()).find(|&i| {
+            let player = &self.players[i];
+            Some(player.team) != attackers && player.active_move(self.tick).is_some_and(|id| player.reaches(id, at))
+        });
+        if let Some(player) = fooled {
+            self.players[player].spend(self.tick);
+            self.decoy = None;
+            events.push(Event::DecoyPopped { player });
+        }
+    }
+
     fn touch(&mut self, hitter: usize, ball: Vec3, events: &mut Vec<Event>) {
         let Some(id) = self.players[hitter].spend(self.tick) else {
             return;
         };
+        self.decoy = None;
         let team = self.players[hitter].team;
 
         if self.touches.team != team {
@@ -746,8 +828,11 @@ impl Sim {
     }
 }
 
+/// Where a server holds the ball: up for a hand serve, or at the waist to
+/// drop-kick it, for a hero who only plays with their feet.
 fn held_ball_position(player: &Player) -> Vec3 {
-    player.position + Vec3::new(-player.side * 0.35, 1.9, 0.0)
+    let height = if player.kit.has(Passive::Feet) { 1.1 } else { 1.9 };
+    player.position + Vec3::new(-player.side * 0.35, height, 0.0)
 }
 
 /// Palmed high overhead, just in front: where a carried ball rides.

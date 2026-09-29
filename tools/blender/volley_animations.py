@@ -420,6 +420,112 @@ CLIPS = [
         ],
     ),
     dict(
+        # Golazo's low pass: plant, swing the kicking leg back, and lift the
+        # ball off the instep, arms out for balance.
+        name="Kick_Pass_Low",
+        wind_up=0.12,
+        contact=0.2,
+        ball=at(0.05, 0.55, 0.55),
+        keys=[
+            (0.0, ready_pose()),
+            (0.12, {**ready_pose(dip=0.05), "hips_rot": rot(pitch=6, turn=-10), "spine": rot(pitch=8, turn=8),
+                    "foot_l": at(-0.15, 0.1, ANKLE_HEIGHT), "foot_r": at(0.15, -0.4, 0.35), "knee_r": at(0.3, 2.0, 0.2),
+                    "foot_rot_r": rot(pitch=40),
+                    "hand_l": at(-0.55, 0.2, 1.0), "hand_r": at(0.5, 0.1, 0.95),
+                    "elbow_l": at(-1.0, -0.3, 1.0), "elbow_r": at(1.0, -0.3, 1.0)}),
+            (0.2, {"hips_rot": rot(pitch=-4, turn=6), "spine": rot(pitch=2, turn=-6),
+                   "foot_r": at(0.05, 0.5, 0.42), "knee_r": at(0.2, 2.0, 1.2), "foot_rot_r": rot(pitch=-10, turn=-50)}),
+            (0.34, {"foot_r": at(0.0, 0.55, 0.7), "foot_rot_r": rot(pitch=-20, turn=-40)}),
+            (0.6, ready_pose()),
+        ],
+    ),
+    dict(
+        # Golazo's high pass: a high front kick up to chest height, leaning back.
+        name="Kick_Pass_High",
+        wind_up=0.12,
+        contact=0.22,
+        ball=at(0.05, 0.55, 1.45),
+        keys=[
+            (0.0, ready_pose()),
+            (0.12, {**ready_pose(dip=0.08), "foot_r": at(0.12, -0.3, 0.4), "knee_r": at(0.3, 2.0, 0.3), "foot_rot_r": rot(pitch=40),
+                    "hand_l": at(-0.55, 0.1, 1.05), "hand_r": at(0.55, 0.1, 1.05),
+                    "elbow_l": at(-1.0, -0.3, 1.0), "elbow_r": at(1.0, -0.3, 1.0)}),
+            (0.22, {"hips": at(0, -0.05, -0.12), "hips_rot": rot(pitch=-18), "spine": rot(pitch=-8), "head": rot(pitch=10),
+                    "foot_r": at(0.05, 0.55, 1.35), "knee_r": at(0.2, 1.0, 2.5), "foot_rot_r": rot(pitch=-60),
+                    "foot_l": at(-0.12, -0.05, ANKLE_HEIGHT),
+                    "hand_l": at(-0.6, -0.1, 1.2), "hand_r": at(0.6, -0.1, 1.2)}),
+            (0.36, {"foot_r": at(0.05, 0.4, 1.1)}),
+            (0.6, ready_pose()),
+        ],
+    ),
+    dict(
+        # Golazo's attack in the air: a scissor volley, the kicking leg snapping
+        # up to chest height as the other drops, body tipping back.
+        name="High_Volley",
+        wind_up=0.1,
+        contact=0.18,
+        ball=at(0.1, 0.5, 1.45),
+        keys=[
+            (0.0, {**airborne(0.4), **arms_down()}),
+            (0.1, {"hips_rot": rot(pitch=-10), "spine": rot(pitch=-4, turn=-15),
+                   "foot_r": at(0.15, -0.3, 0.7), "knee_r": at(0.3, 2.0, 0.4), "foot_rot_r": rot(pitch=45),
+                   "foot_l": at(-0.12, 0.3, 0.8), "knee_l": at(-0.2, 2.0, 1.0),
+                   "hand_l": at(-0.6, 0.2, 1.3), "hand_r": at(0.55, -0.25, 1.25),
+                   "elbow_l": at(-1.0, -0.4, 1.4), "elbow_r": at(1.0, -0.4, 1.4)}),
+            (0.18, {"hips_rot": rot(pitch=-35), "spine": rot(pitch=-5, turn=12), "head": rot(pitch=25),
+                    "foot_r": at(0.1, 0.5, 1.35), "knee_r": at(0.2, 1.0, 2.5), "foot_rot_r": rot(pitch=-40),
+                    "foot_l": at(-0.12, -0.1, 0.2), "knee_l": at(-0.2, 2.0, 0.6)}),
+            (0.34, {"hips_rot": rot(pitch=-30), "foot_r": at(0.0, 0.35, 1.1)}),
+            (0.55, {**airborne(0.2), **arms_down(), **upright()}),
+        ],
+    ),
+    dict(
+        # Golazo's serve: ball held at the waist, dropped, and volleyed off the
+        # laces. Held at the start while waiting to serve.
+        name="Kick_Serve",
+        wind_up=0.0,
+        contact=0.3,
+        ball=at(0.05, 0.35, 1.1),
+        keys=[
+            (0.0, {**upright(), "spine": rot(pitch=6), "head": rot(pitch=-10),
+                   "hand_l": at(-0.1, 0.33, 1.05), "hand_r": at(0.1, 0.33, 1.05),
+                   "elbow_l": at(-0.6, 0.0, 0.8), "elbow_r": at(0.6, 0.0, 0.8),
+                   "foot_l": at(-0.12, 0.15, ANKLE_HEIGHT), "foot_r": at(0.14, -0.15, ANKLE_HEIGHT)}),
+            # Drop it, the kicking leg drawing back.
+            (0.15, {"hand_l": at(-0.4, 0.3, 1.1), "hand_r": at(0.45, 0.2, 1.1),
+                    "elbow_l": at(-1.0, -0.3, 1.0), "elbow_r": at(1.0, -0.3, 1.0),
+                    "foot_r": at(0.15, -0.4, 0.5), "knee_r": at(0.3, 2.0, 0.3), "foot_rot_r": rot(pitch=50)}),
+            # Volley it.
+            (0.3, {"hips_rot": rot(pitch=-12), "spine": rot(pitch=0), "head": rot(pitch=8),
+                   "foot_r": at(0.08, 0.45, 0.75), "knee_r": at(0.2, 1.0, 2.5), "foot_rot_r": rot(pitch=-30),
+                   "hand_l": at(-0.6, 0.1, 1.2), "hand_r": at(0.6, -0.1, 1.15)}),
+            (0.5, {"foot_r": at(0.05, 0.55, 1.1), "hips_rot": rot(pitch=-18)}),
+            (0.85, ready_pose()),
+        ],
+    ),
+    dict(
+        # Golazo's dive: a feet-first slide tackle along the sand, one hand
+        # trailing behind, then back up.
+        name="Slide_Tackle",
+        keys=[
+            (0.0, ready_pose(dip=0.05)),
+            (0.12, {"hips": at(0, -0.1, -0.5), "hips_rot": rot(pitch=-25), "spine": rot(pitch=10), "head": rot(pitch=-5),
+                    "foot_l": at(-0.08, 0.75, 0.15), "knee_l": at(-0.2, 2.0, 1.0), "foot_rot_l": rot(pitch=-20),
+                    "foot_r": at(0.18, 0.1, ANKLE_HEIGHT), "knee_r": at(0.6, 0.6, 0.8),
+                    "hand_l": at(-0.35, -0.45, 0.1), "elbow_l": at(-0.8, -0.2, 0.8),
+                    "hand_r": at(0.45, 0.2, 0.8), "elbow_r": at(1.0, -0.3, 0.9)}),
+            (0.3, {"hips": at(0, -0.15, -0.72), "hips_rot": rot(pitch=-50), "spine": rot(pitch=25),
+                   "foot_l": at(-0.08, 0.9, 0.1), "foot_r": at(0.2, 0.35, 0.1),
+                   "hand_l": at(-0.35, -0.6, 0.05)}),
+            (0.5, {"hips": at(0, -0.12, -0.7)}),
+            (0.7, {"hips": at(0, 0.0, -0.4), "hips_rot": rot(pitch=15), "spine": rot(pitch=15),
+                   "foot_l": at(-0.2, 0.2, ANKLE_HEIGHT), "foot_r": at(0.2, -0.1, ANKLE_HEIGHT),
+                   "knee_l": at(-0.4, 2.0, 0.5), "knee_r": at(0.4, 2.0, 0.5), "foot_rot_l": rot(),
+                   "hand_l": at(-0.3, 0.3, 0.6), "elbow_l": at(-0.8, -0.3, 0.8)}),
+            (0.9, ready_pose()),
+        ],
+    ),
+    dict(
         # Cross palms the ball overhead and swings it across his body, hanging
         # and shifting to his left, then cocks to spike. The right-shifting
         # version is the mirror image.

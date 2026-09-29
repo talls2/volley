@@ -90,8 +90,8 @@ On a controller, hits are on the bumpers and triggers so your right thumb can
 stay on the stick and keep aiming. The on-screen help switches to controller
 buttons when you use one.
 
-Before each match you pick a hero. You play Red with an All-rounder bot
-teammate, against Cross and an All-rounder. The camera follows you from behind, and movement
+Before each match you pick a hero. You play Red with two All-rounder bot
+teammates, against Cross, Golazo and an All-rounder. The camera follows you from behind, and movement
 is relative to where it faces. The arena is 48 x 24 m, more than twice a real court, with glass walls all
 around: the ball bounces off them and stays in play, so nothing is ever out.
 It only ends when it hits the sand, and that side loses the point.
@@ -125,11 +125,17 @@ touching the ball and winning points). A gold ring under a player means their
 ultimate is ready.
 
 - **All-rounder**, beach volleyball pro: solid everywhere, with the foot save; no ability or ultimate.
-- **Cross**, pro basketball superstar: quicker and a higher jumper, but no foot save. Concept art in [`docs/concept/cross.webp`](docs/concept/cross.webp); until he has his own model, the placeholder body is painted in his black and orange kit by `tools/blender/paint_cross.py`.
+- **Cross**, pro basketball superstar: quicker and a higher jumper, but no foot save. Concept art in [`docs/concept/cross.webp`](docs/concept/cross.webp); until he has his own model, the placeholder body is painted in his black and orange kit by `tools/blender/paint_heroes.py`.
   - *Dribble* (passive): once per possession, two touches in a row without a double-touch fault. Set yourself for a self alley-oop.
   - *No-look* (passive): defenders read his hits late, and he doesn't turn toward where the ball goes.
   - *Crossover* (ability, 7 s): armed in the air like an attack; when the ball arrives he palms it (a carry only he gets away with), swings it across his body while hanging and shifting about a meter sideways (the way you're moving), then spikes. Blockers lined up on him jump at the wrong spot and the wrong time.
   - *Posterizer* (ultimate): a leap about twice as high with hang time, steering to the ball from far away; the dunk goes through any block and knocks the blockers down for a second.
+- **Golazo**, soccer superstar: does everything with his feet, but can't block. Painted in an emerald number 10 kit for now.
+  - *Feet* (passive): foot saves reach waist-high balls and go clean; volley and bicycle kicks hit as hard and true as spikes.
+  - *Wall Pass* (passive): balls coming off a wall are easier to reach.
+  - *Banana Kick* (ability, 6 s): a kick with spin, standing or in the air, that heads out wide and bends back onto its spot, around the block.
+  - *Chilena* (ultimate): a leap into an overhead bicycle kick that splits the ball in two. One is a decoy, drawn exactly like the real ball (shadow and landing rings too); whoever plays it just watches it vanish, and only the real one scores.
+  - *No Block* (weakness): at the net, pass is just a pass.
 
 ## Moves and kits
 

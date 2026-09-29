@@ -1,7 +1,8 @@
 """Paints heroes' stand-in looks onto the Quaternius superhero body.
 
-Until each hero has their own model, this dresses the placeholder body in
-their kit. Cross (see `docs/concept/cross.webp`): a black jersey with
+Until a hero has their own model (made with `rig_hero.py`), this dresses the
+placeholder body in their kit. Cross and Golazo have their own models now;
+their stand-ins are kept here as examples for the next heroes. Cross (see `docs/concept/cross.webp`): a black jersey with
 burnt-orange trims and "00", black shorts with glowing stripes, a compression
 sleeve on the right arm, fingerless gloves, glowing sneakers, an orange
 headband and a short fade, over dark skin. Golazo (see
@@ -15,7 +16,7 @@ for every pixel of the texture, the script finds the point on the body (in its
 T-pose) that the pixel covers and colors it by region: chest, shorts, right
 arm, and so on. The original skin shading is kept and retoned. Glowing parts
 also go into an emission texture. Each hero is exported, skeleton and all, as
-`crates/client/assets/characters/<Hero>.glb`.
+`crates/client/assets/characters/<Hero>_Standin.glb`.
 
 Run from the repository root:
 
@@ -339,7 +340,7 @@ def paint_hero(name, preview):
     bpy.ops.object.select_all(action="DESELECT")
     for ob in bpy.data.objects:
         ob.select_set(True)
-    output = CHARACTERS / f"{name}.glb"
+    output = CHARACTERS / f"{name}_Standin.glb"
     bpy.ops.export_scene.gltf(
         filepath=str(output),
         export_format="GLB",

@@ -829,7 +829,11 @@ class Rig:
                 bone = self.bones[name]
                 bone.location = location
                 bone.rotation_quaternion = rotation
-                bone.keyframe_insert("location", frame=frame, group=name)
+                # Only the hips move; every other bone keeps the length it
+                # has on whichever body plays the clip, so models with their
+                # own proportions aren't stretched to this skeleton's.
+                if name == "pelvis":
+                    bone.keyframe_insert("location", frame=frame, group=name)
                 bone.keyframe_insert("rotation_quaternion", frame=frame, group=name)
         self.arm.animation_data.action = None
         self.reset()

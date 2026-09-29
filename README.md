@@ -125,12 +125,12 @@ touching the ball and winning points). A gold ring under a player means their
 ultimate is ready.
 
 - **All-rounder**, beach volleyball pro: solid everywhere, with the foot save; no ability or ultimate.
-- **Cross**, pro basketball superstar: quicker and a higher jumper, but no foot save. Concept art in [`docs/concept/cross.webp`](docs/concept/cross.webp); until he has his own model, the placeholder body is painted in his black and orange kit by `tools/blender/paint_heroes.py`.
+- **Cross**, pro basketball superstar: quicker and a higher jumper, but no foot save. Concept art in [`docs/concept/cross.webp`](docs/concept/cross.webp).
   - *Dribble* (passive): once per possession, two touches in a row without a double-touch fault. Set yourself for a self alley-oop.
   - *No-look* (passive): defenders read his hits late, and he doesn't turn toward where the ball goes.
   - *Crossover* (ability, 7 s): armed in the air like an attack; when the ball arrives he palms it (a carry only he gets away with), swings it across his body while hanging and shifting about a meter sideways (the way you're moving), then spikes. Blockers lined up on him jump at the wrong spot and the wrong time.
   - *Posterizer* (ultimate): a leap about twice as high with hang time, steering to the ball from far away; the dunk goes through any block and knocks the blockers down for a second.
-- **Golazo**, soccer superstar: does everything with his feet, but can't block. Concept art in [`docs/concept/golazo.webp`](docs/concept/golazo.webp); until he has his own model, the placeholder body is painted in his forest-green and gold number 10 kit.
+- **Golazo**, soccer superstar: does everything with his feet, but can't block. Concept art in [`docs/concept/golazo.webp`](docs/concept/golazo.webp).
   - *Feet* (passive): foot saves reach waist-high balls and go clean; volley and bicycle kicks hit as hard and true as spikes.
   - *Wall Pass* (passive): balls coming off a wall are easier to reach.
   - *Banana Kick* (ability, 6 s): a kick with spin, standing or in the air, that heads out wide and bends back onto its spot, around the block.
@@ -152,7 +152,18 @@ passive it needs), a card in `crates/client/src/heroes.rs`, and its animations.
 
 ## Art and sound
 
-Placeholder characters are the free Quaternius packs. Movement (the ready
+Heroes have their own models: each hero's concept art goes through Tripo
+(image to 3D, multiview from the turnaround sheet), and
+`tools/blender/rig_hero.py` simplifies the model to about 50k faces, rebakes
+its colors and surface detail onto a clean texture layout, and rigs it to the
+shared skeleton by fitting the arms to the model's pose and copying skin
+weights from the placeholder body, so every animation plays on it:
+
+    ~/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
+        -P tools/blender/rig_hero.py -- --hero Cross --source Cross.glb --height 1.93
+
+The raw generated models (about 70 MB each) stay outside the repository. The
+All-rounders are the free Quaternius placeholder characters. Movement (the ready
 stance, jogging, sprinting, the air, landing, dashing, getting knocked down and
 cheering) is Mixamo motion capture, retargeted onto the Quaternius skeleton by
 `tools/blender/retarget_mixamo.py`; the downloaded FBX files stay out of the

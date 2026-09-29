@@ -47,8 +47,8 @@ const LOOKS: [Look; 2] = [
     },
 ];
 
-/// Heroes' stand-ins until they have their own models: the male body painted
-/// in their kits, short fades painted on (see `tools/blender/paint_heroes.py`).
+/// Heroes' own models, made from their concept art with an image-to-3D tool
+/// and rigged to the shared skeleton by `tools/blender/rig_hero.py`.
 const CROSS_LOOK: Look = Look { body: "characters/Cross.glb", hair: None };
 const GOLAZO_LOOK: Look = Look { body: "characters/Golazo.glb", hair: None };
 
@@ -59,13 +59,12 @@ fn look_for(kit: &Kit, index: usize) -> &'static Look {
         _ => &LOOKS[index % LOOKS.len()],
     }
 }
-/// Quaternius's general library; our volleyball moves made for its skeleton
-/// (see `tools/blender/volley_animations.py`); and Mixamo motion capture
+/// Our volleyball and hero moves, made for the Quaternius skeleton (see
+/// `tools/blender/volley_animations.py`), and Mixamo motion capture
 /// retargeted onto it (see `tools/blender/retarget_mixamo.py`).
-const ANIMATION_LIBRARIES: [&str; 3] = ["animations/UAL1_Standard.glb", "animations/Volley.glb", "animations/Mocap.glb"];
-const QUATERNIUS: usize = 0;
-const VOLLEY: usize = 1;
-const MOCAP: usize = 2;
+const ANIMATION_LIBRARIES: [&str; 2] = ["animations/Volley.glb", "animations/Mocap.glb"];
+const VOLLEY: usize = 0;
+const MOCAP: usize = 1;
 /// Ground speeds (m/s) the motion-captured jog and sprint look right at; they
 /// play faster or slower to match how fast a player really runs.
 const JOG_PACE: f32 = 4.0;
@@ -181,7 +180,9 @@ impl Clip {
     /// The library the animation is in, and its name there.
     fn source(self) -> (usize, &'static str) {
         match self {
-            Clip::Idle => (QUATERNIUS, "Idle_Loop"),
+            // Between points too: motion capture only moves the hips, so it fits
+            // any body built on this skeleton, whatever its proportions.
+            Clip::Idle => (MOCAP, "Ready"),
             Clip::Jog => (MOCAP, "Jog"),
             Clip::Sprint => (MOCAP, "Sprint"),
             Clip::Airborne => (MOCAP, "Airborne"),

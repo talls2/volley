@@ -48,13 +48,9 @@ const LOOKS: [Look; 2] = [
 ];
 
 /// Heroes' stand-ins until they have their own models: the male body painted
-/// in their kits (see `tools/blender/paint_heroes.py`). Cross's fade is
-/// painted on; Golazo wears the parted hair.
+/// in their kits, short fades painted on (see `tools/blender/paint_heroes.py`).
 const CROSS_LOOK: Look = Look { body: "characters/Cross.glb", hair: None };
-const GOLAZO_LOOK: Look = Look {
-    body: "characters/Golazo.glb",
-    hair: Some(("characters/Hair_SimpleParted.gltf", Color::srgb(0.06, 0.045, 0.035))),
-};
+const GOLAZO_LOOK: Look = Look { body: "characters/Golazo.glb", hair: None };
 
 fn look_for(kit: &Kit, index: usize) -> &'static Look {
     match kit.name {

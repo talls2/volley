@@ -4,9 +4,11 @@ Until each hero has their own model, this dresses the placeholder body in
 their kit. Cross (see `docs/concept/cross.webp`): a black jersey with
 burnt-orange trims and "00", black shorts with glowing stripes, a compression
 sleeve on the right arm, fingerless gloves, glowing sneakers, an orange
-headband and a short fade, over dark skin. Golazo: an emerald soccer jersey
-with white pinstripes and a gold "10", a captain's armband, white shorts, long
-green socks and boots with glowing soles, over medium-brown skin.
+headband and a short fade, over dark skin. Golazo (see
+`docs/concept/golazo.webp`): a forest-green soccer jersey with gold pinstripes,
+V-neck, crest and "10", a captain's armband, white shorts with green and gold
+stripes, green socks with gold chevrons, wristbands, boots with glowing soles
+and a short fade, over olive skin.
 
 Painting works by where things are on the body, not by hand on the texture:
 for every pixel of the texture, the script finds the point on the body (in its
@@ -32,7 +34,8 @@ CHARACTERS = REPO / "crates/client/assets/characters"
 SOURCE = CHARACTERS / "Superhero_Male_FullBody.gltf"
 
 BLACK = np.array([0.025, 0.025, 0.03])
-GREEN = np.array([0.02, 0.45, 0.2])
+FOREST = np.array([0.02, 0.2, 0.09])
+GOLD_DIM = np.array([0.55, 0.42, 0.12])
 NEON = np.array([0.3, 1.0, 0.35])
 GOLD = np.array([1.0, 0.75, 0.2])
 ORANGE = np.array([1.0, 0.36, 0.05])
@@ -147,14 +150,20 @@ def paint_cross(p):
 
     # Head: a short fade with a line shaved into the side, and an orange headband.
     head = torso & (z > 1.6)
-    hair = head & (((z > HAIRLINE_FRONT) & (y < -0.02)) | ((z > HAIRLINE_BACK) & (y >= -0.02)))
-    hair &= ~((z < 1.72) & (ax > 0.07) & (y < 0.05))  # clear of the ears and temples
-    put(hair, HAIR)
-    shaved = hair & (ax > 0.06) & band(z - 0.4 * y, 1.705, 0.004)
-    skin[shaved] = True
+    paint_fade(canvas, x, y, z, head)
     headband = head & (z > HEADBAND[0]) & (z < HEADBAND[1])
     put(headband, ORANGE, glowing=True)
     return base, glow, skin
+
+
+def paint_fade(canvas, x, y, z, head):
+    """A short dark fade with a line shaved into the side."""
+    ax = np.abs(x)
+    hair = head & (((z > HAIRLINE_FRONT) & (y < -0.02)) | ((z > HAIRLINE_BACK) & (y >= -0.02)))
+    hair &= ~((z < 1.72) & (ax > 0.07) & (y < 0.05))  # clear of the ears and temples
+    canvas.put(hair, HAIR)
+    shaved = hair & (ax > 0.06) & band(z - 0.4 * y, 1.705, 0.004)
+    canvas.skin[shaved] = True
 
 
 def paint_golazo(p):
@@ -167,44 +176,58 @@ def paint_golazo(p):
     arm = ax > ARM_START
     torso = ~arm
 
-    # White shorts with a green stripe down each side.
+    # White shorts with green-and-gold side stripes, and a green "10" on the
+    # right leg.
     shorts = torso & (z > SHORTS_BOTTOM) & (z < JERSEY_BOTTOM + 0.02)
     put(shorts, WHITE)
-    put(shorts & (ax > 0.178), GREEN)
+    put(shorts & (ax > 0.172), GOLD)
+    put(shorts & (ax > 0.18), FOREST)
+    leg_number = digit_one(x, z, -0.115, 0.66, 0.06, 0.01) | digit_zero(x, z, -0.08, 0.66, 0.035, 0.06, 0.01)
+    put(shorts & front & leg_number, FOREST)
 
-    # Emerald jersey with short sleeves, white pinstripes, collar and cuffs,
-    # and a gold "10" on the back.
-    neck = (z > JERSEY_TOP - 0.05) & (ax < 0.08) & front
-    jersey = torso & (z >= JERSEY_BOTTOM) & (z < JERSEY_TOP) & ~neck
+    # Forest-green jersey: short sleeves, fine gold pinstripes, a gold V-neck
+    # trim and cuffs, glowing gold side panels, the crest, the captain's
+    # armband, and a gold "10" front and back.
+    v_neck = front & (z > JERSEY_TOP - 0.13) & (ax < (z - (JERSEY_TOP - 0.13)) * 0.9)
+    jersey = torso & (z >= JERSEY_BOTTOM) & (z < JERSEY_TOP) & ~v_neck
     sleeves = arm & (ax < 0.36) & (z > 1.3)
-    put(jersey | sleeves, GREEN)
-    put(jersey & (np.mod(x + 0.5, 0.06) < 0.008), WHITE)
-    put(jersey & (z > JERSEY_TOP - 0.075) & (ax < 0.1) & front, WHITE)
-    put(sleeves & (ax > 0.34), WHITE)
+    put(jersey | sleeves, FOREST)
+    put(jersey & (np.mod(x + 0.5, 0.05) < 0.004), GOLD_DIM)
+    trim = front & (z > JERSEY_TOP - 0.15) & band(ax, (z - (JERSEY_TOP - 0.13)) * 0.9, 0.012)
+    put(jersey & trim, GOLD)
+    put(sleeves & (ax > 0.34), GOLD)
+    put(jersey & band(ax, 0.135, 0.006) & (z < 1.3), GOLD, glowing=True)
     put(sleeves & (x > 0.29) & (x < 0.32), GOLD)
-    back = jersey & ~front
-    # Seen from behind, the body's left (+x) is on the viewer's left: the "1" goes there.
-    number = digit_one(x, z, 0.045, 1.24, 0.13, 0.022) | digit_zero(x, z, -0.04, 1.24, 0.075, 0.13, 0.022)
-    put(back & number, GOLD)
-    crest = jersey & front & (np.hypot(x + 0.07, z - 1.37) < 0.025)
-    put(crest, GOLD)
+    # From the front the body's right (-x) is on the viewer's left, so the "1"
+    # goes there; from behind, the other way round.
+    put(jersey & front & (digit_one(x, z, -0.03, 1.2, 0.07, 0.013) | digit_zero(x, z, 0.02, 1.2, 0.04, 0.07, 0.013)), GOLD)
+    put(jersey & ~front & (digit_one(x, z, 0.045, 1.24, 0.13, 0.022) | digit_zero(x, z, -0.04, 1.24, 0.075, 0.13, 0.022)), GOLD)
+    put(jersey & front & (np.hypot(x - 0.075, z - 1.38) < 0.022), GOLD)
 
-    # Long green socks with white tops, and boots with glowing soles.
+    # Black wristbands.
+    put(arm & (ax > WRIST - 0.05) & (ax < WRIST), BLACK)
+
+    # Long green socks with gold chevrons and gold tops, and black boots with
+    # glowing neon soles.
     socks = torso & (z > SHOES_TOP) & (z < 0.45)
-    put(socks, GREEN)
-    put(socks & (z > 0.41), WHITE)
+    put(socks, FOREST)
+    put(socks & (z > 0.41), GOLD)
+    shin = np.abs(ax - 0.1)
+    put(socks & front & (band(z - 1.6 * shin, 0.3, 0.012) | band(z - 1.6 * shin, 0.22, 0.012)), GOLD)
     boots = torso & (z <= SHOES_TOP)
     put(boots, BLACK)
     put(boots & (z < 0.03), NEON, glowing=True)
     put(boots & band(z, 0.06, 0.008), NEON)
+
+    # A short dark fade, like the concept art.
+    paint_fade(canvas, x, y, z, torso & (z > 1.6))
     return canvas.base, canvas.glow, canvas.skin
 
 
-# Each hero: how to paint them, their skin tone, and whether their hair is
-# painted on (otherwise the game adds a hair model).
+# Each hero: how to paint them, and their skin tone.
 HEROES = {
     "Cross": (paint_cross, np.array([0.43, 0.27, 0.17])),
-    "Golazo": (paint_golazo, np.array([0.62, 0.43, 0.31])),
+    "Golazo": (paint_golazo, np.array([0.76, 0.56, 0.41])),
 }
 
 

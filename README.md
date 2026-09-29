@@ -130,7 +130,7 @@ ultimate is ready.
   - *No-look* (passive): defenders read his hits late, and he doesn't turn toward where the ball goes.
   - *Crossover* (ability, 7 s): armed in the air like an attack; when the ball arrives he palms it (a carry only he gets away with), swings it across his body while hanging and shifting about a meter sideways (the way you're moving), then spikes. Blockers lined up on him jump at the wrong spot and the wrong time.
   - *Posterizer* (ultimate): a leap about twice as high with hang time, steering to the ball from far away; the dunk goes through any block and knocks the blockers down for a second.
-- **Golazo**, soccer superstar: does everything with his feet, but can't block. Painted in an emerald number 10 kit for now.
+- **Golazo**, soccer superstar: does everything with his feet, but can't block. Concept art in [`docs/concept/golazo.webp`](docs/concept/golazo.webp); until he has his own model, the placeholder body is painted in his forest-green and gold number 10 kit.
   - *Feet* (passive): foot saves reach waist-high balls and go clean; volley and bicycle kicks hit as hard and true as spikes.
   - *Wall Pass* (passive): balls coming off a wall are easier to reach.
   - *Banana Kick* (ability, 6 s): a kick with spin, standing or in the air, that heads out wide and bends back onto its spot, around the block.

@@ -1058,6 +1058,55 @@ fn all_heroes_play_real_rallies() {
 }
 
 #[test]
+fn jumping_by_a_wall_kicks_off_it_once() {
+    let mut sim = Sim::new(MatchConfig::default());
+    let Ball::Held { by: server } = sim.ball else { panic!("someone serves first") };
+    let me = (0..sim.players.len()).find(|&i| i != server && sim.players[i].team == 0).unwrap();
+    // In the air against the side wall, falling.
+    let side = sim.players[me].side;
+    sim.players[me].position = Vec3::new(side * 5.0, 1.0, court::HALF_WIDTH - court::BODY_RADIUS);
+    sim.players[me].vertical_velocity = -2.0;
+    sim.players[me].velocity = Vec2::new(0.0, 3.0);
+    let jump = |sim: &Sim| {
+        let mut inputs = idle(sim);
+        inputs[me].jump = true;
+        inputs
+    };
+    let events = sim.step(&jump(&sim));
+    let body = sim.players[me];
+    assert!(events.contains(&Event::WallJumped { player: me, away: Vec2::new(0.0, -1.0) }), "{events:?}");
+    assert!(body.vertical_velocity > 5.0, "a full jump again: {}", body.vertical_velocity);
+    assert!(body.velocity.y < -3.0, "pushed off the wall: {}", body.velocity);
+
+    // Once per time in the air: back at the wall, jump does nothing.
+    sim.players[me].position.z = court::HALF_WIDTH - court::BODY_RADIUS;
+    let rising = sim.players[me].vertical_velocity;
+    let events = sim.step(&jump(&sim));
+    assert!(!events.iter().any(|e| matches!(e, Event::WallJumped { .. })));
+    assert!(sim.players[me].vertical_velocity < rising);
+
+    // Landing gives it back.
+    for _ in 0..2 * TICK_HZ {
+        sim.step(&idle(&sim));
+    }
+    assert!(sim.players[me].grounded());
+    sim.players[me].position = Vec3::new(side * 5.0, 1.0, -(court::HALF_WIDTH - court::BODY_RADIUS));
+    let events = sim.step(&jump(&sim));
+    assert!(events.contains(&Event::WallJumped { player: me, away: Vec2::new(0.0, 1.0) }));
+}
+
+#[test]
+fn no_wall_jump_in_open_court() {
+    let mut body = Player::new(0, -1.0, Vec3::new(-6.0, 1.0, 0.0));
+    assert!(body.wall_beside().is_none());
+    assert!(!body.can_wall_jump());
+    // In a corner, off both walls at once.
+    body.position = Vec3::new(-court::HALF_LENGTH + court::BODY_RADIUS, 1.0, court::HALF_WIDTH - court::BODY_RADIUS);
+    let away = body.wall_beside().unwrap();
+    assert!(away.x > 0.5 && away.y < -0.5, "{away}");
+}
+
+#[test]
 fn passes_meet_the_ball_within_arms_reach() {
     let body = Player::new(0, -1.0, Vec3::new(-3.0, 0.0, 0.0));
     // Over the forehead, a set; over the fingertips, out of reach.

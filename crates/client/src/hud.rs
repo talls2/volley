@@ -6,6 +6,7 @@ use volley_sim::court::TEAM_NAMES;
 use volley_sim::moves::Button;
 use volley_sim::{Ball, DT, Event, HitKind, MoveId, Phase, PointReason, Sim};
 
+use crate::flow::Screen;
 use crate::heroes;
 use crate::input::{ActiveDevice, LOCAL_TEAM, LocalDriver};
 use crate::scene::TEAM_COLORS;
@@ -13,7 +14,7 @@ use crate::{Match, SimEvent};
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Startup, spawn_hud)
-        .add_systems(Update, (update_score, announce_points, update_controls_help, prompt_saves, show_abilities))
+        .add_systems(Update, (update_score, announce_points, update_controls_help, show_controls_help, prompt_saves, show_abilities))
         // Once the camera has moved for the frame.
         .add_systems(PostUpdate, (place_name_tags, point_to_ball, show_ball_cam).after(bevy::transform::TransformSystems::Propagate));
 }
@@ -267,18 +268,23 @@ fn update_controls_help(
         (LocalDriver::Human, ActiveDevice::Keyboard) => format!(
             "You are {you}. Click to look with the mouse, Esc to release it. Hits go the way you're moving (or looking,\n\
              standing still). Q passes as soon as the ball is in reach; holding it a moment first adds a little power.\n\
-             WASD move | C dash | Space jump (hold for full height; run in to jump higher) | Q pass / serve (at the net: block)\n\
+             WASD move | C dash | Space jump (hold for full height; run in to jump higher; again by a wall to kick off it) | Q pass / serve (at the net: block)\n\
              E attack (in the air: spike, volley or bicycle kick) | Shift dive | F foot save | R ability | G ultimate | Tab ball cam | P pause | 1 let a bot play",
         ),
         (LocalDriver::Human, ActiveDevice::Gamepad) => format!(
             "You are {you}. Right stick looks. Hits go the way the left stick points (or the way you look, standing\n\
              still). RB passes as soon as the ball is in reach; holding it a moment first adds a little power.\n\
-             Left stick move (click to dash) | A jump (hold for full height; run in to jump higher) | RB pass / serve (at the net: block)\n\
+             Left stick move (click to dash) | A jump (hold for full height; run in to jump higher; again by a wall to kick off it) | RB pass / serve (at the net: block)\n\
              RT attack (in the air: spike, volley or bicycle kick) | LT dive | LB foot save | X ability | Y ultimate | R3 ball cam | Menu pause | View let a bot play",
         ),
         (LocalDriver::Bot, ActiveDevice::Keyboard) => format!("A bot is playing {you}. Press 1 to take over."),
         (LocalDriver::Bot, ActiveDevice::Gamepad) => format!("A bot is playing {you}. Press View to take over."),
     };
+}
+
+/// The controls only while playing: the menus have their own hints.
+fn show_controls_help(screen: Res<State<Screen>>, mut help: Single<&mut Visibility, With<ControlsHelp>>) {
+    **help = if *screen.get() == Screen::Playing { Visibility::Inherited } else { Visibility::Hidden };
 }
 
 /// How far ahead the save prompt looks.

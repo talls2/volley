@@ -1,10 +1,12 @@
-//! Hero select, before every match: a card per hero, left and right to choose,
-//! confirm to play.
+//! Hero select, before every match: a card per hero, left and right to choose;
+//! the arena below, up and down to change it (the scene behind changes with
+//! it); confirm to play.
 
 use bevy::prelude::*;
 use volley_sim::moves::HEROES;
 
 use crate::Match;
+use crate::arena::Arena;
 use crate::flow::Screen;
 use crate::heroes::{self, INFO};
 use crate::input::{ActiveDevice, stick};
@@ -28,6 +30,8 @@ impl Default for HeroChoice {
 
 const LEFT_KEYS: [KeyCode; 2] = [KeyCode::KeyA, KeyCode::ArrowLeft];
 const RIGHT_KEYS: [KeyCode; 2] = [KeyCode::KeyD, KeyCode::ArrowRight];
+const UP_KEYS: [KeyCode; 2] = [KeyCode::KeyW, KeyCode::ArrowUp];
+const DOWN_KEYS: [KeyCode; 2] = [KeyCode::KeyS, KeyCode::ArrowDown];
 const CONFIRM_KEYS: [KeyCode; 2] = [KeyCode::Enter, KeyCode::Space];
 const CONFIRM_BUTTONS: [GamepadButton; 2] = [GamepadButton::South, GamepadButton::Start];
 
@@ -42,6 +46,9 @@ struct CardLines(usize);
 
 #[derive(Component)]
 struct Hint;
+
+#[derive(Component)]
+struct ArenaLine;
 
 fn spawn_select(mut commands: Commands) {
     let shadow = TextShadow { offset: Vec2::new(2.0, 2.0), color: Color::srgba(0.0, 0.0, 0.0, 0.7) };
@@ -109,16 +116,26 @@ fn spawn_select(mut commands: Commands) {
             ChildOf(card),
         ));
     }
+    commands.spawn((
+        ArenaLine,
+        Text::default(),
+        TextFont { font_size: FontSize::Px(24.0), ..default() },
+        TextLayout::default().with_justify(Justify::Center),
+        shadow,
+        ChildOf(root),
+    ));
     commands.spawn((Hint, Text::default(), TextFont { font_size: FontSize::Px(22.0), ..default() }, shadow, ChildOf(root)));
 }
 
 fn show_select(
     screen: Res<State<Screen>>,
     choice: Res<HeroChoice>,
+    arena: Res<Arena>,
     device: Res<ActiveDevice>,
     mut root: Single<&mut Visibility, With<SelectRoot>>,
     mut cards: Query<(&Card, &mut BorderColor, &mut BackgroundColor)>,
-    mut lines: Query<(&CardLines, &mut Text), Without<Hint>>,
+    mut lines: Query<(&CardLines, &mut Text), (Without<Hint>, Without<ArenaLine>)>,
+    mut arena_line: Single<&mut Text, (With<ArenaLine>, Without<Hint>)>,
     mut hint: Single<&mut Text, With<Hint>>,
 ) {
     let showing = *screen.get() == Screen::HeroSelect;
@@ -134,9 +151,10 @@ fn show_select(
     for (card, mut text) in &mut lines {
         text.0 = heroes::lines(&INFO[card.0], *device).iter().map(|line| format!("- {line}")).collect::<Vec<_>>().join("\n");
     }
+    arena_line.0 = format!("Arena:  < {} >\n{}", arena.name(), arena.blurb());
     hint.0 = match *device {
-        ActiveDevice::Keyboard => "A / D to choose, Enter to play".to_string(),
-        ActiveDevice::Gamepad => "Left stick or d-pad to choose, A to play".to_string(),
+        ActiveDevice::Keyboard => "A / D: hero, W / S: arena, Enter to play".to_string(),
+        ActiveDevice::Gamepad => "Left stick or d-pad: hero left and right, arena up and down. A to play".to_string(),
     };
 }
 
@@ -144,6 +162,7 @@ fn choose(
     keys: Res<ButtonInput<KeyCode>>,
     gamepads: Query<&Gamepad>,
     mut choice: ResMut<HeroChoice>,
+    mut arena: ResMut<Arena>,
     mut game: ResMut<Match>,
     mut next: ResMut<NextState<Screen>>,
     mut stick_held: Local<bool>,
@@ -160,6 +179,18 @@ fn choose(
         flicked
     };
     choice.0 = (choice.0 as i32 + step).rem_euclid(HEROES.len() as i32) as usize;
+
+    let arena_step = if keys.any_just_pressed(UP_KEYS) || pad(GamepadButton::DPadUp) {
+        -1
+    } else if keys.any_just_pressed(DOWN_KEYS) || pad(GamepadButton::DPadDown) {
+        1
+    } else {
+        0
+    };
+    if arena_step != 0 {
+        let index = Arena::ALL.iter().position(|&a| a == *arena).unwrap_or(0) as i32;
+        *arena = Arena::ALL[(index + arena_step).rem_euclid(Arena::ALL.len() as i32) as usize];
+    }
 
     if keys.any_just_pressed(CONFIRM_KEYS) || gamepads.iter().any(|pad| pad.any_just_pressed(CONFIRM_BUTTONS)) {
         let sim = heroes::new_match(choice.0);

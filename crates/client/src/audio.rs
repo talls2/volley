@@ -1,10 +1,12 @@
-//! Sound: hits, the ball on sand, footsteps, the referee's whistle, a crowd and
-//! the sea. Hits, sand and footsteps come from where they happen on the court.
+//! Sound: hits, the ball on the floor, footsteps, the referee's whistle, a
+//! crowd and, at the beach, the sea. Hits, landings and footsteps come from
+//! where they happen on the court.
 
 use bevy::audio::{DefaultSpatialScale, SpatialScale, Volume};
 use bevy::prelude::*;
 use volley_sim::{DT, Event, HitKind, MoveId};
 
+use crate::arena::Arena;
 use crate::{Match, SimEvent};
 
 /// Meters of running between footsteps.
@@ -73,6 +75,7 @@ fn next<'a>(sounds: &'a [Handle<AudioSource>], turn: &mut usize) -> &'a Handle<A
 fn play_game_sounds(
     mut commands: Commands,
     game: Res<Match>,
+    arena: Res<Arena>,
     sounds: Res<Sounds>,
     mut events: MessageReader<SimEvent>,
     mut turn: Local<usize>,
@@ -110,7 +113,17 @@ fn play_game_sounds(
             }
             Event::HitNet { at } => play(&mut commands, &sounds.net, 0.8, Some(at)),
             Event::WallBounce { at } => play(&mut commands, next(&sounds.block, &mut turn), 0.6, Some(at)),
-            Event::Landed { at, .. } => play(&mut commands, next(&sounds.sand, &mut turn), 0.9, Some(at)),
+            // Into the sand, or a thud on the stadium floor.
+            Event::Landed { at, .. } => match *arena {
+                Arena::Beach => play(&mut commands, next(&sounds.sand, &mut turn), 0.9, Some(at)),
+                Arena::Neon => play(&mut commands, next(&sounds.block, &mut turn), 0.7, Some(at)),
+            },
+            // A foot slapping off the wall.
+            Event::WallJumped { player, .. } => {
+                let at = game.current.players[player].position;
+                play(&mut commands, next(&sounds.step, &mut turn), 1.0, Some(at));
+                play(&mut commands, next(&sounds.block, &mut turn), 0.3, Some(at));
+            }
             Event::MoveStarted { player, id: MoveId::Dive | MoveId::FootSave } => {
                 play(&mut commands, next(&sounds.step, &mut turn), 1.0, Some(game.current.players[player].position));
             }
@@ -179,9 +192,9 @@ fn footsteps(
 }
 
 /// Waves breaking now and then.
-fn waves(mut commands: Commands, time: Res<Time>, sounds: Res<Sounds>, mut next_wave: Local<f32>, mut turn: Local<usize>) {
+fn waves(mut commands: Commands, time: Res<Time>, arena: Res<Arena>, sounds: Res<Sounds>, mut next_wave: Local<f32>, mut turn: Local<usize>) {
     let now = time.elapsed_secs();
-    if now < *next_wave {
+    if now < *next_wave || *arena != Arena::Beach {
         return;
     }
     let spread = (now * 12.9898).sin().abs().fract();

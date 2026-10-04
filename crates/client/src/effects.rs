@@ -1,10 +1,12 @@
 //! Sand kicked up where the ball lands, where a dive hits the floor, where a
-//! dash pushes off, and where players land from jumps.
+//! dash pushes off, where players land from jumps and kick off walls. In the
+//! Neon Stadium, sparks of light instead.
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use volley_sim::{Event, MoveId};
 
+use crate::arena::Arena;
 use crate::{Match, SimEvent};
 
 /// When a diving player's body hits the sand, after the lunge starts.
@@ -22,7 +24,8 @@ pub fn plugin(app: &mut App) {
 #[derive(Resource)]
 struct GrainLook {
     mesh: Handle<Mesh>,
-    material: Handle<StandardMaterial>,
+    sand: Handle<StandardMaterial>,
+    spark: Handle<StandardMaterial>,
 }
 
 #[derive(Component)]
@@ -40,11 +43,16 @@ struct PendingPuffs(Vec<(f32, usize)>);
 fn load_grain(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
     commands.insert_resource(GrainLook {
         mesh: meshes.add(Sphere::new(1.0).mesh().ico(2).unwrap()),
-        material: materials.add(StandardMaterial {
+        sand: materials.add(StandardMaterial {
             // Lighter than the sand, so the dust stands out against it.
             base_color: Color::srgba(0.97, 0.9, 0.74, 0.8),
             alpha_mode: AlphaMode::Blend,
             perceptual_roughness: 1.0,
+            ..default()
+        }),
+        spark: materials.add(StandardMaterial {
+            base_color: Color::BLACK,
+            emissive: Color::srgb(0.3, 0.85, 1.0).to_linear() * 8.0,
             ..default()
         }),
     });
@@ -54,12 +62,14 @@ fn kick_up_sand(
     mut commands: Commands,
     game: Res<Match>,
     time: Res<Time>,
+    arena: Res<Arena>,
     look: Res<GrainLook>,
     mut events: MessageReader<SimEvent>,
     mut pending: ResMut<PendingPuffs>,
     mut seed: Local<u32>,
 ) {
     let now = time.elapsed_secs();
+    let material = if *arena == Arena::Neon { look.spark.clone() } else { look.sand.clone() };
     let mut puff = |at: Vec3, grains: u32, speed: f32| {
         for _ in 0..grains {
             *seed = seed.wrapping_add(1);
@@ -74,8 +84,10 @@ fn kick_up_sand(
                     size: 0.025 + 0.04 * b,
                 },
                 Mesh3d(look.mesh.clone()),
-                MeshMaterial3d(look.material.clone()),
-                Transform::from_translation(at.with_y(0.05)).with_scale(Vec3::ZERO),
+                MeshMaterial3d(material.clone()),
+                // Never a zero scale: it makes the lighting divide by zero, and
+                // with bloom one bad pixel spreads over the whole screen.
+                Transform::from_translation(at.with_y(at.y.max(0.05))).with_scale(Vec3::splat(0.025 + 0.04 * b)),
                 NotShadowCaster,
             ));
         }
@@ -90,6 +102,11 @@ fn kick_up_sand(
             Event::Dashed { player } => puff(game.current.players[player].position, 30, 1.9),
             Event::MoveStarted { player, id: MoveId::Posterizer } => puff(game.current.players[player].position, 60, 3.0),
             Event::Posterized { player } => pending.0.push((now + 0.35, player)),
+            // Off the wall, where the foot pushed.
+            Event::WallJumped { player, away } => {
+                let body = game.current.players[player].position;
+                puff(body + Vec3::new(-away.x, 0.0, -away.y) * 0.4 + Vec3::Y * 0.3, 25, 1.6);
+            }
             _ => {}
         }
     }
@@ -120,7 +137,7 @@ fn fly_grains(mut commands: Commands, time: Res<Time>, mut grains: Query<(Entity
         grain.velocity *= 1.0 - 1.5 * dt;
         transform.translation += grain.velocity * dt;
         transform.translation.y = transform.translation.y.max(0.02);
-        transform.scale = Vec3::splat(grain.size * (1.0 - grain.age / grain.life));
+        transform.scale = Vec3::splat((grain.size * (1.0 - grain.age / grain.life)).max(0.002));
     }
 }
 

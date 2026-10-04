@@ -75,7 +75,7 @@ terminal printed.
 | Look | Mouse (click the window to capture it, Esc to release) | Right stick |
 | Ball cam on / off (on at the start; looking around turns it off) | Tab | Right stick click |
 | Move | W A S D | Left stick |
-| Jump (hold for full height) | Space | A |
+| Jump (hold for full height; again by a wall to kick off it) | Space | A |
 | Dash | C | Left stick click |
 | Pass / serve / block (hold a moment for a little boost) | Q | RB |
 | Attack (in the air; hold a moment for a little boost) | E | RT |
@@ -90,13 +90,16 @@ On a controller, hits are on the bumpers and triggers so your right thumb can
 stay on the stick and keep aiming. The on-screen help switches to controller
 buttons when you use one.
 
-Before each match you pick a hero. You play Red with two All-rounder bot
+Before each match you pick a hero, and an arena (W / S or up and down on the
+hero select screen): the **Beach**, a glass cage on the sand by the sea, or the
+**Neon Stadium**, a night arena with a glowing floor, energy walls and a crowd
+all around. The court is the same in both. You play Red with two All-rounder bot
 teammates, against Cross, Golazo and an All-rounder. The camera follows you from behind, and movement
 is relative to where it faces. The arena is 48 x 24 m, more than twice a real court, with glass walls all
 around: the ball bounces off them and stays in play, so nothing is ever out.
-It only ends when it hits the sand, and that side loses the point.
+It only ends when it hits the floor, and that side loses the point.
 
-- **Movement:** a running jump goes about a third higher than a standing one, so run in to attack. Tap jump for a short hop, hold it for the full jump. **Dash** bursts about three meters along the sand toward where you're moving (you can hit or jump out of it; jumping out keeps its speed for a flying approach) and then needs a moment to recharge. Landing fast skids a little in the sand.
+- **Movement:** a running jump goes about a third higher than a standing one, so run in to attack. Tap jump for a short hop, hold it for the full jump. **Dash** bursts about three meters along the sand toward where you're moving (you can hit or jump out of it; jumping out keeps its speed for a flying approach) and then needs a moment to recharge. Landing fast skids a little in the sand. **Wall jump:** in the air next to a wall, jump again to kick off it: a full jump again, pushed away from the wall, once each time you leave the ground. Use it to reach balls bouncing high off the walls, or to come in high along the side wall for an attack.
 - **Aiming, Rematch style:** hits go the way you're moving: hold back and a pass goes behind you, hold left and it goes left. Standing still, they go the way the camera looks. Press pass and you hit the ball the moment it's in reach, so pressing a little early is fine: holding keeps the pass waiting for the ball. A tap is already a full hit: a pass reaches a teammate, an attack lands deep. Held a moment first (half a second for the most), a hit gets a small boost, Mario Tennis style: a little farther and faster, with the aim marker warming to orange. Attacks work the same way, armed for the rest of the jump. The ring on the floor shows where it will land. Hits over the net (serves, attacks, third touches) always go toward the other side, keeping your angle across. Bank shots off the walls are fair game.
 - **Serving:** press pass (serves go on letting go, so a held serve gets the boost too); it lands mid-way into the other half. Each rally starts with the camera facing the net.
 - **Pass:** your team's first touch goes mid-court, the second is a set near the net, and the third goes over automatically.

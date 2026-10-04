@@ -784,6 +784,13 @@ fn react_to_events(
                     character.start(if shift.dot(right) > 0.0 { Clip::CrossoverRight } else { Clip::Crossover }, None);
                 }
                 Event::Posterized { player } if player == me => character.start(Clip::KnockedDown, None),
+                // Kicking off a wall: spring up again, turned away from it.
+                Event::WallJumped { player, away } if player == me => {
+                    character.face = Some((away, face_until));
+                    if !character.action.is_some_and(Clip::is_game_action) {
+                        character.start(Clip::Takeoff, None);
+                    }
+                }
                 Event::Dashed { player } if player == me => {
                     if let Some(dash) = game.current.players[me].dash {
                         character.face = Some((dash.direction, face_until));

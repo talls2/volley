@@ -3,6 +3,7 @@
 //! they're all in `volley_sim`.
 
 mod aim;
+mod arena;
 mod audio;
 mod camera;
 mod characters;
@@ -46,6 +47,7 @@ fn main() {
             camera::plugin,
             aim::plugin,
             scene::plugin,
+            arena::plugin,
             trail::plugin,
             effects::plugin,
             feel::plugin,

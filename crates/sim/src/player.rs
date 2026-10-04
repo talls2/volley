@@ -32,6 +32,10 @@ const SKID_TICKS: u32 = 9;
 const SKID_ACCELERATION: f32 = 18.0;
 /// Stronger than real gravity so jumps feel snappy. Apex ≈ 1.2 m.
 pub(crate) const PLAYER_GRAVITY: f32 = 20.0;
+/// Jumping in the air within this far of a wall kicks off it: a second jump,
+/// once per time in the air, pushing away from the wall this fast (m/s).
+const WALL_JUMP_REACH: f32 = 0.35;
+const WALL_JUMP_PUSH: f32 = 6.0;
 
 /// Within this distance of the net, while the ball is on the other side, pass
 /// means block: a jump with the hands up.
@@ -109,6 +113,8 @@ pub struct Player {
     pub dash: Option<Dash>,
     /// Rising from a jump, which letting go of jump can cut short.
     rising: bool,
+    /// Kicked off a wall since last on the ground.
+    wall_jumped: bool,
     /// Skidding on landing until this tick.
     skid_until: u32,
     /// When each move (by [`MoveId::index`]) can start again.
@@ -144,6 +150,8 @@ pub struct Dash {
 pub(crate) struct Started {
     pub(crate) move_id: Option<MoveId>,
     pub(crate) dash: bool,
+    /// Kicked off a wall, pushing away along this (world XZ, unit length).
+    pub(crate) wall_jump: Option<Vec2>,
 }
 
 impl Player {
@@ -160,6 +168,7 @@ impl Player {
             hands_up: false,
             dash: None,
             rising: false,
+            wall_jumped: false,
             skid_until: 0,
             ready_at: [0; MoveId::ALL.len()],
             charge: 0.0,
@@ -207,6 +216,25 @@ impl Player {
 
     pub fn grounded(&self) -> bool {
         self.position.y <= 0.0
+    }
+
+    /// The way off the wall (or two, in a corner) beside a body close enough
+    /// to kick off it: world XZ, unit length.
+    pub fn wall_beside(&self) -> Option<Vec2> {
+        let near = |distance: f32, limit: f32| distance >= limit - BODY_RADIUS - WALL_JUMP_REACH;
+        let mut away = Vec2::ZERO;
+        if near(self.position.x.abs(), HALF_LENGTH) {
+            away.x = -self.position.x.signum();
+        }
+        if near(self.position.z.abs(), HALF_WIDTH) {
+            away.y = -self.position.z.signum();
+        }
+        (away != Vec2::ZERO).then(|| away.normalize())
+    }
+
+    /// Whether a jump now would kick off a wall.
+    pub fn can_wall_jump(&self) -> bool {
+        !self.grounded() && !self.wall_jumped && self.wall_beside().is_some()
     }
 
     /// The move that could touch the ball right now, if any.
@@ -386,6 +414,18 @@ impl Player {
                     if self.dashing(tick) {
                         self.dash = self.dash.map(|dash| Dash { start_tick: tick.saturating_sub(DASH_TICKS), ..dash });
                     }
+                } else if input.jump
+                    && self.can_wall_jump()
+                    && let Some(away) = self.wall_beside()
+                {
+                    // Kick off the wall: a full jump again, and pushed clear of
+                    // it, keeping any speed along it.
+                    let into = self.velocity.dot(away).min(0.0);
+                    self.velocity += away * (WALL_JUMP_PUSH - into);
+                    self.vertical_velocity = self.kit.jump_speed;
+                    self.rising = true;
+                    self.wall_jumped = true;
+                    started.wall_jump = Some(away);
                 }
             }
         }
@@ -428,6 +468,7 @@ impl Player {
                 self.position.y = 0.0;
                 self.vertical_velocity = 0.0;
                 self.hands_up = false;
+                self.wall_jumped = false;
                 if self.velocity.length() > SKID_SPEED {
                     self.skid_until = tick + SKID_TICKS;
                 }

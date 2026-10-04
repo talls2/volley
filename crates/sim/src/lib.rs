@@ -268,6 +268,9 @@ pub enum Event {
     Landed { at: Vec3, velocity: Vec3 },
     /// Bounced off an arena wall.
     WallBounce { at: Vec3 },
+    /// Kicked off a wall in the air: a second jump. `away` is the way off the
+    /// wall (world XZ).
+    WallJumped { player: usize, away: Vec2 },
     Point { team: usize, reason: PointReason },
     /// The teams will switch sides before the next rally.
     SidesSwitched,
@@ -386,6 +389,9 @@ impl Sim {
             }
             if started.dash {
                 events.push(Event::Dashed { player: i });
+            }
+            if let Some(away) = started.wall_jump {
+                events.push(Event::WallJumped { player: i, away });
             }
         }
 

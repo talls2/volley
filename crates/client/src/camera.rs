@@ -9,6 +9,7 @@ use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use volley_sim::Ball;
+use volley_sim::court::{HALF_LENGTH, HALF_WIDTH};
 
 use crate::Match;
 use crate::feel::Shake;
@@ -42,6 +43,11 @@ const BALL_CAM_KEY: KeyCode = KeyCode::Tab;
 const BALL_CAM_BUTTON: GamepadButton = GamepadButton::RightThumb;
 /// Turning the camera this much (radians in a frame) takes it off ball cam.
 const MANUAL_TURN: f32 = 0.01;
+/// The camera stays this far inside the walls, closing in on the player
+/// rather than looking in from outside.
+const WALL_MARGIN: f32 = 0.4;
+/// How much of the distance lost to a wall the camera climbs instead.
+const WALL_RISE: f32 = 0.3;
 
 pub fn plugin(app: &mut App) {
     // Red starts on the negative-x half.
@@ -130,14 +136,8 @@ impl CameraRig {
 fn spawn_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
-        // Positional sound is heard from here.
+        // Positional sound is heard from here. The arena adds its haze.
         SpatialListener::new(0.3),
-        // Sea haze: the far ocean fades into the sky.
-        DistanceFog {
-            color: Color::srgb(0.75, 0.86, 0.96),
-            falloff: FogFalloff::Linear { start: 60.0, end: 260.0 },
-            ..default()
-        },
     ));
 }
 
@@ -204,7 +204,7 @@ fn follow(
     let look_at = Vec3::new(feet.x, feet.y * JUMP_FOLLOW + LOOK_HEIGHT, feet.z);
     let forward = rig.forward();
     let back = -Vec3::new(forward.x, 0.0, forward.y) * rig.pitch.cos();
-    let position = look_at + (back + Vec3::Y * rig.pitch.sin()) * DISTANCE;
+    let position = inside_walls(look_at, look_at + (back + Vec3::Y * rig.pitch.sin()) * DISTANCE);
     let mut transform = Transform::from_translation(position).looking_at(look_at, Vec3::Y);
 
     // Shake: smooth wobble from mixed sine waves, on real time so it keeps
@@ -218,4 +218,16 @@ fn follow(
         transform.rotate_local_z(wobble(23.0, 47.0) * SHAKE_ROLL * strength);
     }
     **camera = transform;
+}
+
+/// `position`, pulled in toward `look_at` (inside the arena) as far as it
+/// takes to stay inside the walls, and raised for what it loses, to look down
+/// over the player's shoulder rather than into the back of their head.
+fn inside_walls(look_at: Vec3, position: Vec3) -> Vec3 {
+    let reach = |look: f32, at: f32, limit: f32| {
+        let limit = limit - WALL_MARGIN;
+        if at.abs() <= limit || (at - look).abs() < f32::EPSILON { 1.0 } else { ((limit * at.signum() - look) / (at - look)).clamp(0.0, 1.0) }
+    };
+    let t = reach(look_at.x, position.x, HALF_LENGTH).min(reach(look_at.z, position.z, HALF_WIDTH));
+    look_at + (position - look_at) * t + Vec3::Y * (1.0 - t) * DISTANCE * WALL_RISE
 }

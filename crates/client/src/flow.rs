@@ -112,7 +112,7 @@ fn update_overlay(
         Screen::Title => (
             "VOLLEY".to_string(),
             Color::WHITE,
-            "Arena beach volley, 3v3: sets to 21, best of 3\nPress Enter or A to play".to_string(),
+            "Arena volleyball with heroes, 3v3: sets to 21, best of 3\nPress Enter or A to play".to_string(),
         ),
         Screen::Playing if clock.is_paused() => ("Paused".to_string(), Color::WHITE, "Press P or Menu to resume".to_string()),
         Screen::Playing | Screen::HeroSelect => {

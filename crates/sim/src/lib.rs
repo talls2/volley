@@ -711,6 +711,38 @@ impl Sim {
         }
     }
 
+    /// When and where `player`'s armed move would meet the ball, looking up to
+    /// `horizon` ticks ahead: the ticks until contact and the ball's position
+    /// then. Follows the same rules as a real touch, with the player carried
+    /// along by their current velocity (and gravity, in the air). For timing
+    /// animations; changes nothing.
+    pub fn predicted_contact(&self, player: usize, horizon: u32) -> Option<(u32, Vec3)> {
+        let Ball::InFlight(flight) = self.ball else { return None };
+        let mut body = self.players[player];
+        let id = body.active_move(self.tick)?;
+        let attack = !matches!(id.spec().touch, Touch::Keep(_));
+        let landing = flight.landing_time();
+        for ahead in 1..=horizon {
+            let tick = self.tick + ahead;
+            if flight.elapsed(tick) >= landing {
+                return None;
+            }
+            if !body.grounded() || body.vertical_velocity > 0.0 {
+                body.vertical_velocity -= player::PLAYER_GRAVITY * DT;
+                body.position.y = (body.position.y + body.vertical_velocity * DT).max(0.0);
+            }
+            body.position += Vec3::new(body.velocity.x, 0.0, body.velocity.y) * DT;
+            if tick < self.touch_lockout_until {
+                continue;
+            }
+            let ball = flight.position_at(tick);
+            if body.reaches(id, ball) && (!attack || attack::hits_now(&body, id, ball, flight.position_at(tick + 1))) {
+                return Some((ahead, ball));
+            }
+        }
+        None
+    }
+
     fn touch(&mut self, hitter: usize, ball: Vec3, events: &mut Vec<Event>) {
         let Some(id) = self.players[hitter].spend(self.tick) else {
             return;

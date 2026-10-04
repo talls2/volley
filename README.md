@@ -165,12 +165,18 @@ weights from the placeholder body, so every animation plays on it:
 The raw generated models (about 70 MB each) stay outside the repository. The
 All-rounders are the free Quaternius placeholder characters. Movement (the ready
 stance, jogging, sprinting, the air, landing, dashing, getting knocked down and
-cheering) is Mixamo motion capture, retargeted onto the Quaternius skeleton by
-`tools/blender/retarget_mixamo.py`; the downloaded FBX files stay out of the
-repository, and the script lists which ones it uses. The volleyball moves (ready stance,
-takeoff, dash, bump, set, spike, volley and bicycle kicks, serve, block, dive,
-foot save, cheer) and hero moves (Cross's crossover and dunk, getting knocked down)
-are our own, authored for the same skeleton by a Blender script:
+cheering) is Mixamo motion capture, and Cross celebrates with a jump shot from
+the free CMU motion capture database. `tools/blender/retarget_mocap.py`
+retargets captures from Mixamo (FBX), CMU (converted by
+`tools/mocap/asf_amc_to_bvh.py`), 100STYLE (BVH) and DeepMotion Animate 3D
+(BVH tracked from volleyball videos) onto the skeleton: it
+lines up each capture's rest pose with ours, can take out the actor's turning,
+cuts long takes into seamless loops, and exports the game's clips, including
+heroes' own versions (`<Hero>_<Clip>`, which the game prefers for that hero).
+The downloads stay out of the repository, and the script lists which ones it
+uses. The volleyball moves (bump, set, spike, volley and bicycle kicks, serve,
+block, dive, foot save, and Golazo's kicks) and hero moves (Cross's crossover
+and dunk) are our own, authored for the same skeleton by a Blender script:
 
     ~/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
         -P tools/blender/volley_animations.py -- --preview /tmp/volley-anims

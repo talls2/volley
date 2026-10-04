@@ -1063,3 +1063,26 @@ fn great_feet_only_kick() {
     assert_eq!((kind, quality_chest), (HitKind::Volley, 1.0));
     assert!(quality < 1.0);
 }
+
+#[test]
+fn predicted_contact_matches_the_real_touch() {
+    // A pass held as the ball drops onto the player: the prediction says when.
+    let (mut sim, player) = cross_under_ball(Vec3::new(-4.0, 4.0, 0.0), 0, None);
+    sim.set_kit(player, moves::ALL_ROUNDER);
+    let mut inputs = idle(&sim);
+    inputs[player] = PlayerInput { pass: true, pass_held: true, ..default() };
+    sim.step(&inputs);
+    let (ahead, at) = sim.predicted_contact(player, 2 * TICK_HZ).expect("will connect");
+    let due = sim.tick + ahead;
+    let mut touched = None;
+    for _ in 0..2 * TICK_HZ {
+        let mut inputs = idle(&sim);
+        inputs[player] = PlayerInput { pass_held: true, ..default() };
+        if sim.step(&inputs).iter().any(|e| matches!(e, Event::Touched { .. })) {
+            touched = Some(sim.tick);
+            break;
+        }
+    }
+    assert_eq!(touched, Some(due));
+    assert!(at.distance(Vec3::new(-4.0, at.y, 0.0)) < 0.01);
+}

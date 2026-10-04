@@ -6,6 +6,7 @@
 | `characters/Cross.glb`, `characters/Golazo.glb`: the heroes, generated from this project's concept art (`docs/concept/`) with [Tripo](https://www.tripo3d.ai), then simplified, rebaked and rigged to the Quaternius skeleton (`tools/blender/rig_hero.py`) | Made for this project | Tripo's terms for generated models |
 | `animations/` Universal Animation Library (free version) | [Quaternius](https://quaternius.com) | CC0 1.0 |
 | `animations/Mocap.glb`: motion capture retargeted onto the Quaternius skeleton (ready stance, jog, sprint, air, landing, dash, knockdown, cheer) | [Mixamo](https://www.mixamo.com), Adobe | Mixamo terms: free for use in games and other projects; the raw downloads aren't republished here |
+| `animations/Mocap.glb`: Cross's jump-shot celebration | [CMU Graphics Lab Motion Capture Database](http://mocap.cs.cmu.edu), subject 6 | Free for any use. "The data used in this project was obtained from mocap.cs.cmu.edu. The database was created with funding from NSF EIA-0196217." |
 | `animations/Volley.glb`: volleyball and hero moves | Made for this project (`tools/blender/volley_animations.py`) | — |
 | `textures/sand_01_*` Sand 01 | Rob Tuytel, [Poly Haven](https://polyhaven.com/a/sand_01) | CC0 1.0 |
 | `sounds/hit_*`, `block_*`, `sand_*`, `net`, `step_*` (Impact Sounds) | [Kenney](https://kenney.nl/assets/impact-sounds) | CC0 1.0 |

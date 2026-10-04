@@ -18,7 +18,7 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy::world_serialization::WorldInstanceReady;
 use volley_sim::court::BALL_RADIUS;
-use volley_sim::moves::{CROSS, GOLAZO};
+use volley_sim::moves::{CROSS, GOLAZO, HEROES};
 use volley_sim::{Ball, DT, Event, HitKind, Kit, MoveId, MovePhase, Passive, Phase, Sim, attack};
 
 use crate::flow::Screen;
@@ -61,7 +61,7 @@ fn look_for(kit: &Kit, index: usize) -> &'static Look {
 }
 /// Our volleyball and hero moves, made for the Quaternius skeleton (see
 /// `tools/blender/volley_animations.py`), and Mixamo motion capture
-/// retargeted onto it (see `tools/blender/retarget_mixamo.py`).
+/// and CMU captures retargeted onto it (see `tools/blender/retarget_mocap.py`).
 const ANIMATION_LIBRARIES: [&str; 2] = ["animations/Volley.glb", "animations/Mocap.glb"];
 const VOLLEY: usize = 0;
 const MOCAP: usize = 1;
@@ -139,11 +139,22 @@ enum Clip {
 }
 
 /// Timing inside a hit animation, in seconds of the clip.
+#[derive(Clone, Copy)]
 struct Swing {
     /// The end of the wind-up. A pressed hit holds here until the ball arrives.
     wind_up: f32,
-    /// Where the hand meets the ball. A hit jumps here the moment it happens.
+    /// Where the hand (or foot) meets the ball. The swing is timed so this
+    /// lands on the moment of the touch.
     contact: f32,
+    /// Where the ball is at the contact frame, in the model's space (x toward
+    /// its left, y up, z forward), as the clip was authored. The body is
+    /// slid so this spot meets the real ball.
+    ball: Vec3,
+}
+
+/// A spot in the authoring script's terms (right, forward, up) in the model's space.
+const fn spot(right: f32, forward: f32, up: f32) -> Vec3 {
+    Vec3::new(-right, up, forward)
 }
 
 impl Clip {
@@ -240,16 +251,17 @@ impl Clip {
     /// Timings of the hits, as authored in `tools/blender/volley_animations.py`.
     fn swing(self) -> Option<Swing> {
         match self {
-            Clip::Bump | Clip::Set => Some(Swing { wind_up: 0.15, contact: 0.25 }),
-            Clip::Spike => Some(Swing { wind_up: 0.24, contact: 0.32 }),
-            Clip::VolleyKick => Some(Swing { wind_up: 0.1, contact: 0.18 }),
-            Clip::BicycleKick => Some(Swing { wind_up: 0.12, contact: 0.24 }),
-            Clip::Serve => Some(Swing { wind_up: 0.0, contact: 0.22 }),
-            Clip::Dunk => Some(Swing { wind_up: 0.3, contact: 0.4 }),
-            Clip::KickPassLow => Some(Swing { wind_up: 0.12, contact: 0.2 }),
-            Clip::KickPassHigh => Some(Swing { wind_up: 0.12, contact: 0.22 }),
-            Clip::HighVolley => Some(Swing { wind_up: 0.1, contact: 0.18 }),
-            Clip::KickServe => Some(Swing { wind_up: 0.0, contact: 0.3 }),
+            Clip::Bump => Some(Swing { wind_up: 0.15, contact: 0.25, ball: spot(0.0, 0.45, 0.8) }),
+            Clip::Set => Some(Swing { wind_up: 0.15, contact: 0.25, ball: spot(0.0, 0.3, 1.78) }),
+            Clip::Spike => Some(Swing { wind_up: 0.24, contact: 0.32, ball: spot(0.12, 0.35, 2.12) }),
+            Clip::VolleyKick => Some(Swing { wind_up: 0.1, contact: 0.18, ball: spot(0.12, 0.62, 0.95) }),
+            Clip::BicycleKick => Some(Swing { wind_up: 0.12, contact: 0.24, ball: spot(0.08, -0.4, 1.75) }),
+            Clip::Serve => Some(Swing { wind_up: 0.0, contact: 0.22, ball: spot(0.05, 0.35, 1.9) }),
+            Clip::Dunk => Some(Swing { wind_up: 0.3, contact: 0.4, ball: spot(0.0, 0.5, 1.75) }),
+            Clip::KickPassLow => Some(Swing { wind_up: 0.12, contact: 0.2, ball: spot(0.05, 0.55, 0.55) }),
+            Clip::KickPassHigh => Some(Swing { wind_up: 0.12, contact: 0.22, ball: spot(0.05, 0.55, 1.45) }),
+            Clip::HighVolley => Some(Swing { wind_up: 0.1, contact: 0.18, ball: spot(0.1, 0.5, 1.45) }),
+            Clip::KickServe => Some(Swing { wind_up: 0.0, contact: 0.3, ball: spot(0.05, 0.35, 1.1) }),
             _ => None,
         }
     }
@@ -303,7 +315,10 @@ const LOOKAHEAD_TICKS: u32 = 8;
 /// where the ball will be in a moment.
 fn hit_clip(sim: &Sim, player: usize, id: MoveId) -> Clip {
     let me = &sim.players[player];
+    // Where the ball will be met, if the move is armed and on course; else
+    // where it will be in a moment.
     let ball = match sim.ball {
+        _ if let Some((_, at)) = sim.predicted_contact(player, CONTACT_HORIZON) => at,
         Ball::InFlight(flight) => flight.position_at(sim.tick + LOOKAHEAD_TICKS),
         _ => sim.ball_position(),
     };
@@ -334,12 +349,91 @@ struct AnimationLibraries(Vec<Handle<Gltf>>);
 struct Animations {
     graph: Handle<AnimationGraph>,
     nodes: HashMap<Clip, AnimationNodeIndex>,
+    /// A hero's own version of a clip, for their style of moving: motion
+    /// capture named `<Hero>_<Clip>` in the library.
+    hero_nodes: HashMap<(&'static str, Clip), AnimationNodeIndex>,
+    /// Hits played by the upper body alone, over running legs.
+    upper_nodes: HashMap<Clip, AnimationNodeIndex>,
+    /// Standing and running played by the legs alone, under an upper-body hit;
+    /// keyed by hero too, for heroes with their own.
+    lower_nodes: HashMap<(Option<&'static str>, Clip), AnimationNodeIndex>,
+}
+
+impl Animations {
+    /// The node that plays `clip` for `hero`: their own version, if they have one.
+    fn node(&self, clip: Clip, hero: &str) -> AnimationNodeIndex {
+        self.hero_nodes.get(&(hero, clip)).copied().unwrap_or(self.nodes[&clip])
+    }
+
+    /// The node that plays a character's current move: the upper-body version
+    /// while it's layered over running legs.
+    fn action_node(&self, clip: Clip, hero: &str, layered: bool) -> AnimationNodeIndex {
+        match self.upper_nodes.get(&clip) {
+            Some(&node) if layered => node,
+            _ => self.node(clip, hero),
+        }
+    }
+
+    /// The legs-only version of a gait, for `hero`.
+    fn lower_node(&self, clip: Clip, hero: &'static str) -> AnimationNodeIndex {
+        self.lower_nodes.get(&(Some(hero), clip)).copied().unwrap_or(self.lower_nodes[&(None, clip)])
+    }
+}
+
+/// Hits the upper body can play while the legs keep running.
+const UPPER_BODY_HITS: [Clip; 2] = [Clip::Bump, Clip::Set];
+/// Gaits the legs can keep playing under an upper-body hit.
+const LOWER_BODY_GAITS: [Clip; 3] = [Clip::Ready, Clip::Jog, Clip::Sprint];
+/// Mask groups: the hips and legs, and everything above.
+const LOWER_BODY: u32 = 0;
+const UPPER_BODY: u32 = 1;
+
+/// The skeleton's bones, as paths of names from the armature down, and
+/// whether each belongs to the lower body.
+fn skeleton_paths() -> Vec<(Vec<String>, bool)> {
+    fn add(paths: &mut Vec<(Vec<String>, bool)>, parent: &[String], name: String, lower: bool) -> Vec<String> {
+        let mut path = parent.to_vec();
+        path.push(name);
+        paths.push((path.clone(), lower));
+        path
+    }
+    let mut paths = Vec::new();
+    let armature = vec!["Armature".to_string()];
+    let root = add(&mut paths, &armature, "root".into(), true);
+    let pelvis = add(&mut paths, &root, "pelvis".into(), true);
+    for side in ["l", "r"] {
+        let mut leg = pelvis.clone();
+        for bone in ["thigh", "calf", "foot", "ball", "ball_leaf"] {
+            leg = add(&mut paths, &leg, format!("{bone}_{side}"), true);
+        }
+    }
+    let mut spine = pelvis;
+    for bone in ["spine_01", "spine_02", "spine_03"] {
+        spine = add(&mut paths, &spine, bone.into(), false);
+    }
+    let neck = add(&mut paths, &spine, "neck_01".into(), false);
+    add(&mut paths, &neck, "Head".into(), false);
+    for side in ["l", "r"] {
+        let mut arm = spine.clone();
+        for bone in ["clavicle", "upperarm", "lowerarm", "hand"] {
+            arm = add(&mut paths, &arm, format!("{bone}_{side}"), false);
+        }
+        for finger in ["index", "middle", "ring", "pinky", "thumb"] {
+            let mut joint = arm.clone();
+            for part in ["01", "02", "03", "04_leaf"] {
+                joint = add(&mut paths, &joint, format!("{finger}_{part}_{side}"), false);
+            }
+        }
+    }
+    paths
 }
 
 /// The model showing player `index`.
 #[derive(Component)]
 struct Character {
     index: usize,
+    /// The hero's name, for their own versions of clips.
+    hero: &'static str,
     look: &'static Look,
     /// Plays only with the feet: kicks instead of hand hits.
     feet: bool,
@@ -359,6 +453,14 @@ struct Character {
     release: bool,
     /// Playing fast from a held wind-up until this contact time, in clip seconds.
     catch_up_to: Option<f32>,
+    /// When and where the armed hit will meet the ball: seconds from now, and
+    /// the ball's position then. Refreshed every frame.
+    contact: Option<(f32, Vec3)>,
+    /// The swing is playing toward a predicted contact, not holding.
+    timed: bool,
+    /// How far the model is slid from the player's real position, so the
+    /// contact spot of the swing meets the ball.
+    warp: Vec3,
     /// Running, jogging or standing, as last chosen.
     gait: Clip,
     airborne: bool,
@@ -376,12 +478,23 @@ struct Character {
     /// Where the posed leg points, and how strongly (0 to 1) it's posed.
     leg_goal: Vec3,
     leg_weight: f32,
+    /// Neck and head bones, for looking at the ball.
+    neck: Option<[Entity; 2]>,
+    /// How strongly (0 to 1) the head tracks the ball.
+    look_weight: f32,
+    /// Body lean from acceleration: forward and to the right, in radians.
+    lean: Vec2,
+    /// The move underway plays on the upper body only, over the legs' own gait.
+    layered: bool,
+    /// The legs-only gait playing under a layered move.
+    lower_playing: Option<AnimationNodeIndex>,
 }
 
 impl Character {
-    fn new(index: usize, yaw: f32, look: &'static Look, feet: bool) -> Self {
+    fn new(index: usize, hero: &'static str, yaw: f32, look: &'static Look, feet: bool) -> Self {
         Self {
             index,
+            hero,
             look,
             feet,
             armature: None,
@@ -392,6 +505,9 @@ impl Character {
             winding_up: false,
             release: false,
             catch_up_to: None,
+            contact: None,
+            timed: false,
+            warp: Vec3::ZERO,
             gait: Clip::Idle,
             airborne: false,
             yaw,
@@ -402,6 +518,11 @@ impl Character {
             leg: None,
             leg_goal: Vec3::ZERO,
             leg_weight: 0.0,
+            neck: None,
+            look_weight: 0.0,
+            lean: Vec2::ZERO,
+            layered: false,
+            lower_playing: None,
         }
     }
 
@@ -418,6 +539,7 @@ impl Character {
         self.seek = seek;
         self.winding_up = false;
         self.release = false;
+        self.timed = false;
     }
 }
 
@@ -435,17 +557,36 @@ fn build_animation_graph(
         return;
     };
     let mut graph = AnimationGraph::new();
-    let nodes = Clip::ALL
-        .into_iter()
-        .map(|clip| {
-            let (library, name) = clip.source();
-            let handle = loaded[library].named_animations.get(name).unwrap_or_else(|| {
-                panic!("{} has no animation named {name}", ANIMATION_LIBRARIES[library])
-            });
-            (clip, graph.add_clip(handle.clone(), 1.0, graph.root))
-        })
-        .collect();
-    commands.insert_resource(Animations { graph: graphs.add(graph), nodes });
+    for (path, lower) in skeleton_paths() {
+        let target = AnimationTargetId::from_names(path.iter().map(|name| Name::new(name.clone())).collect::<Vec<_>>().iter());
+        graph.add_target_to_mask_group(target, if lower { LOWER_BODY } else { UPPER_BODY });
+    }
+    let mut nodes = HashMap::default();
+    let mut hero_nodes = HashMap::default();
+    let mut upper_nodes = HashMap::default();
+    let mut lower_nodes = HashMap::default();
+    for clip in Clip::ALL {
+        let (library, name) = clip.source();
+        let handle = loaded[library].named_animations.get(name).unwrap_or_else(|| {
+            panic!("{} has no animation named {name}", ANIMATION_LIBRARIES[library])
+        });
+        nodes.insert(clip, graph.add_clip(handle.clone(), 1.0, graph.root));
+        if UPPER_BODY_HITS.contains(&clip) {
+            upper_nodes.insert(clip, graph.add_clip_with_mask(handle.clone(), 1 << LOWER_BODY, 1.0, graph.root));
+        }
+        if LOWER_BODY_GAITS.contains(&clip) {
+            lower_nodes.insert((None, clip), graph.add_clip_with_mask(handle.clone(), 1 << UPPER_BODY, 1.0, graph.root));
+        }
+        for hero in HEROES {
+            if let Some(handle) = loaded[library].named_animations.get(format!("{}_{name}", hero.name).as_str()) {
+                hero_nodes.insert((hero.name, clip), graph.add_clip(handle.clone(), 1.0, graph.root));
+                if LOWER_BODY_GAITS.contains(&clip) {
+                    lower_nodes.insert((Some(hero.name), clip), graph.add_clip_with_mask(handle.clone(), 1 << UPPER_BODY, 1.0, graph.root));
+                }
+            }
+        }
+    }
+    commands.insert_resource(Animations { graph: graphs.add(graph), nodes, hero_nodes, upper_nodes, lower_nodes });
 }
 
 /// Spawns everyone's model, dressed as their hero, replacing any from before
@@ -461,7 +602,7 @@ fn spawn_characters(mut commands: Commands, assets: Res<AssetServer>, game: Res<
         let yaw = -player.side * FRAC_PI_2;
         commands
             .spawn((
-                Character::new(index, yaw, look, player.kit.has(Passive::Feet)),
+                Character::new(index, player.kit.name, yaw, look, player.kit.has(Passive::Feet)),
                 WorldAssetRoot(model),
                 Transform::default(),
             ))
@@ -497,6 +638,7 @@ fn hook_up_skeleton(
         .filter_map(|[upper, lower, hand]| Some([bone(upper)?, bone(lower)?, bone(hand)?]))
         .collect();
     character.leg = (|| Some([bone("thigh_r")?, bone("calf_r")?, bone("foot_r")?]))();
+    character.neck = (|| Some([bone("neck_01")?, bone("Head")?]))();
 
     let Some((hair, hair_color)) = character.look.hair else {
         return;
@@ -614,8 +756,19 @@ fn react_to_events(
                         MoveId::Pass | MoveId::Spike | MoveId::Crossover | MoveId::Posterizer | MoveId::BananaKick | MoveId::Chilena => {
                             let serving = game.current.ball == Ball::Held { by: me };
                             if !serving && !character.action.is_some_and(Clip::is_game_action) {
-                                character.start(hit_clip(&game.current, me, id), None);
+                                // If the ball is nearly there, start partway in, so
+                                // the swing reaches contact just as it touches.
+                                let clip = character.style(hit_clip(&game.current, me, id));
+                                let seek = clip.swing().zip(game.current.predicted_contact(me, CONTACT_HORIZON)).and_then(
+                                    |(swing, (ahead, _))| {
+                                        let seconds = ahead as f32 * DT;
+                                        let lead = swing.contact - seconds * clip.speed();
+                                        (lead > 0.0).then_some(lead.min(swing.contact))
+                                    },
+                                );
+                                character.start(clip, seek);
                                 character.winding_up = true;
+                                character.timed = seek.is_some();
                             }
                         }
                     }
@@ -665,6 +818,12 @@ fn place_characters(
     let ball = game.current.ball_position();
     for (mut character, mut transform) in &mut characters {
         let feet = player_feet(&game, &fixed, character.index);
+        // Where and when an armed hit will meet the ball, from the frame's
+        // point between ticks.
+        character.contact = game
+            .current
+            .predicted_contact(character.index, CONTACT_HORIZON)
+            .map(|(ahead, at)| ((ahead as f32 - fixed.overstep_fraction()) * DT, at));
         let velocity = ground_velocity(&game, character.index);
         let to_ball = Vec2::new(ball.x - feet.x, ball.z - feet.z);
         let facing = match character.face {
@@ -683,9 +842,63 @@ fn place_characters(
             let max_turn = TURN_SPEED * time.delta_secs();
             character.yaw += turn.clamp(-max_turn, max_turn);
         }
-        *transform = Transform::from_translation(feet).with_rotation(Quat::from_rotation_y(character.yaw));
+        // Lean into acceleration and turns, from the feet: forward when
+        // speeding up, back when braking, sideways into a turn.
+        let player = &game.current.players[character.index];
+        let before = game.previous.players.get(character.index).map_or(player.velocity, |p| p.velocity);
+        let acceleration = if game.previous.rally == game.current.rally { (player.velocity - before) / DT } else { Vec2::ZERO };
+        let forward = Vec2::new(character.yaw.sin(), character.yaw.cos());
+        let right = Vec2::new(-forward.y, forward.x);
+        let grounded = player.grounded() && !player.stunned(game.current.tick);
+        let wanted = if grounded {
+            Vec2::new(acceleration.dot(forward), acceleration.dot(right)) * LEAN_PER_ACCELERATION
+        } else {
+            Vec2::ZERO
+        }
+        .clamp_length_max(MAX_LEAN);
+        let blend = 1.0 - (-LEAN_SMOOTHING * time.delta_secs()).exp();
+        let lean = character.lean + (wanted - character.lean) * blend;
+        character.lean = lean;
+        // The model faces +z with its right toward -x: a turn about x tips it
+        // forward, and about z (positive) tips it to its right.
+        let lean = Quat::from_rotation_x(lean.x) * Quat::from_rotation_z(lean.y);
+        let facing = Quat::from_rotation_y(character.yaw);
+
+        // Slide the body so the swing's contact spot meets the real ball:
+        // eased in over the last moments before contact, and back out after.
+        let swing = character.action.filter(|_| character.winding_up).and_then(Clip::swing);
+        let wanted = match (swing, character.contact) {
+            (Some(swing), Some((seconds, ball))) if seconds < WARP_WINDOW => {
+                let offset = ball - (feet + facing * swing.ball);
+                let closeness = 1.0 - seconds / WARP_WINDOW;
+                Vec3::new(offset.x, 0.0, offset.z).clamp_length_max(MAX_WARP) * closeness
+            }
+            // Hold the slide through contact; let it go once the swing is done.
+            _ if character.action.is_some_and(|clip| clip.swing().is_some()) && character.timed => character.warp,
+            _ => Vec3::ZERO,
+        };
+        let rate = if wanted == Vec3::ZERO { WARP_RELEASE } else { WARP_FOLLOW };
+        let warp = character.warp + (wanted - character.warp) * (1.0 - (-rate * time.delta_secs()).exp());
+        character.warp = warp;
+        *transform = Transform::from_translation(feet + warp).with_rotation(facing * lean);
     }
 }
+
+/// How far ahead (ticks) to look for a hit's contact with the ball.
+const CONTACT_HORIZON: u32 = 60;
+/// The body starts sliding toward the contact this long before it, by at
+/// most this far, following at `WARP_FOLLOW` and letting go at `WARP_RELEASE`
+/// per second.
+const WARP_WINDOW: f32 = 0.45;
+const MAX_WARP: f32 = 1.1;
+const WARP_FOLLOW: f32 = 25.0;
+const WARP_RELEASE: f32 = 8.0;
+
+/// Radians of body lean per m/s² of acceleration, at most `MAX_LEAN`, eased in
+/// at `LEAN_SMOOTHING` per second.
+const LEAN_PER_ACCELERATION: f32 = 0.004;
+const MAX_LEAN: f32 = 0.2;
+const LEAN_SMOOTHING: f32 = 10.0;
 
 fn animate_characters(
     game: Res<Match>,
@@ -705,6 +918,7 @@ fn animate_characters(
             commands.entity(armature).insert(AnimationGraphHandle(animations.graph.clone()));
         }
 
+        let hero = character.hero;
         let sim = &game.current;
         let me = &sim.players[character.index];
         let airborne = !me.grounded();
@@ -723,12 +937,19 @@ fn animate_characters(
             character.start(Clip::Serve, None);
             character.winding_up = true;
         }
-        // An attack winding up switches technique as the ball comes in.
+        // A hit winding up switches technique as the ball comes in: an attack
+        // between spike and kicks, a pass between bump and set. Not once the
+        // swing has started toward contact.
         if character.winding_up
-            && let Some(clip) = character.action.filter(|clip| clip.is_attack())
-            && me.active_move(sim.tick) == Some(MoveId::Spike)
+            && !character.timed
+            && let Some(clip) = character.action
+            && let Some(id) = me.active_move(sim.tick).filter(|&id| match id {
+                MoveId::Spike => clip.is_attack(),
+                MoveId::Pass => matches!(clip, Clip::Bump | Clip::Set | Clip::KickPassLow | Clip::KickPassHigh),
+                _ => false,
+            })
         {
-            let wanted = character.style(hit_clip(sim, character.index, MoveId::Spike));
+            let wanted = character.style(hit_clip(sim, character.index, id));
             if wanted != clip {
                 character.start(wanted, None);
                 character.winding_up = true;
@@ -747,7 +968,7 @@ fn animate_characters(
                 // Running cuts a landing short, so it never slows you down.
                 Clip::Land if speed > JOG_SPEED => true,
                 _ if character.winding_up => false,
-                _ => player.animation(animations.nodes[&action]).is_none_or(|active| active.is_finished()),
+                _ => player.animation(animations.action_node(action, hero, character.layered)).is_none_or(|active| active.is_finished()),
             };
             if finished {
                 character.action = None;
@@ -758,13 +979,30 @@ fn animate_characters(
             && !character.restart
             && let Some(action) = character.action
             && let Some(swing) = action.swing()
-            && let Some(active) = player.animation_mut(animations.nodes[&action])
+            && let Some(active) = player.animation_mut(animations.action_node(action, hero, character.layered))
         {
+            let at = active.seek_time();
             if character.release {
-                // Connected: hurry through to contact, then follow through.
-                active.set_speed(CATCH_UP_SPEED);
-                character.catch_up_to = Some(swing.contact);
+                // Connected. A timed swing is already at contact; otherwise
+                // hurry through to it. Then follow through.
+                if at >= swing.contact - 0.02 {
+                    active.set_speed(action.speed());
+                } else {
+                    active.set_speed(CATCH_UP_SPEED);
+                    character.catch_up_to = Some(swing.contact);
+                }
                 character.winding_up = false;
+            } else if let Some((seconds, _)) = character.contact
+                && seconds <= (swing.contact - at).max(0.0) / action.speed() + DT
+            {
+                // The ball is coming: play on so the contact frame lands on
+                // the touch, and wait there if it's a moment late.
+                character.timed = true;
+                let remaining = swing.contact - at;
+                // Clip seconds to cover per real second until contact.
+                active.set_speed(if remaining <= 0.0 { 0.0 } else { (remaining / seconds.max(DT)).clamp(0.3, 4.0) });
+            } else if character.timed && at >= swing.contact {
+                active.set_speed(0.0);
             } else if if matches!(action, Clip::Serve | Clip::KickServe) { !serving } else { me.active_move(sim.tick).is_none() } {
                 // Nothing to hit: swing through anyway.
                 active.set_speed(action.speed());
@@ -777,7 +1015,7 @@ fn animate_characters(
         }
         if let Some(contact) = character.catch_up_to
             && let Some(action) = character.action
-            && let Some(active) = player.animation_mut(animations.nodes[&action])
+            && let Some(active) = player.animation_mut(animations.action_node(action, hero, character.layered))
             && active.seek_time() >= contact
         {
             active.set_speed(action.speed());
@@ -798,7 +1036,9 @@ fn animate_characters(
             let changing_gait = !clip.is_game_action() && !character.playing.is_some_and(Clip::is_game_action);
             let blend = if changing_gait { GAIT_BLEND } else { BLEND };
             character.catch_up_to = None;
-            let active = transitions.play(&mut player, animations.nodes[&clip], blend);
+            // Hits made on the run play on the upper body; the legs keep running.
+            character.layered = UPPER_BODY_HITS.contains(&clip) && !airborne && speed > JOG_SPEED;
+            let active = transitions.play(&mut player, animations.action_node(clip, hero, character.layered), blend);
             active.set_speed(if character.winding_up { WIND_UP_SPEED } else { clip.speed() });
             let seek = character.seek.take().unwrap_or(clip.start_at());
             if seek > 0.0 {
@@ -810,12 +1050,41 @@ fn animate_characters(
             character.playing = Some(clip);
             character.restart = false;
         }
+        // Under a layered hit, the legs keep standing or running at their own pace.
+        let layered = character.layered && character.action.is_some_and(|clip| UPPER_BODY_HITS.contains(&clip)) && !airborne;
+        let legs = layered.then(|| {
+            let gait = if speed > SPRINT_SPEED { Clip::Sprint } else if speed > STOP_JOG_SPEED { Clip::Jog } else { Clip::Ready };
+            (gait, animations.lower_node(gait, hero))
+        });
+        if character.lower_playing != legs.map(|(_, node)| node) {
+            if let Some(old) = character.lower_playing.take() {
+                player.stop(old);
+            }
+            if let Some((_, node)) = legs {
+                player.play(node).repeat();
+                character.lower_playing = Some(node);
+            }
+        }
+        if let Some((gait, node)) = legs
+            && let Some(active) = player.animation_mut(node)
+        {
+            let pace = match gait {
+                Clip::Jog => Some(JOG_PACE),
+                Clip::Sprint => Some(SPRINT_PACE),
+                _ => None,
+            };
+            active.set_speed(pace.map_or(1.0, |pace| (speed / pace).clamp(0.7, 1.8)));
+        }
+        if !layered {
+            character.layered = false;
+        }
+
         // Running clips keep pace with the feet.
         if let Some(pace) = match clip {
             Clip::Jog => Some(JOG_PACE),
             Clip::Sprint => Some(SPRINT_PACE),
             _ => None,
-        } && let Some(active) = player.animation_mut(animations.nodes[&clip])
+        } && let Some(active) = player.animation_mut(animations.node(clip, hero))
         {
             active.set_speed((speed / pace).clamp(0.7, 1.8));
         }
@@ -849,6 +1118,8 @@ const ARM_BLEND_SPEED: f32 = 12.0;
 const REACH_START: f32 = 2.6;
 const FULL_REACH: f32 = 1.2;
 const CHEST_HEIGHT: f32 = 1.3;
+/// Arms reach fully for the ball over this long before contact.
+const FULL_REACH_SECONDS: f32 = 0.15;
 /// How far a reach bends the animated arms toward the ball: enough to meet it,
 /// not so much the bump or set loses its shape.
 const REACH_WEIGHT: f32 = 0.6;
@@ -881,20 +1152,24 @@ fn arm_goal(sim: &Sim, index: usize, clip: Option<Clip>) -> Option<(Vec3, f32)> 
 fn pose_limbs(
     game: Res<Match>,
     time: Res<Time>,
-    mut characters: Query<&mut Character>,
+    mut characters: Query<(&mut Character, &Transform)>,
     locals: Query<&Transform, Without<Character>>,
     children: Query<&Children>,
     mut globals: Query<&mut GlobalTransform>,
 ) {
     let sim = &game.current;
-    for mut character in &mut characters {
+    for (mut character, body) in &mut characters {
         let step = ARM_BLEND_SPEED * time.delta_secs();
+        look_at_ball(&mut character, body, sim, time.delta_secs(), &locals, &children, &mut globals);
 
         // Keep the last goal while blending out, so arms ease back from where they were.
+        // In the last moments before contact the arms reach all the way to
+        // the ball, so they meet it whatever height it comes in at.
+        let at_contact = character.contact.map_or(0.0, |(seconds, _)| (1.0 - seconds / FULL_REACH_SECONDS).clamp(0.0, 1.0));
         let target = match arm_goal(sim, character.index, character.action) {
             Some((ball, strength)) => {
                 character.arm_goal = ball;
-                strength
+                strength + (1.0 - strength) * at_contact
             }
             None => 0.0,
         };
@@ -942,6 +1217,59 @@ fn pose_limbs(
             let goal = character.leg_goal;
             point_limb(leg, |joint| (goal - joint).normalize_or_zero(), character.leg_weight, &locals, &children, &mut globals);
         }
+    }
+}
+
+/// How far (radians) the head turns toward the ball, at most, left or right
+/// and up or down; how strongly; and how quickly it eases in and out.
+const LOOK_YAW: f32 = 1.1;
+const LOOK_PITCH: f32 = 0.6;
+const LOOK_WEIGHT: f32 = 0.8;
+const LOOK_BLEND_SPEED: f32 = 4.0;
+/// The neck takes this share of the turn, the head the rest.
+const NECK_SHARE: f32 = 0.4;
+
+/// Turns the neck and head toward the ball, on top of the animation: players
+/// keep their eyes on it. Not while lying down, flipping or celebrating.
+fn look_at_ball(
+    character: &mut Character,
+    body: &Transform,
+    sim: &Sim,
+    dt: f32,
+    locals: &Query<&Transform, Without<Character>>,
+    children: &Query<&Children>,
+    globals: &mut Query<&mut GlobalTransform>,
+) {
+    let Some([neck, head]) = character.neck else { return };
+    let me = &sim.players[character.index];
+    let busy = character.action.is_some_and(|clip| {
+        matches!(
+            clip,
+            Clip::Dive | Clip::SlideTackle | Clip::KnockedDown | Clip::BicycleKick | Clip::Dunk | Clip::Celebrate
+        )
+    });
+    let watching = matches!(sim.ball, Ball::InFlight(_) | Ball::Carried { .. } | Ball::Held { .. }) && !busy && !me.stunned(sim.tick);
+    let target = if watching { LOOK_WEIGHT } else { 0.0 };
+    character.look_weight += (target - character.look_weight).clamp(-LOOK_BLEND_SPEED * dt, LOOK_BLEND_SPEED * dt);
+    if character.look_weight <= 0.0 {
+        return;
+    }
+    let Ok(head_at) = globals.get(head).map(|g| g.translation()) else { return };
+    let to_ball = sim.ball_position() - head_at;
+    // The turn from facing straight ahead to facing the ball, in the body's
+    // own terms, kept within what a neck can do.
+    let local = body.rotation.inverse() * to_ball;
+    let yaw = local.x.atan2(local.z).clamp(-LOOK_YAW, LOOK_YAW);
+    let pitch = (-local.y).atan2(Vec2::new(local.x, local.z).length()).clamp(-LOOK_PITCH, LOOK_PITCH);
+    let turn = body.rotation * Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch) * body.rotation.inverse();
+    let turn = Quat::IDENTITY.slerp(turn, character.look_weight);
+    // The neck turns part of the way; the head, riding on it, the rest.
+    for (bone, share) in [(neck, NECK_SHARE), (head, 1.0 - NECK_SHARE)] {
+        let Ok(global) = globals.get(bone).copied() else { continue };
+        let (scale, rotation, translation) = global.to_scale_rotation_translation();
+        let part = Quat::IDENTITY.slerp(turn, share);
+        let posed = GlobalTransform::from(Transform { translation, rotation: part * rotation, scale });
+        follow_parent(bone, posed, locals, children, globals);
     }
 }
 

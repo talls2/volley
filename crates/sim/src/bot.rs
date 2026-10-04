@@ -33,6 +33,8 @@ const PASS_HEIGHT: f32 = 1.2;
 const SPIKE_HEIGHT: f32 = 3.1;
 /// Only balls coming down this close to the net are worth spiking.
 const SPIKE_RANGE: f32 = 4.5;
+/// Bots arm a pass this long before the ball reaches them.
+const EARLY_PASS_SECONDS: f32 = 0.35;
 /// Where an attacker waits for the set.
 const APPROACH_DEPTH: f32 = 3.5;
 /// Defenders wait this far back (as a fraction of the half's length), spread
@@ -154,8 +156,12 @@ fn pass(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32)
     {
         return PlayerInput { kick: true, movement: direction, ..input };
     }
-    if ball_close(sim, me, flight) {
-        input.pass = true;
+    // Arm the pass a moment early and hold it, like a player who reads the
+    // ball: it waits for the ball, and the swing has time to line up.
+    let nearly_there = seconds_left < EARLY_PASS_SECONDS && to_ball.length() < 2.5;
+    if ball_close(sim, me, flight) || nearly_there {
+        input.pass = player.active_move(sim.tick) != Some(MoveId::Pass);
+        input.pass_held = true;
         input.aim = pass_aim(sim, me).map(Aim::Spot);
         input.movement = (to_ball / 0.5).clamp_length_max(1.0);
         return input;

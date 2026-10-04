@@ -174,8 +174,8 @@ lines up each capture's rest pose with ours, can take out the actor's turning,
 cuts long takes into seamless loops, and exports the game's clips, including
 heroes' own versions (`<Hero>_<Clip>`, which the game prefers for that hero).
 The downloads stay out of the repository, and the script lists which ones it
-uses. The volleyball moves (bump, set, spike, volley and bicycle kicks, serve,
-block, dive, foot save, and Golazo's kicks) and hero moves (Cross's crossover
+uses. The other volleyball moves (bump, volley and bicycle kicks, block, dive,
+foot save, and Golazo's kicks) and hero moves (Cross's crossover
 and dunk) are our own, authored for the same skeleton by a Blender script:
 
     ~/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \

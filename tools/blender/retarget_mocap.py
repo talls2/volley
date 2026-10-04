@@ -45,16 +45,24 @@ MIXAMO = Path("~/Downloads/volley-mixamo").expanduser()
 MOCAP = Path("~/Downloads/volley-mocap").expanduser()
 
 
-def clip(path, straighten=False, loop=None, span=None, plant=False):
+def clip(path, straighten=False, loop=None, span=None, plant=False, still=False):
     """A capture to retarget. `loop` (min, max seconds) cuts the best
     seamless loop of that length out of it; `span` (start, end seconds) cuts
-    a fixed stretch; `straighten` takes out the capture's turning; `plant`
+    a fixed stretch; `straighten` takes out the capture's turning (or, given a
+time in seconds, turns the whole take to face forward at that moment, which
+keeps the body's twist through a swing); `plant`
     holds the legs and hips in the loop's first stance, for an idle made from
-    a take where the actor moved around."""
-    return dict(path=Path(path), straighten=straighten, loop=loop, span=span, plant=plant)
+    a take where the actor moved around; `still` keeps the hips at standing
+    height, raised by that many meters if it's a number, for a move made in
+    the air, where the game does the jumping."""
+    return dict(path=Path(path), straighten=straighten, loop=loop, span=span, plant=plant, still=still)
 
 
 LEGS = [f"{part}_{side}" for side in "lr" for part in ("thigh", "calf", "foot", "ball")]
+
+STYLE = MOCAP / "100style"
+CMU = MOCAP / "cmu"
+DEEPMOTION = MOCAP / "deepmotion"
 
 
 # The game's clips. Tried and left out from Mixamo: "Run To Dive" (a dive into
@@ -69,13 +77,22 @@ CLIPS = {
     "Dash": clip(MIXAMO / "Idle To Sprint.fbx"),
     "Knocked_Down": clip(MIXAMO / "Knocked Down.fbx"),
     "Celebrate": clip(MIXAMO / "Cheering.fbx"),
+    # Volleyball tracked from videos with DeepMotion Animate 3D, from the held
+    # wind-up through contact to the follow-through (the game's `Swing`
+    # timings are measured with `--measure`). The set: hands rise to the
+    # forehead, wait for the ball and push.
+    "Set": clip(DEEPMOTION / "set_overhead.bvh", straighten=True, span=(1.4, 3.3)),
+    # A float serve: tossing arm up and hitting arm cocked, the hit above the
+    # shoulder, and the arm held out after it.
+    "Serve": clip(DEEPMOTION / "serve_standing.bvh", straighten=5.0, span=(4.45, 5.75)),
+    # The spike, from the top of the jump: arm drawn back like a bow, the
+    # whip through the ball and down. In the air, where the game jumps; the
+    # actor hunches into the hit, so the body is raised to reach the ball.
+    "Spike": clip(DEEPMOTION / "spike_approach_man.bvh", straighten=5.83, span=(5.0, 6.3), still=0.2),
 }
 
 # Heroes' own versions of clips, for their style of moving: exported as
 # `<Hero>_<Clip>`, which the game prefers for that hero.
-STYLE = MOCAP / "100style"
-CMU = MOCAP / "cmu"
-DEEPMOTION = MOCAP / "deepmotion"
 HERO_CLIPS = {
     # A jump shot to celebrate: CMU subject 6's crossover and shot.
     "Cross": {
@@ -100,8 +117,9 @@ CANDIDATES = {
     "CMU_Crossover_Shoot": clip(CMU / "06_14.bvh", span=(0.0, 4.0)),
     "CMU_Soccer_Kick": clip(CMU / "10_01.bvh", span=(0.0, 4.0)),
     "CMU_Soccer_Kick_2": clip(CMU / "11_01.bvh", span=(0.0, 4.0)),
-    # Volleyball tracked from videos with DeepMotion Animate 3D.
-    **{f"DM_{name.title().replace('_', '')}": clip(DEEPMOTION / f"{name}.bvh") for name in (
+    # Volleyball tracked from videos with DeepMotion Animate 3D, whole takes.
+    # The beach spike and the woman's approach and jump came out too noisy.
+    **{f"DM_{name.title().replace('_', '')}": clip(DEEPMOTION / f"{name}.bvh", straighten=True) for name in (
         "spike_beach", "serve_standing", "set_overhead", "spike_approach_woman", "spike_jump_woman", "spike_approach_man")},
 }
 
@@ -232,15 +250,21 @@ def retarget(rig, name, spec):
     our_hip = rig.arm.data.bones["pelvis"].head_local.z
     our_ankle = rig.arm.data.bones["foot_l"].head_local.z
 
+    # Take out the capture's turning: turn it back to face its rest heading.
+    def straightening():
+        now_across = across(lambda b: face @ (source.matrix_world @ b.head))
+        return Quaternion((0, 0, 1), heading(ours_across) - heading(now_across))
+
+    fixed = None
+    if spec["straighten"] is not True and spec["straighten"]:
+        scene.frame_set(start + round(spec["straighten"] * fps))
+        fixed = straightening()
+
     frames = []
     for frame in range(start, end + 1):
         scene.frame_set(frame)
         hip = face @ (source.matrix_world @ hips.head)
-        # Take out the capture's turning: turn it back to face its rest heading.
-        straight = Quaternion()
-        if spec["straighten"]:
-            now_across = across(lambda b: face @ (source.matrix_world @ b.head))
-            straight = Quaternion((0, 0, 1), heading(ours_across) - heading(now_across))
+        straight = fixed if fixed is not None else straightening() if spec["straighten"] else Quaternion()
         change = {}
         for bone, target in pairs:
             world = straight @ face @ (source.matrix_world @ bone.matrix).to_quaternion()
@@ -260,6 +284,9 @@ def retarget(rig, name, spec):
     for f in frames:
         f[1] = Vector((0.0, 0.0, (f[1][0] - ground) * scale + our_ankle - our_hip))
     frames = cut(frames, fps, spec)
+    if spec["still"] is not False:
+        lift = Vector((0.0, 0.0, 0.0 if spec["still"] is True else spec["still"]))
+        frames = [(change, lift, feet) for change, _, feet in frames]
     if spec["plant"]:
         stance = frames[0]
         frames = [({**change, **{bone: stance[0][bone] for bone in LEGS if bone in stance[0]}}, stance[1], feet)
@@ -342,10 +369,39 @@ def pace(strides, fps):
     return speeds[len(speeds) // 2] if speeds else 0.0
 
 
+def measure(rig, action):
+    """Prints where the hands are through a clip, in the character's terms
+    (right, forward, up, in meters from the feet), to find its contact frame
+    and where the ball is then: `Swing` in the game's characters.rs."""
+    scene = bpy.context.scene
+    rig.arm.animation_data_create()
+    rig.arm.animation_data.action = action
+    start, end = (round(f) for f in action.frame_range)
+    world = rig.arm.matrix_world
+
+    # The knuckles of the middle finger: the palm, where a hand meets the ball.
+    # (The skeleton's bone tails don't point anywhere meaningful.)
+    def spot(bone):
+        p = world @ rig.bones[bone].head
+        return Vector((-p.x, -p.y, p.z))
+
+    previous = None
+    for frame in range(start, end + 1):
+        scene.frame_set(frame)
+        right, left = spot("middle_01_r"), spot("middle_01_l")
+        speed = (right - previous).length * scene.render.fps if previous is not None else 0.0
+        previous = right
+        print(f"  {frame / scene.render.fps:5.2f} s  right hand {right.x:5.2f} {right.y:5.2f} {right.z:5.2f}  "
+              f"left hand {left.x:5.2f} {left.y:5.2f} {left.z:5.2f}  right speed {speed:4.1f} m/s")
+    rig.arm.animation_data.action = None
+    rig.reset()
+
+
 def main():
     args = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     preview = args[args.index("--preview") + 1] if "--preview" in args else None
     trying = args[args.index("--try") + 1].split(",") if "--try" in args else None
+    measuring = "--measure" in args
     rig = volley.Rig()
     bpy.context.scene.render.fps = 30
     jobs = dict(CLIPS)
@@ -358,6 +414,8 @@ def main():
         sys.exit(f"missing downloads: {missing}")
     for name, spec in jobs.items():
         action, seconds = retarget(rig, name, spec)
+        if measuring:
+            measure(rig, action)
         if preview:
             Path(preview).mkdir(parents=True, exist_ok=True)
             sheet = {"name": action.name, "keys": [(0.0, {}), (seconds, {})]}

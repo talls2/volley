@@ -202,11 +202,11 @@ impl Clip {
             Clip::Dash => (MOCAP, "Dash"),
             Clip::Ready => (MOCAP, "Ready"),
             Clip::Bump => (VOLLEY, "Bump"),
-            Clip::Set => (VOLLEY, "Set"),
-            Clip::Spike => (VOLLEY, "Spike"),
+            Clip::Set => (MOCAP, "Set"),
+            Clip::Spike => (MOCAP, "Spike"),
             Clip::VolleyKick => (VOLLEY, "Volley_Kick"),
             Clip::BicycleKick => (VOLLEY, "Bicycle_Kick"),
-            Clip::Serve => (VOLLEY, "Serve"),
+            Clip::Serve => (MOCAP, "Serve"),
             Clip::Block => (VOLLEY, "Block"),
             Clip::Dive => (VOLLEY, "Dive"),
             Clip::FootSave => (VOLLEY, "Foot_Save"),
@@ -248,15 +248,17 @@ impl Clip {
         }
     }
 
-    /// Timings of the hits, as authored in `tools/blender/volley_animations.py`.
+    /// Timings of the hits, as authored in `tools/blender/volley_animations.py`,
+    /// or measured in motion capture (`retarget_mocap.py --measure`): the set,
+    /// spike and serve.
     fn swing(self) -> Option<Swing> {
         match self {
             Clip::Bump => Some(Swing { wind_up: 0.15, contact: 0.25, ball: spot(0.0, 0.45, 0.8) }),
-            Clip::Set => Some(Swing { wind_up: 0.15, contact: 0.25, ball: spot(0.0, 0.3, 1.78) }),
-            Clip::Spike => Some(Swing { wind_up: 0.24, contact: 0.32, ball: spot(0.12, 0.35, 2.12) }),
+            Clip::Set => Some(Swing { wind_up: 0.9, contact: 1.05, ball: spot(-0.07, 0.26, 1.9) }),
+            Clip::Spike => Some(Swing { wind_up: 0.62, contact: 0.82, ball: spot(0.38, 0.38, 1.96) }),
             Clip::VolleyKick => Some(Swing { wind_up: 0.1, contact: 0.18, ball: spot(0.12, 0.62, 0.95) }),
             Clip::BicycleKick => Some(Swing { wind_up: 0.12, contact: 0.24, ball: spot(0.08, -0.4, 1.75) }),
-            Clip::Serve => Some(Swing { wind_up: 0.0, contact: 0.22, ball: spot(0.05, 0.35, 1.9) }),
+            Clip::Serve => Some(Swing { wind_up: 0.0, contact: 0.53, ball: spot(0.34, -0.03, 1.9) }),
             Clip::Dunk => Some(Swing { wind_up: 0.3, contact: 0.4, ball: spot(0.0, 0.5, 1.75) }),
             Clip::KickPassLow => Some(Swing { wind_up: 0.12, contact: 0.2, ball: spot(0.05, 0.55, 0.55) }),
             Clip::KickPassHigh => Some(Swing { wind_up: 0.12, contact: 0.22, ball: spot(0.05, 0.55, 1.45) }),

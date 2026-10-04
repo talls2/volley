@@ -38,6 +38,12 @@ fn serve_that_lands_in_scores_for_the_server() {
     let mut inputs = idle(&sim);
     inputs[server].pass = true;
     sim.step(&inputs);
+    // The swing takes a moment, and the client can see it coming.
+    assert_eq!(sim.predicted_contact(server, 60).map(|(ticks, _)| ticks), Some(SERVE_SWING_TICKS));
+    for _ in 0..SERVE_SWING_TICKS {
+        assert_eq!(sim.ball, Ball::Held { by: server });
+        sim.step(&idle(&sim));
+    }
     assert!(matches!(sim.ball, Ball::InFlight(_)));
 
     let mut events = Vec::new();

@@ -26,6 +26,9 @@ pub(crate) const MAX_TOUCHES: u32 = 3;
 /// After a touch nobody can touch the ball for this long, so one swing never counts twice.
 const TOUCH_LOCKOUT_TICKS: u32 = 10;
 const POINT_PAUSE_TICKS: u32 = 90;
+/// A serve is swung, not flicked: the ball leaves the hand this long after the
+/// press, as the swing reaches it.
+pub const SERVE_SWING_TICKS: u32 = 15;
 /// How long a player knocked down by a dunk stays down.
 const KNOCKDOWN_TICKS: u32 = 60;
 /// Ultimate charge from each touch, and for each point the team wins.
@@ -315,6 +318,9 @@ pub struct Sim {
     last_hitter: Option<usize>,
     /// A decoy ball in flight beside the real one, until either is touched.
     decoy: Option<Flight>,
+    /// A serve underway: the tick the ball leaves the server's hand, and the
+    /// move that swung it.
+    serve_at: Option<(u32, MoveId)>,
     /// Each team's half: -1 or +1.
     sides: [f32; 2],
     /// Switch sides when the next rally starts.
@@ -348,6 +354,7 @@ impl Sim {
             last_hit: None,
             last_hitter: None,
             decoy: None,
+            serve_at: None,
             sides,
             switch_pending: false,
         };
@@ -494,6 +501,7 @@ impl Sim {
         self.last_hit = None;
         self.last_hitter = None;
         self.decoy = None;
+        self.serve_at = None;
         if self.switch_pending {
             self.switch_pending = false;
             self.sides = [self.sides[1], self.sides[0]];
@@ -599,9 +607,17 @@ impl Sim {
     }
 
     fn update_serve(&mut self, server: usize, events: &mut Vec<Event>) {
-        let Some(id) = self.players[server].spend(self.tick) else {
+        // The press starts the swing; the ball goes when the swing reaches it.
+        let Some((at, id)) = self.serve_at else {
+            if let Some(id) = self.players[server].spend(self.tick) {
+                self.serve_at = Some((self.tick + SERVE_SWING_TICKS, id));
+            }
             return;
         };
+        if self.tick < at {
+            return;
+        }
+        self.serve_at = None;
         let from = held_ball_position(&self.players[server]);
         let plan = self.plan_hit(server, id, 1, from);
         self.touches = Touches { count: 1, last: Some(server), ..Touches::new(self.players[server].team) };
@@ -717,6 +733,13 @@ impl Sim {
     /// along by their current velocity (and gravity, in the air). For timing
     /// animations; changes nothing.
     pub fn predicted_contact(&self, player: usize, horizon: u32) -> Option<(u32, Vec3)> {
+        // A serve being swung meets the ball where it's held.
+        if let (Ball::Held { by }, Some((at, _))) = (self.ball, self.serve_at)
+            && by == player
+        {
+            let ahead = at.saturating_sub(self.tick);
+            return (ahead <= horizon).then(|| (ahead, held_ball_position(&self.players[player])));
+        }
         let Ball::InFlight(flight) = self.ball else { return None };
         let mut body = self.players[player];
         let id = body.active_move(self.tick)?;
@@ -860,11 +883,13 @@ impl Sim {
     }
 }
 
-/// Where a server holds the ball: up for a hand serve, or at the waist to
-/// drop-kick it, for a hero who only plays with their feet.
+/// Where a server holds the ball: tossed up over the hitting (right)
+/// shoulder for a hand serve, or out in front at the waist to drop-kick it,
+/// for a hero who only plays with their feet. Players face the net, with
+/// their right toward -z on the +x half.
 fn held_ball_position(player: &Player) -> Vec3 {
-    let height = if player.kit.has(Passive::Feet) { 1.1 } else { 1.9 };
-    player.position + Vec3::new(-player.side * 0.35, height, 0.0)
+    let offset = if player.kit.has(Passive::Feet) { Vec3::new(-player.side * 0.35, 1.1, 0.0) } else { Vec3::new(0.0, 1.9, -player.side * 0.34) };
+    player.position + offset
 }
 
 /// Palmed high overhead, just in front: where a carried ball rides.

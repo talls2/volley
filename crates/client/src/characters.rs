@@ -754,7 +754,8 @@ fn react_to_events(
                             character.start(if id == MoveId::Dive { Clip::Dive } else { Clip::FootSave }, None);
                         }
                         // A pressed hit winds up and waits for the ball. Serves
-                        // happen on the press itself, so they skip this.
+                        // are already wound up, and swing to meet the ball as
+                        // it leaves the hand (`predicted_contact`).
                         MoveId::Pass | MoveId::Spike | MoveId::Crossover | MoveId::Posterizer | MoveId::BananaKick | MoveId::Chilena => {
                             let serving = game.current.ball == Ball::Held { by: me };
                             if !serving && !character.action.is_some_and(Clip::is_game_action) {
@@ -830,6 +831,10 @@ fn place_characters(
         let to_ball = Vec2::new(ball.x - feet.x, ball.z - feet.z);
         let facing = match character.face {
             Some((direction, until)) if time.elapsed_secs() < until => direction,
+            // Serving: square to the net, the ball up over the shoulder.
+            _ if game.current.ball == (Ball::Held { by: character.index }) => {
+                Vec2::new(-game.current.players[character.index].side, 0.0)
+            }
             _ if character.winding_up => to_ball,
             // Square to the net, hands up.
             _ if game.current.players[character.index].blocking() => {

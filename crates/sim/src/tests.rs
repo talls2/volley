@@ -1052,6 +1052,14 @@ fn all_heroes_play_real_rallies() {
 }
 
 #[test]
+fn passes_meet_the_ball_within_arms_reach() {
+    let body = Player::new(0, -1.0, Vec3::new(-3.0, 0.0, 0.0));
+    // Over the forehead, a set; over the fingertips, out of reach.
+    assert!(body.reaches(MoveId::Pass, body.position + Vec3::new(0.3, 2.05, 0.0)));
+    assert!(!body.reaches(MoveId::Pass, body.position + Vec3::new(0.3, 2.3, 0.0)));
+}
+
+#[test]
 fn great_feet_only_kick() {
     let mut body = Player::new(0, -1.0, Vec3::new(-3.0, 1.0, 0.0));
     body.kit = moves::GOLAZO;

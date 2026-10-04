@@ -141,7 +141,9 @@ const PASS: Move = Move {
     recovery: 0,
     reach: 1.3,
     low: 0.35,
-    high: 2.4,
+    // Hands overhead: a held pass meets a dropping ball as it comes into
+    // reach, so any higher and the set would be played over the fingertips.
+    high: 2.15,
     lunge: None,
     touch: Touch::Keep(HitKind::Pass),
     wobble: 0.0,

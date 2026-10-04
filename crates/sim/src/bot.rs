@@ -254,7 +254,8 @@ fn spike(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32
 fn banana_kick(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2) -> PlayerInput {
     let player = &sim.players[me];
     let mut input = PlayerInput { movement: (to_ball / 0.5).clamp_length_max(1.0), ..default() };
-    if ball_close(sim, me, flight) {
+    // Kick once the ball will come down into reach while the kick lasts.
+    if would_connect(sim, me, flight, MoveId::BananaKick, Vec2::ZERO) {
         input.ability = true;
         input.aim = Some(Aim::Spot(spike_aim(sim, player.team, flight.position_at(sim.tick))));
     }

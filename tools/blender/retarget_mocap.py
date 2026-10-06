@@ -22,9 +22,10 @@ Run from the repository root:
         -P tools/blender/retarget_mocap.py -- [--preview DIR] [--try NAME,...]
 
 `--try` converts only the listed clips or `CANDIDATES` (with `--preview`,
-to judge them) without exporting. Downloads live outside the repository, in
-`~/Downloads/volley-mixamo` and `~/Downloads/volley-mocap`: Mixamo's terms
-allow using its animations in a game but not republishing the raw files.
+to judge them) without exporting. Downloads live outside this repository, in
+the private `talls2/volley-assets` cloned at `~/Downloads/volley-assets`
+(`git sparse-checkout add mixamo mocap` there): Mixamo's terms allow using its
+animations in a game but not republishing the raw files.
 """
 
 import importlib.util
@@ -41,8 +42,9 @@ volley = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(volley)
 
 OUTPUT = volley.ASSETS / "animations/Mocap.glb"
-MIXAMO = Path("~/Downloads/volley-mixamo").expanduser()
-MOCAP = Path("~/Downloads/volley-mocap").expanduser()
+ASSETS = Path("~/Downloads/volley-assets").expanduser()
+MIXAMO = ASSETS / "mixamo"
+MOCAP = ASSETS / "mocap"
 
 
 def clip(path, straighten=False, loop=None, span=None, plant=False, still=False):

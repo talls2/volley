@@ -165,8 +165,8 @@ weights from the placeholder body, so every animation plays on it:
     ~/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
         -P tools/blender/rig_hero.py -- --hero Cross --source Cross.glb --height 1.93
 
-The raw generated models (about 70 MB each) stay outside the repository. The
-All-rounders are the free Quaternius placeholder characters. Movement (the ready
+The raw generated models (about 70 MB each) stay outside the repository, with
+the other source files (next paragraph). The All-rounders are the free Quaternius placeholder characters. Movement (the ready
 stance, jogging, sprinting, the air, landing, dashing, getting knocked down and
 cheering) is Mixamo motion capture, and Cross celebrates with a jump shot from
 the free CMU motion capture database. `tools/blender/retarget_mocap.py`
@@ -176,8 +176,12 @@ retargets captures from Mixamo (FBX), CMU (converted by
 lines up each capture's rest pose with ours, can take out the actor's turning,
 cuts long takes into seamless loops, and exports the game's clips, including
 heroes' own versions (`<Hero>_<Clip>`, which the game prefers for that hero).
-The downloads stay out of the repository, and the script lists which ones it
-uses. The other volleyball moves (bump, volley and bicycle kicks, block, dive,
+The downloads stay out of the repository (Mixamo's terms forbid republishing
+them), in a private companion repository, `talls2/volley-assets`, cloned next to
+this one at `~/Downloads/volley-assets`. It's cloned empty, and each task checks
+out only the folders it needs (`git sparse-checkout add mixamo mocap` to
+retarget, `models` to rig a hero); its README lists what's where. The script
+lists which files it uses. The other volleyball moves (bump, volley and bicycle kicks, block, dive,
 foot save, and Golazo's kicks) and hero moves (Cross's crossover
 and dunk) are our own, authored for the same skeleton by a Blender script:
 

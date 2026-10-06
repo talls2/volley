@@ -6,9 +6,12 @@ landmarks), and their 2D image positions, which give the body's travel and
 height in the picture. Frames where nobody is found are left empty, and an
 optional preview video draws the tracked skeleton over the footage.
 
-Run with the Python environment that has MediaPipe:
+Run with a Python environment that has MediaPipe (`python3 -m venv venv &&
+venv/bin/pip install mediapipe opencv-python`, and the pose_landmarker_heavy
+model from Google). It crashes on macOS (MediaPipe's Metal setup fails even on
+the CPU); `vision_pose.swift` does the job there.
 
-    ~/Downloads/volley-mocap/venv/bin/python tools/mocap/video_pose.py VIDEO.mp4 OUT.json \\
+    venv/bin/python tools/mocap/video_pose.py VIDEO.mp4 OUT.json \\
         [--model pose_landmarker_heavy.task] [--start S] [--end S] [--preview OUT.mp4]
 """
 
@@ -30,7 +33,7 @@ def main():
     args = sys.argv[1:]
     value = lambda flag, default=None: args[args.index(flag) + 1] if flag in args else default
     video, out = Path(args[0]), Path(args[1])
-    model = value("--model", str(Path("~/Downloads/volley-mocap/pose_landmarker_heavy.task").expanduser()))
+    model = value("--model", str(Path("~/Downloads/volley-assets/mocap/pose_landmarker_heavy.task").expanduser()))
     start, end = float(value("--start", 0)), float(value("--end", 1e9))
 
     options = vision.PoseLandmarkerOptions(

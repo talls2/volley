@@ -5,8 +5,8 @@
 //
 // Build and run:
 //
-//     swiftc -O tools/mocap/vision_pose.swift -o ~/Downloads/volley-mocap/vision_pose
-//     ~/Downloads/volley-mocap/vision_pose VIDEO.mp4 OUT.json [--start S] [--end S]
+//     swiftc -O tools/mocap/vision_pose.swift -o ~/Downloads/volley-assets/mocap/vision_pose
+//     ~/Downloads/volley-assets/mocap/vision_pose VIDEO.mp4 OUT.json [--start S] [--end S]
 
 import AVFoundation
 import Foundation

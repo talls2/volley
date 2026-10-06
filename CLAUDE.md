@@ -2,6 +2,15 @@
 
 See README.md for what the game is, how it's laid out and how to run it.
 
+## Source assets
+
+The tools' source files (Mixamo, mocap, videos, raw hero models) are in the
+private `talls2/volley-assets`, cloned empty at `~/Downloads/volley-assets`.
+Disk is tight: check out only the folders a task needs (`git sparse-checkout
+add mixamo mocap` to retarget, `models` to rig a hero), and when done, delete
+the clone and clone it empty again. New downloads get committed there, never
+here. Its README has the commands.
+
 ## Continuing work across sessions
 
 Work on volley happens in several Claude Code sessions, on different machines

@@ -45,9 +45,11 @@ OUTPUT = volley.ASSETS / "animations/Mocap.glb"
 ASSETS = Path("~/Downloads/volley-assets").expanduser()
 MIXAMO = ASSETS / "mixamo"
 MOCAP = ASSETS / "mocap"
+# Leaves the hand-keyed accents off, to compare against (`--no-accents`).
+NO_ACCENTS = False
 
 
-def clip(path, straighten=False, loop=None, span=None, plant=False, still=False):
+def clip(path, straighten=False, loop=None, span=None, plant=False, still=False, accents=()):
     """A capture to retarget. `loop` (min, max seconds) cuts the best
     seamless loop of that length out of it; `span` (start, end seconds) cuts
     a fixed stretch; `straighten` takes out the capture's turning (or, given a
@@ -56,8 +58,31 @@ keeps the body's twist through a swing); `plant`
     holds the legs and hips in the loop's first stance, for an idle made from
     a take where the actor moved around; `still` keeps the hips at standing
     height, raised by that many meters if it's a number, for a move made in
-    the air, where the game does the jumping."""
-    return dict(path=Path(path), straighten=straighten, loop=loop, span=span, plant=plant, still=still)
+    the air, where the game does the jumping; `accents` are hand-keyed poses
+    blended over the capture (see `accent`)."""
+    return dict(path=Path(path), straighten=straighten, loop=loop, span=span, plant=plant, still=still, accents=accents)
+
+
+def accent(time, arms, into=0.12, hold=0.03, out=0.15):
+    """A hand-keyed pose layered over a capture, the way an animator pushes
+    mocap: fully on from `time` (clip seconds, after any cut) for `hold`
+    seconds, easing in over `into` before and out over `out` after, so it
+    blends into the capture on both sides. Captures soften the big moments
+    (actors don't really hit, trackers smooth the fastest motion); this puts
+    the strong pose back at contact. See docs/animation/experiments.md."""
+    return dict(time=time, arms=arms, into=into, hold=hold, out=out)
+
+
+def arm(side, base, hand, elbow, wrist=0.0, fingers=None):
+    """One arm of an accent pose, solved with the rig's arm IK: the wrist goes
+    to `hand` and the elbow bends toward `elbow`, both (right, forward, up)
+    meters from `base` ("shoulder" for this side's shoulder joint, or "head"
+    for the base of the head, about level with the shoulders, or "hands" for
+    the point between the capture's two wrists, to reshape the hands where
+    the capture already holds them) as the capture has it that frame, so the pose rides
+    along with the body. `wrist` bends the hand back (positive) or forward,
+    in degrees; `fingers` curls them (radians), or leaves the capture's."""
+    return dict(side=side, base=base, hand=Vector(hand), elbow=Vector(elbow), wrist=wrist, fingers=fingers)
 
 
 LEGS = [f"{part}_{side}" for side in "lr" for part in ("thigh", "calf", "foot", "ball")]
@@ -66,6 +91,22 @@ STYLE = MOCAP / "100style"
 CMU = MOCAP / "cmu"
 DEEPMOTION = MOCAP / "deepmotion"
 
+
+# Hand-keyed contact poses over the tracked set and spike, from volleyball
+# biomechanics (docs/animation/research.md). The spike at contact: the hitting
+# arm high and a little in front of the shoulder (about 130 degrees from the
+# side, elbow bent about 35), the wrist starting to snap over, and the free
+# arm pulled down across the body. The set: the hands brought together into a
+# window where the capture holds them (the game's sets meet balls about 2 m
+# up, as high as these arms reach), wrists bent back, elbows out.
+SPIKE_ACCENT = accent(0.82, [
+    arm("r", "shoulder", hand=(0.10, 0.22, 0.50), elbow=(1.0, -0.3, 0.3), wrist=-25, fingers=0.15),
+    arm("l", "shoulder", hand=(0.30, 0.25, -0.45), elbow=(-1.0, -0.3, -0.2), fingers=0.6),
+], into=0.12, hold=0.0, out=0.06)
+SET_ACCENT = accent(1.05, [
+    arm("l", "hands", hand=(-0.11, 0.0, 0.0), elbow=(-1.0, 0.4, -0.4), wrist=55, fingers=0.3),
+    arm("r", "hands", hand=(0.11, 0.0, 0.0), elbow=(1.0, 0.4, -0.4), wrist=55, fingers=0.3),
+], into=0.25, hold=0.05, out=0.2)
 
 # The game's clips. Tried and left out from Mixamo: "Run To Dive" (a dive into
 # water, not along the sand) and "Flying Bicycle Kick" (barely moves); our
@@ -83,14 +124,14 @@ CLIPS = {
     # wind-up through contact to the follow-through (the game's `Swing`
     # timings are measured with `--measure`). The set: hands rise to the
     # forehead, wait for the ball and push.
-    "Set": clip(DEEPMOTION / "set_overhead.bvh", straighten=True, span=(1.4, 3.3)),
+    "Set": clip(DEEPMOTION / "set_overhead.bvh", straighten=True, span=(1.4, 3.3), accents=[SET_ACCENT]),
     # A float serve: tossing arm up and hitting arm cocked, the hit above the
     # shoulder, and the arm held out after it.
     "Serve": clip(DEEPMOTION / "serve_standing.bvh", straighten=5.0, span=(4.45, 5.75)),
     # The spike, from the top of the jump: arm drawn back like a bow, the
     # whip through the ball and down. In the air, where the game jumps; the
     # actor hunches into the hit, so the body is raised to reach the ball.
-    "Spike": clip(DEEPMOTION / "spike_approach_man.bvh", straighten=5.83, span=(5.0, 6.3), still=0.2),
+    "Spike": clip(DEEPMOTION / "spike_approach_man.bvh", straighten=5.83, span=(5.0, 6.3), still=0.2, accents=[SPIKE_ACCENT]),
 }
 
 # Heroes' own versions of clips, for their style of moving: exported as
@@ -320,11 +361,78 @@ def retarget(rig, name, spec):
         pelvis = rig.bones["pelvis"]
         pelvis.location = rest["pelvis"].inverted() @ offset
         pelvis.keyframe_insert("location", frame=index, group="pelvis")
+    if NO_ACCENTS:
+        print("  accents left off")
+    for layer in () if NO_ACCENTS else spec["accents"]:
+        apply_accent(rig, layer, len(frames), fps)
     rig.arm.animation_data.action = None
     rig.reset()
     seconds = (len(frames) - 1) / fps
     print(f"retargeted {name}: {len(frames)} frames, {seconds:.2f} s, {len(pairs)} bones, pace {pace([f[2] for f in frames], fps):.1f} m/s")
     return out, seconds
+
+
+def accent_weight(layer, t):
+    """How strongly an accent applies at clip time `t`: 0 to 1, smoothly."""
+    start, end = layer["time"], layer["time"] + layer["hold"]
+    if t < start:
+        x = 1.0 - (start - t) / layer["into"]
+    elif t > end:
+        x = 1.0 - (t - end) / layer["out"]
+    else:
+        return 1.0
+    x = max(0.0, min(1.0, x))
+    return x * x * (3.0 - 2.0 * x)
+
+
+def apply_accent(rig, layer, count, fps):
+    """Blends an accent pose over the action on `rig.arm`, frame by frame:
+    poses the capture, solves the accent's arms with IK from where the body
+    is, and keys each arm bone part way from the capture to that pose."""
+    scene = bpy.context.scene
+    world = rig.arm.matrix_world
+
+    def spot(position):
+        p = world @ position
+        return Vector((-p.x, -p.y, p.z))
+
+    def place(v):
+        return Vector((-v.x, -v.y, v.z))
+
+    sides = {a["side"] for a in layer["arms"]}
+    chain = lambda side: [f"upperarm_{side}", f"lowerarm_{side}", f"hand_{side}"] + [
+        f"{finger}_0{joint}_{side}" for finger in volley.FINGERS + ["thumb"] for joint in (1, 2, 3)]
+    for frame in range(count):
+        w = accent_weight(layer, frame / fps)
+        if w <= 0.0:
+            continue
+        scene.frame_set(frame)
+        captured = {name: rig.bones[name].rotation_quaternion.copy() for side in sides for name in chain(side)}
+        between = (rig.bones["hand_l"].head + rig.bones["hand_r"].head) / 2
+        for limb in layer["arms"]:
+            side = limb["side"]
+            base = {"shoulder": rig.bones[f"upperarm_{side}"].head, "head": rig.bones["Head"].head, "hands": between}[limb["base"]]
+            origin = spot(base)
+            rig.targets[f"hand_{side}"].location = place(origin + limb["hand"])
+            rig.targets[f"elbow_{side}"].location = place(origin + limb["elbow"])
+            rig.bones[f"lowerarm_{side}"].constraints["IK"].enabled = True
+            hand = rig.bones[f"hand_{side}"]
+            rest = rig.rest[hand.name]
+            hand.rotation_quaternion = rest.inverted() @ volley.wrist_back(limb["wrist"], side) @ rest
+            if limb["fingers"] is not None:
+                rig.curl_fingers(side, limb["fingers"])
+        bpy.context.view_layer.update()
+        posed = rig.visual_basis()
+        for side in sides:
+            rig.bones[f"lowerarm_{side}"].constraints["IK"].enabled = False
+            for name in chain(side):
+                target = posed[name][1]
+                if captured[name].dot(target) < 0:
+                    target = -target
+                bone = rig.bones[name]
+                bone.rotation_quaternion = captured[name].slerp(target, w)
+                bone.keyframe_insert("rotation_quaternion", frame=frame, group=name)
+    print(f"  accent at {layer['time']:.2f} s on {', '.join(sorted(sides))}")
 
 
 def cut(frames, fps, spec):
@@ -403,6 +511,8 @@ def main():
     args = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     preview = args[args.index("--preview") + 1] if "--preview" in args else None
     trying = args[args.index("--try") + 1].split(",") if "--try" in args else None
+    global NO_ACCENTS
+    NO_ACCENTS = "--no-accents" in args
     measuring = "--measure" in args
     rig = volley.Rig()
     bpy.context.scene.render.fps = 30

@@ -84,7 +84,8 @@ const SPRINT_SPEED: f32 = 4.5;
 const STOP_SPRINT_SPEED: f32 = 3.5;
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Startup, (load_animation_libraries, spawn_characters))
+    app.add_message::<SwingReleased>()
+        .add_systems(Startup, (load_animation_libraries, spawn_characters))
         .add_systems(OnEnter(Screen::Playing), spawn_characters)
         .add_systems(
             Update,
@@ -97,7 +98,28 @@ pub fn plugin(app: &mut App) {
             ),
         )
         // Overrides the animated arms, so it runs once the animation has been applied.
-        .add_systems(PostUpdate, pose_limbs.after(TransformSystems::Propagate));
+        .add_systems(PostUpdate, pose_limbs.in_set(PoseLimbs).after(TransformSystems::Propagate));
+}
+
+/// Where bodies get their final pose each frame: anything measuring the
+/// skeleton (like `bench`) runs after it.
+#[derive(SystemSet, Clone, PartialEq, Eq, Hash, Debug)]
+pub struct PoseLimbs;
+
+/// Which player a character model shows.
+#[derive(Component)]
+pub struct PlayerBody(pub usize);
+
+/// A wound-up hit connected: where its swing was (clip seconds) against where
+/// its contact frame is, whether it had been timed to the touch, and how far
+/// the body was slid to meet the ball.
+#[derive(Message, Clone, Copy)]
+pub struct SwingReleased {
+    pub clip: &'static str,
+    pub at: f32,
+    pub contact: f32,
+    pub timed: bool,
+    pub warp: f32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -254,7 +276,7 @@ impl Clip {
     fn swing(self) -> Option<Swing> {
         match self {
             Clip::Bump => Some(Swing { wind_up: 0.15, contact: 0.25, ball: spot(0.0, 0.45, 0.8) }),
-            Clip::Set => Some(Swing { wind_up: 0.9, contact: 1.05, ball: spot(-0.07, 0.26, 1.9) }),
+            Clip::Set => Some(Swing { wind_up: 0.9, contact: 1.05, ball: spot(-0.09, 0.1, 1.92) }),
             Clip::Spike => Some(Swing { wind_up: 0.62, contact: 0.82, ball: spot(0.38, 0.38, 1.96) }),
             Clip::VolleyKick => Some(Swing { wind_up: 0.1, contact: 0.18, ball: spot(0.12, 0.62, 0.95) }),
             Clip::BicycleKick => Some(Swing { wind_up: 0.12, contact: 0.24, ball: spot(0.08, -0.4, 1.75) }),
@@ -605,6 +627,7 @@ fn spawn_characters(mut commands: Commands, assets: Res<AssetServer>, game: Res<
         commands
             .spawn((
                 Character::new(index, player.kit.name, yaw, look, player.kit.has(Passive::Feet)),
+                PlayerBody(index),
                 WorldAssetRoot(model),
                 Transform::default(),
             ))
@@ -920,6 +943,7 @@ fn animate_characters(
     mut commands: Commands,
     mut characters: Query<&mut Character>,
     mut rigs: Query<(&mut AnimationPlayer, &mut AnimationTransitions, Has<AnimationGraphHandle>)>,
+    mut released: MessageWriter<SwingReleased>,
 ) {
     for mut character in &mut characters {
         let Some(armature) = character.armature else {
@@ -997,6 +1021,13 @@ fn animate_characters(
         {
             let at = active.seek_time();
             if character.release {
+                released.write(SwingReleased {
+                    clip: action.source().1,
+                    at,
+                    contact: swing.contact,
+                    timed: character.timed,
+                    warp: character.warp.length(),
+                });
                 // Connected. A timed swing is already at contact; otherwise
                 // hurry through to it. Then follow through.
                 if at >= swing.contact - 0.02 {

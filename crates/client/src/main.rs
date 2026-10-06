@@ -5,6 +5,7 @@
 mod aim;
 mod arena;
 mod audio;
+mod bench;
 mod camera;
 mod characters;
 mod effects;
@@ -56,6 +57,7 @@ fn main() {
             characters::plugin,
             audio::plugin,
             hud::plugin,
+            bench::plugin,
         ))
         .add_systems(FixedUpdate, step_match.run_if(in_state(flow::Screen::Playing)))
         .run();

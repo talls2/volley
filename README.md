@@ -176,6 +176,12 @@ retargets captures from Mixamo (FBX), CMU (converted by
 lines up each capture's rest pose with ours, can take out the actor's turning,
 cuts long takes into seamless loops, and exports the game's clips, including
 heroes' own versions (`<Hero>_<Clip>`, which the game prefers for that hero).
+The set, serve and spike are tracked from volleyball videos with DeepMotion,
+with hand-keyed contact poses blended over the capture (`accent` in the
+script). `--measure` prints where the hands are in every frame, which gives
+each hit's contact time and ball spot (`Swing` in `characters.rs`). How the
+animation is researched, measured (the game's bench mode, `tools/bench.py`)
+and improved is recorded in [docs/animation](docs/animation).
 The downloads stay out of the repository (Mixamo's terms forbid republishing
 them), in a private companion repository, `talls2/volley-assets`, cloned next to
 this one at `~/Downloads/volley-assets`. It's cloned empty, and each task checks

@@ -1,0 +1,24 @@
+{
+  "seconds": 90,
+  "arena": "Neon",
+  "hero": 0,
+  "frames": 5439,
+  "frame_ms": { "mean": 16.77, "p50": 16.67, "p95": 20.67, "p99": 23.46 },
+  "gap_m": {
+    "all": { "n": 49, "mean": 0.176, "p50": 0.189, "p90": 0.324 },
+    "Curve": { "n": 8, "mean": 0.244, "p50": 0.251, "p90": 0.261 },
+    "Kick": { "n": 1, "mean": 0.523, "p50": 0.523, "p90": 0.523 },
+    "Pass": { "n": 25, "mean": 0.217, "p50": 0.238, "p90": 0.330 },
+    "Serve": { "n": 10, "mean": 0.035, "p50": 0.007, "p90": 0.012 },
+    "Spike": { "n": 5, "mean": 0.080, "p50": 0.081, "p90": 0.159 }
+  },
+  "swings": {
+    "Bump": { "n": 2, "timed": 1.00, "off_s_mean": 0.003, "off_s_p90": 0.006, "warp_m_mean": 0.46 },
+    "High_Volley": { "n": 2, "timed": 1.00, "off_s_mean": 0.002, "off_s_p90": 0.003, "warp_m_mean": 0.10 },
+    "Kick_Pass_High": { "n": 1, "timed": 1.00, "off_s_mean": 0.002, "off_s_p90": 0.002, "warp_m_mean": 0.51 },
+    "Kick_Serve": { "n": 1, "timed": 1.00, "off_s_mean": 0.001, "off_s_p90": 0.001, "warp_m_mean": 0.05 },
+    "Serve": { "n": 9, "timed": 1.00, "off_s_mean": 0.001, "off_s_p90": 0.002, "warp_m_mean": 0.03 },
+    "Set": { "n": 22, "timed": 1.00, "off_s_mean": 0.001, "off_s_p90": 0.003, "warp_m_mean": 0.60 },
+    "Spike": { "n": 3, "timed": 1.00, "off_s_mean": 0.002, "off_s_p90": 0.004, "warp_m_mean": 0.58 }
+  }
+}

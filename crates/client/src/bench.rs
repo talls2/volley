@@ -1,0 +1,238 @@
+//! Bench mode: plays a bot match on its own and measures how well the
+//! animation meets the ball and how fast frames come, then writes it all to a
+//! JSON file and quits. For comparing animation techniques; see
+//! `docs/animation/experiments.md`. Off unless `VOLLEY_BENCH` is set:
+//!
+//!     VOLLEY_BENCH=out.json [VOLLEY_BENCH_SECONDS=90] [VOLLEY_BENCH_ARENA=beach|neon] \
+//!         [VOLLEY_BENCH_HERO=0] [VOLLEY_BENCH_SHOTS=dir] cargo run -p volley_client
+//!
+//! With `VOLLEY_BENCH_SHOTS`, it also saves a screenshot at the first few
+//! passes, spikes and serves, named `NN_Kind_X_Y.png` with the hitter's spot
+//! on screen (pixels), for cropping.
+//!
+//! The match is the same every run (bots and the simulation are
+//! deterministic), so two runs differ only in how they're drawn and animated.
+//! It runs for a set number of simulation seconds. Frame times are capped by
+//! vsync (macOS keeps it on), so they show hitches, not spare headroom.
+
+use std::fmt::Write as _;
+
+use bevy::prelude::*;
+use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+use volley_sim::court::BALL_RADIUS;
+use volley_sim::{Event, HitKind, TICK_HZ};
+
+use crate::arena::Arena;
+use crate::characters::{PlayerBody, PoseLimbs, SwingReleased};
+use crate::flow::Screen;
+use crate::input::LocalDriver;
+use crate::scene::BallView;
+use crate::{Match, SimEvent, heroes};
+
+/// The bench settings, read from the environment.
+#[derive(Resource, Clone)]
+pub struct Bench {
+    pub out: String,
+    pub seconds: u32,
+    pub arena: Arena,
+    pub hero: usize,
+    pub shots: Option<String>,
+}
+
+impl Bench {
+    /// Bench settings if `VOLLEY_BENCH` asks for a run.
+    pub fn from_env() -> Option<Self> {
+        let out = std::env::var("VOLLEY_BENCH").ok()?;
+        let var = |name: &str| std::env::var(name).ok();
+        Some(Self {
+            out,
+            seconds: var("VOLLEY_BENCH_SECONDS").and_then(|s| s.parse().ok()).unwrap_or(90),
+            arena: if var("VOLLEY_BENCH_ARENA").as_deref() == Some("beach") { Arena::Beach } else { Arena::Neon },
+            hero: var("VOLLEY_BENCH_HERO").and_then(|s| s.parse().ok()).unwrap_or(0),
+            shots: var("VOLLEY_BENCH_SHOTS"),
+        })
+    }
+}
+
+pub fn plugin(app: &mut App) {
+    let Some(bench) = Bench::from_env() else { return };
+    app.insert_resource(bench.arena)
+        .insert_resource(bench)
+        .init_resource::<Record>()
+        .add_systems(Update, (start, frames, releases, finish))
+        .add_systems(PostUpdate, touches.after(PoseLimbs));
+}
+
+#[derive(Resource, Default)]
+struct Record {
+    started: bool,
+    start_tick: u32,
+    frame_ms: Vec<f32>,
+    /// (hit kind, gap from the nearest palm or toes to the ball's surface, m).
+    touches: Vec<(HitKind, f32)>,
+    releases: Vec<SwingReleased>,
+    shots: u32,
+}
+
+/// Screenshots saved per kind of hit, at most.
+const SHOTS_PER_KIND: usize = 6;
+
+fn start(bench: Res<Bench>, mut record: ResMut<Record>, mut game: ResMut<Match>, mut driver: ResMut<LocalDriver>, mut next: ResMut<NextState<Screen>>) {
+    if record.started {
+        return;
+    }
+    let sim = heroes::new_match(bench.hero);
+    record.start_tick = sim.tick;
+    *game = Match { previous: sim.clone(), current: sim };
+    *driver = LocalDriver::Bot;
+    next.set(Screen::Playing);
+    record.started = true;
+}
+
+fn frames(time: Res<Time<Real>>, screen: Res<State<Screen>>, mut record: ResMut<Record>) {
+    if *screen.get() == Screen::Playing {
+        record.frame_ms.push(time.delta_secs() * 1000.0);
+    }
+}
+
+fn releases(mut released: MessageReader<SwingReleased>, mut record: ResMut<Record>) {
+    for release in released.read() {
+        record.releases.push(*release);
+    }
+}
+
+/// At each touch, how far the toucher's nearest palm (the middle knuckle) or
+/// toes are from the ball's surface as drawn: what you'd see on screen. 0 is
+/// a hand on the ball.
+fn touches(
+    mut commands: Commands,
+    bench: Res<Bench>,
+    game: Res<Match>,
+    camera: Single<(&Camera, &GlobalTransform), With<Camera3d>>,
+    window: Single<&Window>,
+    mut events: MessageReader<SimEvent>,
+    ball: Single<&GlobalTransform, With<BallView>>,
+    bodies: Query<(Entity, &PlayerBody)>,
+    bones: Query<(Entity, &Name, &GlobalTransform)>,
+    parents: Query<&ChildOf>,
+    mut record: ResMut<Record>,
+) {
+    for SimEvent(event) in events.read() {
+        let Event::Touched { player, kind, .. } = *event else { continue };
+        let Some((body, _)) = bodies.iter().find(|(_, b)| b.0 == player) else { continue };
+        let at = ball.translation();
+        let gap = bones
+            .iter()
+            .filter(|(_, name, _)| matches!(name.as_str(), "middle_01_l" | "middle_01_r" | "ball_l" | "ball_r"))
+            .filter(|(entity, ..)| parents.iter_ancestors(*entity).any(|a| a == body))
+            .map(|(_, _, bone)| (bone.translation().distance(at) - BALL_RADIUS).max(0.0))
+            .fold(f32::MAX, f32::min);
+        if gap < f32::MAX {
+            record.touches.push((kind, gap));
+        }
+        let shown = record.touches.iter().filter(|(k, _)| *k == kind).count();
+        if let Some(dir) = &bench.shots
+            && matches!(kind, HitKind::Pass | HitKind::Spike | HitKind::Serve)
+            && shown <= SHOTS_PER_KIND
+            && let Ok(spot) = camera.0.world_to_viewport(camera.1, game.current.players[player].position + Vec3::Y * 1.2)
+        {
+            record.shots += 1;
+            let scale = window.scale_factor();
+            let path = format!("{dir}/{:02}_{kind:?}_{:.0}_{:.0}.png", record.shots, spot.x * scale, spot.y * scale);
+            commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+        }
+    }
+}
+
+fn finish(bench: Res<Bench>, game: Res<Match>, record: Res<Record>) {
+    if !record.started || game.current.tick < record.start_tick + bench.seconds * TICK_HZ {
+        return;
+    }
+    let json = report(&bench, &record);
+    if let Err(error) = std::fs::write(&bench.out, json) {
+        eprintln!("bench: couldn't write {}: {error}", bench.out);
+    } else {
+        println!("bench: wrote {}", bench.out);
+    }
+    std::process::exit(0);
+}
+
+/// The value at fraction `q` (0 to 1) through sorted `values`.
+fn quantile(values: &[f32], q: f32) -> f32 {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f32::total_cmp);
+    sorted.get(((sorted.len() as f32 - 1.0) * q).round() as usize).copied().unwrap_or(0.0)
+}
+
+fn mean(values: &[f32]) -> f32 {
+    if values.is_empty() { 0.0 } else { values.iter().sum::<f32>() / values.len() as f32 }
+}
+
+fn report(bench: &Bench, record: &Record) -> String {
+    let mut out = String::new();
+    let frames = &record.frame_ms;
+    let _ = write!(
+        out,
+        "{{\n  \"seconds\": {},\n  \"arena\": \"{:?}\",\n  \"hero\": {},\n  \"frames\": {},\n  \"frame_ms\": {{ \"mean\": {:.2}, \"p50\": {:.2}, \"p95\": {:.2}, \"p99\": {:.2} }},\n",
+        bench.seconds,
+        bench.arena,
+        bench.hero,
+        frames.len(),
+        mean(frames),
+        quantile(frames, 0.5),
+        quantile(frames, 0.95),
+        quantile(frames, 0.99),
+    );
+
+    // Contact gaps by kind of hit.
+    let mut kinds: Vec<HitKind> = record.touches.iter().map(|(kind, _)| *kind).collect();
+    kinds.dedup();
+    kinds.sort_by_key(|kind| format!("{kind:?}"));
+    kinds.dedup();
+    let all: Vec<f32> = record.touches.iter().map(|(_, gap)| *gap).collect();
+    let _ = writeln!(out, "  \"gap_m\": {{\n    \"all\": {},", stats(&all));
+    let rows: Vec<String> = kinds
+        .iter()
+        .map(|kind| {
+            let gaps: Vec<f32> = record.touches.iter().filter(|(k, _)| k == kind).map(|(_, gap)| *gap).collect();
+            format!("    \"{kind:?}\": {}", stats(&gaps))
+        })
+        .collect();
+    let _ = writeln!(out, "{}\n  }},", rows.join(",\n"));
+
+    // Swing timing by clip: how far from its contact frame the swing was when
+    // the ball was touched (clip seconds; 0 is perfect), and how often the
+    // swing had been timed to the touch.
+    let mut clips: Vec<&str> = record.releases.iter().map(|r| r.clip).collect();
+    clips.sort_unstable();
+    clips.dedup();
+    let rows: Vec<String> = clips
+        .iter()
+        .map(|clip| {
+            let of: Vec<&SwingReleased> = record.releases.iter().filter(|r| r.clip == *clip).collect();
+            let off: Vec<f32> = of.iter().map(|r| (r.contact - r.at).abs()).collect();
+            let timed = of.iter().filter(|r| r.timed).count() as f32 / of.len() as f32;
+            let warp: Vec<f32> = of.iter().map(|r| r.warp).collect();
+            format!(
+                "    \"{clip}\": {{ \"n\": {}, \"timed\": {:.2}, \"off_s_mean\": {:.3}, \"off_s_p90\": {:.3}, \"warp_m_mean\": {:.2} }}",
+                of.len(),
+                timed,
+                mean(&off),
+                quantile(&off, 0.9),
+                mean(&warp)
+            )
+        })
+        .collect();
+    let _ = writeln!(out, "  \"swings\": {{\n{}\n  }}\n}}", rows.join(",\n"));
+    out
+}
+
+fn stats(values: &[f32]) -> String {
+    format!(
+        "{{ \"n\": {}, \"mean\": {:.3}, \"p50\": {:.3}, \"p90\": {:.3} }}",
+        values.len(),
+        mean(values),
+        quantile(values, 0.5),
+        quantile(values, 0.9)
+    )
+}

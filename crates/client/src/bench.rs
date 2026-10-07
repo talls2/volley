@@ -24,6 +24,7 @@ use volley_sim::{Event, HitKind, TICK_HZ};
 
 use crate::arena::Arena;
 use crate::characters::{PlayerBody, PoseLimbs, SwingReleased};
+use crate::feel::Froze;
 use crate::flow::Screen;
 use crate::input::LocalDriver;
 use crate::scene::BallView;
@@ -59,7 +60,7 @@ pub fn plugin(app: &mut App) {
     app.insert_resource(bench.arena)
         .insert_resource(bench)
         .init_resource::<Record>()
-        .add_systems(Update, (start, frames, releases, finish))
+        .add_systems(Update, (start, frames, releases, freezes, finish))
         .add_systems(PostUpdate, touches.after(PoseLimbs));
 }
 
@@ -71,6 +72,7 @@ struct Record {
     /// (hit kind, gap from the nearest palm or toes to the ball's surface, m).
     touches: Vec<(HitKind, f32)>,
     releases: Vec<SwingReleased>,
+    freezes: Vec<Froze>,
     shots: u32,
 }
 
@@ -93,6 +95,10 @@ fn frames(time: Res<Time<Real>>, screen: Res<State<Screen>>, mut record: ResMut<
     if *screen.get() == Screen::Playing {
         record.frame_ms.push(time.delta_secs() * 1000.0);
     }
+}
+
+fn freezes(mut froze: MessageReader<Froze>, mut record: ResMut<Record>) {
+    record.freezes.extend(froze.read().copied());
 }
 
 fn releases(mut released: MessageReader<SwingReleased>, mut record: ResMut<Record>) {
@@ -223,7 +229,30 @@ fn report(bench: &Bench, record: &Record) -> String {
             )
         })
         .collect();
-    let _ = writeln!(out, "  \"swings\": {{\n{}\n  }}\n}}", rows.join(",\n"));
+    let _ = writeln!(out, "  \"swings\": {{\n{}\n  }},", rows.join(",\n"));
+
+    // Hit-stop by kind of hit: how fast the ball left (m/s) and how long the
+    // game froze (ms).
+    let mut kinds: Vec<String> = record.freezes.iter().map(|f| format!("{:?}", f.kind)).collect();
+    kinds.sort_unstable();
+    kinds.dedup();
+    let rows: Vec<String> = kinds
+        .iter()
+        .map(|kind| {
+            let of: Vec<&Froze> = record.freezes.iter().filter(|f| format!("{:?}", f.kind) == *kind).collect();
+            let speed: Vec<f32> = of.iter().map(|f| f.speed).collect();
+            let ms: Vec<f32> = of.iter().map(|f| f.seconds * 1000.0).collect();
+            format!(
+                "    \"{kind}\": {{ \"n\": {}, \"speed_mean\": {:.1}, \"speed_max\": {:.1}, \"freeze_ms_mean\": {:.0}, \"freeze_ms_max\": {:.0} }}",
+                of.len(),
+                mean(&speed),
+                quantile(&speed, 1.0),
+                mean(&ms),
+                quantile(&ms, 1.0)
+            )
+        })
+        .collect();
+    let _ = writeln!(out, "  \"hit_stop\": {{\n{}\n  }}\n}}", rows.join(",\n"));
     out
 }
 

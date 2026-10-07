@@ -22,7 +22,10 @@ same touches; what differs between runs of one build is measurement noise
   slid to meet it.
 - **Frame time:** mean, p95, p99. macOS keeps vsync on whatever the game asks,
   so the mean sits at 16.7 ms on a 60 Hz display; p95 and p99 show hitches.
-  A run made while something heavy runs alongside (Blender) drops to 33 ms.
+  It depends on the machine's state (another heavy program, heat after a
+  long session), so compare frame times only between runs made back to back,
+  alternating the builds.
+- **Hit-stop:** each touch's launch speed and how long the game froze for it.
 - **What the numbers miss:** how a pose reads. The gap measures where the
   hand is, not whether the arm looks right, and some correct technique scores
   worse (a set's wrists bend back, which lowers the knuckle it measures). So
@@ -115,8 +118,40 @@ high.
 - Playtest questions: can you tell the moment of contact? spike from set
   before contact?
 
+## 05 · Hit-stop that grows with the hit
+
+**Idea.** The game froze for a fixed 30–80 ms on any attack (more for a clean
+one), and not at all for serves. In Lethal League the pause grows with the
+ball's speed, so harder hits feel heavier; in Smash the hitter shakes through
+the freeze, which sells the impact without freezing longer; sets should stay
+soft (research.md).
+
+**How.** `feel.rs`: a hit freezes 6 ms for each m/s the ball leaves faster than
+10 m/s, capped at 120 ms; attacks scale that by how clean they were
+(0.5 + 0.5 × quality). The hitter shakes during the freeze, 5 cm at first and
+fading, across the body on the ground and up and down in the air. The bench
+now records each touch's launch speed and freeze (`hit_stop` in the JSON).
+
+**Result** (launch speeds are the same in both; freezes per hit):
+
+| Hit | Launch speed | Freeze before | Freeze after |
+|---|---|---|---|
+| Pass (bump, set) | 8.1 m/s (max 11.5) | none | 1 ms (max 9) |
+| Serve | 19.0 m/s | none | 54 ms |
+| Spike | 23.1 m/s (max 24.6) | 79 ms | 78 ms (max 85) |
+| Banana kick | 25.4 m/s (max 28.3) | 80 ms | 93 ms (max 110) |
+
+Contact accuracy is unchanged within noise. Frame times: the three bench runs
+came out slow (28.5 ±8 ms mean), but that was the machine, not the change. Run
+interleaved with the previous build, old and new matched (20.0 against
+19.1–19.4 ms), both slower than earlier in the session. **Lesson:** compare
+frame times only between runs made back to back, alternating builds.
+
+**Decision: keep.** Spikes keep their weight; serves gain an impact; soft
+touches stay soft; the hardest kicks hit hardest. How it feels needs a
+playtest: does a spike feel heavier than a serve, and a set soft?
+
 ## Next
 
-Ranked in research.md: hit-stop that grows with the hit and freezes the hitter
-and ball (Lethal League); inertialization for snappier cuts into hits;
+Ranked in research.md: inertialization for snappier cuts into hits;
 orientation and stride warping; chaining touch quality into the spike.

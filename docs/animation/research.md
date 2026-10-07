@@ -144,8 +144,9 @@ From sports science, for posing (14 NCAA players unless noted):
 ## Ideas, ranked for Volley
 
 1. Hand-keyed contact accents over the mocap (Sifu, Lethal League, AC3).
-2. Hit-stop that grows with the hit (spikes most, sets barely), freezing the
-   hitter and ball rather than only the clock (Lethal League, Smash).
+   Done: experiments 02–04.
+2. Hit-stop that grows with the hit (spikes most, sets barely), with the
+   hitter shaking through it (Lethal League, Smash). Done: experiment 05.
 3. Inertialization for snappy cuts into hits.
 4. Orientation and stride warping on the existing body layering and IK.
 5. Chain touch quality into the spike (Switch Sports).

@@ -21,6 +21,7 @@ use volley_sim::court::BALL_RADIUS;
 use volley_sim::moves::{CROSS, GOLAZO, HEROES};
 use volley_sim::{Ball, DT, Event, HitKind, Kit, MoveId, MovePhase, Passive, Phase, Sim, attack};
 
+use crate::feel::HitStop;
 use crate::flow::Screen;
 
 use crate::input::LOCAL_TEAM;
@@ -846,6 +847,8 @@ fn place_characters(
     game: Res<Match>,
     fixed: Res<Time<Fixed>>,
     time: Res<Time>,
+    real: Res<Time<Real>>,
+    hit_stop: Res<HitStop>,
     mut characters: Query<(&mut Character, &mut Transform)>,
 ) {
     let ball = game.current.ball_position();
@@ -917,7 +920,12 @@ fn place_characters(
         let rate = if wanted == Vec3::ZERO { WARP_RELEASE } else { WARP_FOLLOW };
         let warp = character.warp + (wanted - character.warp) * (1.0 - (-rate * time.delta_secs()).exp());
         character.warp = warp;
-        *transform = Transform::from_translation(feet + warp).with_rotation(facing * lean);
+        // The hitter shakes through a hit-stop: across the body on the ground,
+        // up and down in the air.
+        let shake = hit_stop.shake(character.index, real.elapsed_secs()).map_or(Vec3::ZERO, |amount| {
+            if player.grounded() { facing * Vec3::X * amount } else { Vec3::Y * amount }
+        });
+        *transform = Transform::from_translation(feet + warp + shake).with_rotation(facing * lean);
     }
 }
 

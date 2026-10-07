@@ -39,7 +39,8 @@ def run(variants, runs, seconds, arena):
             if setting:
                 key, _, value = setting.partition("=")
                 env[key] = value
-            subprocess.run(["cargo", "run", "-q", "-p", "volley_client"], cwd=ROOT, env=env, check=True,
+            # Keeps the display awake: a sleeping, locked Mac draws nothing.
+            subprocess.run(["caffeinate", "-d", "-i", "cargo", "run", "-q", "-p", "volley_client"], cwd=ROOT, env=env, check=True,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             print(f"wrote {out.relative_to(ROOT)}")
 

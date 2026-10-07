@@ -36,9 +36,17 @@ pub struct SimEvent(pub Event);
 
 fn main() {
     let sim = Sim::new(MatchConfig::default());
+    // A bench run taking screenshots keeps its window on top: macOS doesn't
+    // draw a window another one covers, and the screenshots would come out
+    // black (see bench.rs).
+    let window_level = if bench::Bench::from_env().is_some_and(|b| b.shots.is_some()) {
+        bevy::window::WindowLevel::AlwaysOnTop
+    } else {
+        bevy::window::WindowLevel::Normal
+    };
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window { title: "Volley".into(), ..default() }),
+            primary_window: Some(Window { title: "Volley".into(), window_level, ..default() }),
             ..default()
         }))
         .insert_resource(Time::<Fixed>::from_hz(TICK_HZ as f64))

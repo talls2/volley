@@ -8,7 +8,9 @@
 //!
 //! With `VOLLEY_BENCH_SHOTS`, it also saves a screenshot at the first few
 //! passes, spikes and serves, named `NN_Kind_X_Y.png` with the hitter's spot
-//! on screen (pixels), for cropping.
+//! on screen (pixels), for cropping. Its window then stays on top of others:
+//! macOS doesn't draw a covered window (nor any, with the screen locked; run
+//! it under `caffeinate -d`), and screenshots of it come out black.
 //!
 //! The match is the same every run (bots and the simulation are
 //! deterministic), so two runs differ only in how they're drawn and animated.

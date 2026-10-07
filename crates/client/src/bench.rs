@@ -86,6 +86,9 @@ struct Record {
     /// all running frames; and the same for its hips (where the legs point).
     strafing: (u32, u32),
     hips_strafing: u32,
+    /// Running frames' angles (degrees) between where the body, and its hips,
+    /// face and where it runs.
+    off_degrees: Vec<(f32, f32)>,
     rally: u32,
     shots: u32,
 }
@@ -205,9 +208,11 @@ fn feet(
             };
             if let (Some(left), Some(right)) = (joint("thigh_l"), joint("thigh_r")) {
                 let hips = Vec3::Y.cross(right - left);
-                if Vec2::new(hips.x, hips.z).angle_to(player.velocity).abs() > 30f32.to_radians() {
+                let hips_angle = Vec2::new(hips.x, hips.z).angle_to(player.velocity).abs();
+                if hips_angle > 30f32.to_radians() {
                     record.hips_strafing += 1;
                 }
+                record.off_degrees.push((angle.to_degrees(), hips_angle.to_degrees()));
             }
         }
     }
@@ -320,12 +325,14 @@ fn report(bench: &Bench, record: &Record) -> String {
     let slides = &record.foot_slides;
     let _ = write!(
         out,
-        "  \"feet\": {{ \"slide_mean\": {:.3}, \"slide_p90\": {:.3}, \"sliding_share\": {:.3}, \"strafing_share\": {:.3}, \"hips_strafing_share\": {:.3} }},\n",
+        "  \"feet\": {{ \"slide_mean\": {:.3}, \"slide_p90\": {:.3}, \"sliding_share\": {:.3}, \"strafing_share\": {:.3}, \"hips_strafing_share\": {:.3}, \"body_off_deg\": {:.1}, \"hips_off_deg\": {:.1} }},\n",
         mean(slides),
         quantile(slides, 0.9),
         slides.iter().filter(|&&v| v > 0.5).count() as f32 / slides.len().max(1) as f32,
         record.strafing.0 as f32 / record.strafing.1.max(1) as f32,
         record.hips_strafing as f32 / record.strafing.1.max(1) as f32,
+        mean(&record.off_degrees.iter().map(|(body, _)| *body).collect::<Vec<_>>()),
+        mean(&record.off_degrees.iter().map(|(_, hips)| *hips).collect::<Vec<_>>()),
     );
 
     // Contact gaps by kind of hit.

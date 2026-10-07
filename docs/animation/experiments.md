@@ -608,6 +608,7 @@ film the spiker sinks into the last step and springs up. **Decision: keep.**
 ## Next
 
 Ranked in research.md. Seen in films and still to do: the set's push makes
-a few hand snaps a match (18); Golazo's kicks swing the arms faster than
-40 m/s; and your own jumps have no anticipation (only bots' can be
+a few hand snaps a match (18); the rest of the frames with a hand over
+40 m/s are mostly Cross in the air as a hit-stop ends around his crossover
+(probably several ticks caught up in one frame); and your own jumps have no anticipation (only bots' can be
 known ahead).

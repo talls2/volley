@@ -73,12 +73,17 @@ struct Record {
     touches: Vec<(HitKind, f32)>,
     releases: Vec<SwingReleased>,
     freezes: Vec<Froze>,
-    /// Every frame, every palm's speed (m/s), and where each palm was.
+    /// Every frame, every palm's speed (m/s), and where each palm and its
+    /// body were; palms whose whole body jumped to a new spot.
     hand_speeds: Vec<f32>,
-    palms: Vec<(Entity, Vec3)>,
+    palms: Vec<(Entity, Vec3, Vec3)>,
+    teleports: u32,
     rally: u32,
     shots: u32,
 }
+
+/// A body moving this far in one frame was put somewhere new, not animated.
+const TELEPORT: f32 = 1.0;
 
 /// Screenshots saved per kind of hit, at most.
 const SHOTS_PER_KIND: usize = 6;
@@ -102,30 +107,40 @@ fn frames(time: Res<Time<Real>>, screen: Res<State<Screen>>, mut record: ResMut<
 }
 
 /// How fast every palm moves each frame, as drawn: a pop (a bone jumping
-/// between poses) shows up as an impossible speed.
+/// between poses) shows up as an impossible speed. A whole body moving to a
+/// new spot (a match starting) counts as a teleport instead.
 fn hands(
     time: Res<Time<Real>>,
     game: Res<Match>,
     screen: Res<State<Screen>>,
     palms: Query<(Entity, &Name, &GlobalTransform)>,
+    parents: Query<&ChildOf>,
+    bodies: Query<&GlobalTransform, With<PlayerBody>>,
     mut record: ResMut<Record>,
 ) {
     let dt = time.delta_secs();
     if *screen.get() != Screen::Playing || dt <= 0.0 {
         return;
     }
-    let now: Vec<(Entity, Vec3)> = palms
+    // Each palm, with where its body is.
+    let now: Vec<(Entity, Vec3, Vec3)> = palms
         .iter()
         .filter(|(_, name, _)| matches!(name.as_str(), "middle_01_l" | "middle_01_r"))
-        .map(|(entity, _, at)| (entity, at.translation()))
+        .filter_map(|(entity, _, at)| {
+            let body = parents.iter_ancestors(entity).find_map(|a| bodies.get(a).ok())?;
+            Some((entity, at.translation(), body.translation()))
+        })
         .collect();
     // Skip the jump when a rally resets everyone's position.
     if game.current.rally == record.rally {
-        let speeds: Vec<f32> = now
-            .iter()
-            .filter_map(|(entity, at)| record.palms.iter().find(|(e, _)| e == entity).map(|(_, before)| at.distance(*before) / dt))
-            .collect();
-        record.hand_speeds.extend(speeds);
+        for &(entity, at, body) in &now {
+            let Some(&(_, before, body_before)) = record.palms.iter().find(|(e, ..)| *e == entity) else { continue };
+            if body.distance(body_before) > TELEPORT {
+                record.teleports += 1;
+            } else {
+                record.hand_speeds.push(at.distance(before) / dt);
+            }
+        }
     }
     record.rally = game.current.rally;
     record.palms = now;
@@ -226,11 +241,13 @@ fn report(bench: &Bench, record: &Record) -> String {
     let speeds = &record.hand_speeds;
     let _ = write!(
         out,
-        "  \"hand_speed\": {{ \"p99\": {:.2}, \"p999\": {:.2}, \"max\": {:.2}, \"over_30\": {} }},\n",
+        "  \"hand_speed\": {{ \"p99\": {:.2}, \"p999\": {:.2}, \"max\": {:.2}, \"over_30\": {}, \"over_40\": {}, \"teleports\": {} }},\n",
         quantile(speeds, 0.99),
         quantile(speeds, 0.999),
         quantile(speeds, 1.0),
         speeds.iter().filter(|&&v| v > 30.0).count(),
+        speeds.iter().filter(|&&v| v > 40.0).count(),
+        record.teleports,
     );
 
     // Contact gaps by kind of hit.

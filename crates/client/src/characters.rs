@@ -84,6 +84,9 @@ const JOG_SPEED: f32 = 0.8;
 const STOP_JOG_SPEED: f32 = 0.3;
 const SPRINT_SPEED: f32 = 4.5;
 const STOP_SPRINT_SPEED: f32 = 3.5;
+/// A gait plays at least this long (seconds) before another takes over, so a
+/// burst of braking and speeding up doesn't flick between strides.
+const MIN_GAIT_SECONDS: f32 = 0.25;
 
 pub fn plugin(app: &mut App) {
     app.add_message::<SwingReleased>()
@@ -489,6 +492,8 @@ struct Character {
     warp: Vec3,
     /// Running, jogging or standing, as last chosen.
     gait: Clip,
+    /// When the gait last changed (game seconds).
+    gait_since: f32,
     airborne: bool,
     /// Facing, as a rotation about the vertical axis. 0 faces +z.
     yaw: f32,
@@ -535,6 +540,7 @@ impl Character {
             timed: false,
             warp: Vec3::ZERO,
             gait: Clip::Idle,
+            gait_since: 0.0,
             airborne: false,
             yaw,
             face: None,
@@ -959,6 +965,7 @@ fn animate_characters(
     mut commands: Commands,
     mut characters: Query<&mut Character>,
     blending: Res<Blending>,
+    time: Res<Time>,
     mut rigs: Query<(&mut AnimationPlayer, &mut AnimationTransitions, Option<&mut Inertia>, Has<AnimationGraphHandle>)>,
     mut released: MessageWriter<SwingReleased>,
 ) {
@@ -1084,7 +1091,7 @@ fn animate_characters(
             character.catch_up_to = None;
         }
 
-        character.gait = match character.gait {
+        let gait = match character.gait {
             Clip::Sprint if speed > STOP_SPRINT_SPEED => Clip::Sprint,
             _ if speed > SPRINT_SPEED => Clip::Sprint,
             Clip::Jog | Clip::Sprint if speed > STOP_JOG_SPEED => Clip::Jog,
@@ -1092,6 +1099,10 @@ fn animate_characters(
             _ if sim.phase == Phase::Rally => Clip::Ready,
             _ => Clip::Idle,
         };
+        if gait != character.gait && time.elapsed_secs() - character.gait_since >= MIN_GAIT_SECONDS {
+            character.gait = gait;
+            character.gait_since = time.elapsed_secs();
+        }
         let movement = if airborne { Clip::Airborne } else { character.gait };
         let clip = character.action.unwrap_or(movement);
         if character.playing != Some(clip) || character.restart {
@@ -1109,7 +1120,16 @@ fn animate_characters(
                 }
                 _ => blend,
             };
-            let active = transitions.play(&mut player, animations.action_node(clip, hero, character.layered), blend);
+            // Back into a stride that's still fading out: carry on from where
+            // it is rather than restarting it, which would jump the limbs.
+            let node = animations.action_node(clip, hero, character.layered);
+            let resume = clip.looping().then(|| player.animation(node).map(|a| a.seek_time())).flatten();
+            let active = transitions.play(&mut player, node, blend);
+            if let Some(at) = resume
+                && character.seek.is_none()
+            {
+                active.seek_to(at);
+            }
             active.set_speed(if character.winding_up { WIND_UP_SPEED } else { clip.speed() });
             let seek = character.seek.take().unwrap_or(clip.start_at());
             if seek > 0.0 {

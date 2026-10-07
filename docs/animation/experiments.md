@@ -198,9 +198,41 @@ offset matters.
 
 **Found along the way:** in every run some palm moves over 350 m/s in a frame,
 with or without inertialization: something teleports a hand (not a rally
-reset, which the measure skips). Worth hunting down.
+reset, which the measure skips). Fixed in 08.
+
+## 08 · Hands popping between strides
+
+**Found.** Logging every frame where a palm moved over 40 m/s, with the clips
+that had just started, showed two things:
+
+- The 350–440 m/s jumps were whole bodies moving from the title screen's
+  spots to the new match's at the start. Not visible in play; the bench now
+  counts them apart, as `teleports`.
+- The real pops, 0.6–0.8 m jumps of a hand in one frame, all followed the same
+  pattern: a player running near the sprint speed dropped from Sprint to Jog
+  and back to Sprint about 0.1 s later. Bevy's `AnimationTransitions::play`
+  restarts the clip it switches to, so the sprint still fading out mid-stride
+  jumped back to its first frame.
+
+**Fix.** Switching back into a looping gait that's still playing carries on
+from where it is; and a gait plays at least 0.25 s before another takes over
+(`MIN_GAIT_SECONDS`), so a burst of braking and speeding up doesn't flick
+between strides at all.
+
+**Result** (old and new builds alternating, two runs each):
+
+| | Before | After |
+|---|---|---|
+| Frames with a palm over 30 m/s | 70, 86 | 23, 27 |
+| Frames with a palm over 40 m/s | many | 0, 2 |
+| Fastest palm, bodies' teleports apart | up to 440 m/s | 39, 50 m/s |
+| Contact gap, all touches (m) | 0.167, 0.171 | 0.167, 0.180 |
+| Frame time (ms) | 19.3, 19.2 | 19.0, 18.9 |
+
+The few palms still over 40 m/s are most likely swings the game speeds up (up
+to 4×) to meet the ball on time, not pops. **Decision: keep.**
 
 ## Next
 
 Ranked in research.md: orientation and stride warping; chaining touch quality
-into the spike. Open: the hand teleports above.
+into the spike.

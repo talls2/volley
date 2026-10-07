@@ -12,6 +12,7 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use std::time::Duration;
 
 use bevy::animation::{AnimatedBy, AnimationTargetId};
+use bevy::app::AnimationSystems;
 use bevy::gltf::Gltf;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
@@ -105,7 +106,8 @@ pub fn plugin(app: &mut App) {
             ),
         )
         // Overrides the animated arms, so it runs once the animation has been applied.
-        .add_systems(PostUpdate, pose_limbs.in_set(PoseLimbs).after(TransformSystems::Propagate));
+        .add_systems(PostUpdate, pose_limbs.in_set(PoseLimbs).after(TransformSystems::Propagate))
+        .add_systems(PostUpdate, twist_hips.after(AnimationSystems).after(crate::inertia::Inertialize).before(TransformSystems::Propagate));
 }
 
 /// Where bodies get their final pose each frame: anything measuring the
@@ -525,6 +527,10 @@ struct Character {
     leg_weight: f32,
     /// Neck and head bones, for looking at the ball.
     neck: Option<[Entity; 2]>,
+    /// Pelvis and lower spine, for turning the hips toward where the player
+    /// runs; and how far they're turned (radians about the vertical, as yaw).
+    hips: Option<[Entity; 3]>,
+    hip_yaw: f32,
     /// How strongly (0 to 1) the head tracks the ball.
     look_weight: f32,
     /// Body lean from acceleration: forward and to the right, in radians.
@@ -570,6 +576,8 @@ impl Character {
             leg_goal: Vec3::ZERO,
             leg_weight: 0.0,
             neck: None,
+            hips: None,
+            hip_yaw: 0.0,
             look_weight: 0.0,
             lean: Vec2::ZERO,
             layered: false,
@@ -704,6 +712,7 @@ fn hook_up_skeleton(
         .collect();
     character.leg = (|| Some([bone("thigh_r")?, bone("calf_r")?, bone("foot_r")?]))();
     character.neck = (|| Some([bone("neck_01")?, bone("Head")?]))();
+    character.hips = (|| Some([bone("pelvis")?, bone("spine_01")?, bone("spine_02")?]))();
 
     let Some((hair, hair_color)) = character.look.hair else {
         return;
@@ -947,6 +956,21 @@ fn place_characters(
         // forward, and about z (positive) tips it to its right.
         let lean = Quat::from_rotation_x(lean.x) * Quat::from_rotation_z(lean.y);
         let facing = Quat::from_rotation_y(character.yaw);
+
+        // Running one way while facing another (turning around, or toward the
+        // ball winding up a hit): the hips turn toward the run so the legs
+        // stride where they go, and the spine turns back so the chest stays.
+        let striding = character.action.is_none() || character.layered;
+        let wanted = if grounded && striding && velocity.length() > JOG_SPEED {
+            // The turn about the vertical from facing to running, as yaw is measured.
+            let off = (velocity.x.atan2(velocity.y) - character.yaw + PI).rem_euclid(TAU) - PI;
+            // Turning around, the hips lead the turn; right behind, which
+            // way to turn is a coin toss, so they wait.
+            if off.abs() < 2.8 { off.clamp(-MAX_HIP_TURN, MAX_HIP_TURN) } else { 0.0 }
+        } else {
+            0.0
+        };
+        character.hip_yaw += (wanted - character.hip_yaw) * (1.0 - (-HIP_TURN_RATE * time.delta_secs()).exp());
 
         // Slide the body so the swing's contact spot meets the real ball:
         // eased in over the last moments before contact, and back out after.
@@ -1407,6 +1431,42 @@ fn pose_limbs(
         {
             let goal = character.leg_goal;
             point_limb(leg, |joint| (goal - joint).normalize_or_zero(), character.leg_weight, &locals, &children, &mut globals);
+        }
+    }
+}
+
+/// How far (radians) the hips turn toward where the player runs, at most, and
+/// how quickly they follow.
+const MAX_HIP_TURN: f32 = 1.3;
+const HIP_TURN_RATE: f32 = 12.0;
+
+/// Turns each character's hips by `hip_yaw` about the vertical and the lower
+/// spine back by as much, so the legs face one way and the chest another.
+/// Works on the local transforms after the animation, before they're
+/// propagated.
+fn twist_hips(
+    characters: Query<&Character>,
+    parents: Query<&ChildOf>,
+    globals: Query<&GlobalTransform>,
+    mut transforms: Query<&mut Transform>,
+) {
+    for character in &characters {
+        let Some([pelvis, spine_1, spine_2]) = character.hips else { continue };
+        let angle = character.hip_yaw;
+        if angle.abs() < 1e-3 {
+            continue;
+        }
+        // The pelvis's parent (the skeleton's root bone) as last drawn: it
+        // doesn't animate, and the body turns slowly.
+        let Some(parent) = parents.get(pelvis).ok().and_then(|p| globals.get(p.parent()).ok()) else { continue };
+        // Turning a bone about the world's vertical: the vertical in its
+        // parent's frame, from the parent's world rotation.
+        let mut parent = parent.rotation();
+        for (bone, turn) in [(pelvis, angle), (spine_1, -angle / 2.0), (spine_2, -angle / 2.0)] {
+            let Ok(mut transform) = transforms.get_mut(bone) else { break };
+            let up = parent.inverse() * Vec3::Y;
+            transform.rotation = Quat::from_axis_angle(up, turn) * transform.rotation;
+            parent *= transform.rotation;
         }
     }
 }

@@ -288,8 +288,44 @@ the arms harder (frames with a palm over 30 m/s, 20 → 36) and looks hurried.
 **Decision: revert.** What's left of the sliding needs the legs to reach
 further rather than step faster: stride warping.
 
+## 11 · Orientation warping: hips toward the run
+
+**Idea.** 16% of running frames face more than 30° away from where the body
+runs. Paragon's orientation warping turns the lower body toward the movement
+while the upper body keeps its aim (research.md).
+
+**Found first.** Logging those frames: most aren't hits wound up toward the
+ball but turnarounds. A runner reversing direction takes about 0.3 s to swing
+round (`TURN_SPEED`), the legs running the old way meanwhile, 115–130° off.
+
+**How.** `twist_hips` in `characters.rs`, on the local transforms after the
+animation and before they're propagated: the pelvis turns about the vertical
+toward where the player runs, up to 75°, and `spine_01` and `spine_02` turn
+back by half each, so the chest, arms and hits stay where they were. It
+leads turnarounds too (any gap under 160°; right behind, which way to turn is
+a coin toss). Only while the legs stride: with no hit playing, or a hit on the
+upper body. The first version turned about the wrong axis, taking the
+armature's frame for the pelvis's parent: there's a root bone between them.
+
+**Result** (three runs each, alternating). The bench now reports the average
+angle between where the hips (square to the hip joints) face and where the
+body runs:
+
+| | Before | After |
+|---|---|---|
+| Hips' angle from the run (average) | 18.5° | 13.5° |
+| Running frames with hips over 30° off | 16.7% | 8.9% |
+| Planted foot slide (m/s) | 1.64 | 1.62 |
+| Contact gap, all touches (m) | 0.184 ±0.011 | 0.174 ±0.008 |
+| Frames with a palm over 40 m/s | 2.0 | 1.7 |
+| Frame time (ms) | 16.83 | 17.05 |
+
+The hips' baseline (18.5°) is above the body's (14.5°) because the pelvis
+sways in the stride. **Decision: keep.** It doesn't move the foot sliding
+that's left: that's about how far the strides reach, not which way they go.
+Not yet seen in game (the screen was locked); worth a look at a turnaround.
+
 ## Next
 
-Ranked in research.md: orientation warping (16% of running frames face more
-than 30° away from where the body runs) and stride warping; chaining touch
-quality into the spike.
+Ranked in research.md: stride warping, for the sliding that's left (planted
+feet still slide 1.6 m/s on average); chaining touch quality into the spike.

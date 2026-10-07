@@ -16,8 +16,12 @@ use bevy::transform::TransformSystems;
 pub fn plugin(app: &mut App) {
     let style = if std::env::var("VOLLEY_BLEND").as_deref() == Ok("inertia") { Blending::Inertia } else { Blending::Crossfade };
     app.insert_resource(style)
-        .add_systems(PostUpdate, inertialize.after(AnimationSystems).before(TransformSystems::Propagate));
+        .add_systems(PostUpdate, inertialize.in_set(Inertialize).after(AnimationSystems).before(TransformSystems::Propagate));
 }
+
+/// Where cuts are blended, right after the animation is applied.
+#[derive(SystemSet, Clone, PartialEq, Eq, Hash, Debug)]
+pub struct Inertialize;
 
 /// How characters move from one animation into the next.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]

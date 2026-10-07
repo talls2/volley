@@ -1,0 +1,33 @@
+{
+  "seconds": 90,
+  "arena": "Neon",
+  "hero": 0,
+  "frames": 5500,
+  "frame_ms": { "mean": 16.74, "p50": 16.63, "p95": 20.55, "p99": 23.37 },
+  "hand_speed": { "p99": 18.71, "p999": 24.30, "max": 43.18, "over_30": 21, "over_40": 2, "teleports": 0 },
+  "feet": { "slide_mean": 1.632, "slide_p90": 3.837, "sliding_share": 0.625, "strafing_share": 0.162, "hips_strafing_share": 0.167, "body_off_deg": 14.5, "hips_off_deg": 18.5 },
+  "gap_m": {
+    "all": { "n": 49, "mean": 0.173, "p50": 0.189, "p90": 0.312 },
+    "Curve": { "n": 8, "mean": 0.262, "p50": 0.256, "p90": 0.293 },
+    "Kick": { "n": 1, "mean": 0.653, "p50": 0.653, "p90": 0.653 },
+    "Pass": { "n": 25, "mean": 0.195, "p50": 0.214, "p90": 0.318 },
+    "Serve": { "n": 10, "mean": 0.037, "p50": 0.009, "p90": 0.019 },
+    "Spike": { "n": 5, "mean": 0.095, "p50": 0.082, "p90": 0.172 }
+  },
+  "swings": {
+    "Bump": { "n": 2, "timed": 1.00, "off_s_mean": 0.002, "off_s_p90": 0.004, "warp_m_mean": 0.47 },
+    "High_Volley": { "n": 1, "timed": 1.00, "off_s_mean": 0.002, "off_s_p90": 0.002, "warp_m_mean": 0.11 },
+    "Kick_Pass_High": { "n": 1, "timed": 1.00, "off_s_mean": 0.003, "off_s_p90": 0.003, "warp_m_mean": 0.63 },
+    "Kick_Serve": { "n": 1, "timed": 1.00, "off_s_mean": 0.002, "off_s_p90": 0.002, "warp_m_mean": 0.04 },
+    "Serve": { "n": 9, "timed": 1.00, "off_s_mean": 0.001, "off_s_p90": 0.002, "warp_m_mean": 0.03 },
+    "Set": { "n": 22, "timed": 1.00, "off_s_mean": 0.001, "off_s_p90": 0.003, "warp_m_mean": 0.66 },
+    "Spike": { "n": 3, "timed": 1.00, "off_s_mean": 0.001, "off_s_p90": 0.001, "warp_m_mean": 0.58 }
+  },
+  "hit_stop": {
+    "Curve": { "n": 8, "speed_mean": 25.4, "speed_max": 28.3, "freeze_ms_mean": 93, "freeze_ms_max": 110 },
+    "Kick": { "n": 1, "speed_mean": 11.3, "speed_max": 11.3, "freeze_ms_mean": 8, "freeze_ms_max": 8 },
+    "Pass": { "n": 25, "speed_mean": 8.1, "speed_max": 11.5, "freeze_ms_mean": 1, "freeze_ms_max": 9 },
+    "Serve": { "n": 10, "speed_mean": 19.0, "speed_max": 19.2, "freeze_ms_mean": 54, "freeze_ms_max": 55 },
+    "Spike": { "n": 5, "speed_mean": 23.1, "speed_max": 24.6, "freeze_ms_mean": 78, "freeze_ms_max": 85 }
+  }
+}

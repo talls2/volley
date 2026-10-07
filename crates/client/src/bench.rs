@@ -110,6 +110,9 @@ struct Record {
     /// Each standing player's torso lean from upright (degrees, hips to neck)
     /// every frame, outside dives and knockdowns.
     tilts: Vec<f32>,
+    /// Standing legs counted, and those whose knee points over 60° away from
+    /// where the body faces (twisted, or crossed).
+    knees: (u32, u32),
     rally: u32,
     shots: u32,
     film_frame: u32,
@@ -231,6 +234,23 @@ fn feet(
         if let (Some(hips), Some(neck)) = (joint("pelvis"), joint("neck_01")) {
             record.tilts.push((neck - hips).angle_between(Vec3::Y).to_degrees());
         }
+        let facing = transform_of(&bodies, entity) * Vec3::Z;
+        for side in ["l", "r"] {
+            if let (Some(hip), Some(knee), Some(ankle)) = (joint(&format!("thigh_{side}")), joint(&format!("calf_{side}")), joint(&format!("foot_{side}"))) {
+                // Where the knee points: away from the line from hip to ankle.
+                let line = (ankle - hip).normalize_or_zero();
+                let out = (knee - hip) - line * (knee - hip).dot(line);
+                // Straight legs don't point anywhere.
+                if out.length() < 0.03 {
+                    continue;
+                }
+                let angle = Vec2::new(out.x, out.z).angle_to(Vec2::new(facing.x, facing.z)).abs();
+                record.knees.0 += 1;
+                if angle > 60f32.to_radians() {
+                    record.knees.1 += 1;
+                }
+            }
+        }
     }
     if game.current.rally == record.rally {
         for &(entity, at) in &now {
@@ -286,6 +306,10 @@ fn feet(
         }
     }
     record.feet = now;
+}
+
+fn transform_of(bodies: &Query<(Entity, &PlayerBody, &GlobalTransform)>, entity: Entity) -> Quat {
+    bodies.get(entity).map_or(Quat::IDENTITY, |(.., at)| at.rotation())
 }
 
 fn freezes(mut froze: MessageReader<Froze>, mut record: ResMut<Record>) {
@@ -485,10 +509,11 @@ fn report(bench: &Bench, record: &Record) -> String {
     let tilts = &record.tilts;
     let _ = write!(
         out,
-        "  \"posture\": {{ \"tilt_mean\": {:.1}, \"tilt_p99\": {:.1}, \"folded\": {} }},\n",
+        "  \"posture\": {{ \"tilt_mean\": {:.1}, \"tilt_p99\": {:.1}, \"folded\": {}, \"knees_off_share\": {:.4} }},\n",
         mean(tilts),
         quantile(tilts, 0.99),
         tilts.iter().filter(|&&v| v > FOLDED).count(),
+        record.knees.1 as f32 / record.knees.0.max(1) as f32,
     );
     let slides = &record.foot_slides;
     let _ = write!(

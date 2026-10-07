@@ -130,6 +130,8 @@ def compare(a, b):
         print(f"{'hand speed ' + stat:28}{describe(series(ra, ['hand_speed', stat])):>22}{describe(series(rb, ['hand_speed', stat])):>22}")
     for stat in ("slide_mean", "slide_p90", "sliding_share", "strafing_share", "hips_strafing_share", "body_off_deg", "hips_off_deg"):
         print(f"{'feet ' + stat:28}{describe(series(ra, ['feet', stat])):>22}{describe(series(rb, ['feet', stat])):>22}")
+    for stat in ("tilt_mean", "tilt_p99", "folded"):
+        print(f"{'posture ' + stat:28}{describe(series(ra, ['posture', stat])):>22}{describe(series(rb, ['posture', stat])):>22}")
     for stat in ("mean", "p95", "p99"):
         print(f"{'frame ' + stat + ' (ms)':28}{describe(series(ra, ['frame_ms', stat])):>22}{describe(series(rb, ['frame_ms', stat])):>22}")
 

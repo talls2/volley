@@ -22,7 +22,7 @@ use std::fmt::Write as _;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use volley_sim::court::BALL_RADIUS;
-use volley_sim::{Event, HitKind, TICK_HZ};
+use volley_sim::{Event, HitKind, MoveId, TICK_HZ};
 
 use crate::arena::Arena;
 use crate::characters::{PlayerBody, PoseLimbs, SwingReleased};
@@ -105,6 +105,9 @@ struct Record {
     /// Running frames' angles (degrees) between where the body, and its hips,
     /// face and where it runs.
     off_degrees: Vec<(f32, f32)>,
+    /// Each standing player's torso lean from upright (degrees, hips to neck)
+    /// every frame, outside dives and knockdowns.
+    tilts: Vec<f32>,
     rally: u32,
     shots: u32,
     film_frame: u32,
@@ -179,6 +182,8 @@ fn hands(
 
 /// A foot this low (the ankle, m) is on the ground.
 const PLANTED: f32 = 0.14;
+/// A standing torso leaning further than this from upright (degrees) is folded over.
+const FOLDED: f32 = 60.0;
 /// Running, for counting how often the body faces away from where it runs.
 const RUNNING: f32 = 1.5;
 
@@ -202,6 +207,19 @@ fn feet(
         .filter(|(_, name, _)| matches!(name.as_str(), "foot_l" | "foot_r"))
         .map(|(entity, _, at)| (entity, at.translation()))
         .collect();
+    for (entity, body, _) in &bodies {
+        let player = &game.current.players[body.0];
+        let diving = player.action.is_some_and(|action| matches!(action.id, MoveId::Dive | MoveId::FootSave));
+        if !player.grounded() || player.stunned(game.current.tick) || diving {
+            continue;
+        }
+        let joint = |name: &str| {
+            bones.iter().find(|(e, n, _)| n.as_str() == name && parents.iter_ancestors(*e).any(|a| a == entity)).map(|(.., at)| at.translation())
+        };
+        if let (Some(hips), Some(neck)) = (joint("pelvis"), joint("neck_01")) {
+            record.tilts.push((neck - hips).angle_between(Vec3::Y).to_degrees());
+        }
+    }
     if game.current.rally == record.rally {
         for &(entity, at) in &now {
             let Some(&(_, before)) = record.feet.iter().find(|(e, _)| *e == entity) else { continue };
@@ -429,6 +447,14 @@ fn report(bench: &Bench, record: &Record) -> String {
         speeds.iter().filter(|&&v| v > 30.0).count(),
         speeds.iter().filter(|&&v| v > 40.0).count(),
         record.teleports,
+    );
+    let tilts = &record.tilts;
+    let _ = write!(
+        out,
+        "  \"posture\": {{ \"tilt_mean\": {:.1}, \"tilt_p99\": {:.1}, \"folded\": {} }},\n",
+        mean(tilts),
+        quantile(tilts, 0.99),
+        tilts.iter().filter(|&&v| v > FOLDED).count(),
     );
     let slides = &record.foot_slides;
     let _ = write!(

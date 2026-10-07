@@ -182,9 +182,9 @@ fn hands(
     record.palms = now;
 }
 
-/// A foot is on the ground while its ankle is within this much (m) of the
-/// lowest it gets, as the game's foot locking has it.
-const PLANT_MARGIN: f32 = 0.04;
+/// A foot is on the ground while its lowest point is within this much (m) of
+/// the lowest it gets, as the game's foot locking has it.
+const PLANT_MARGIN: f32 = 0.03;
 /// A standing torso leaning further than this from upright (degrees) is folded over.
 const FOLDED: f32 = 60.0;
 /// Running, for counting how often the body faces away from where it runs.
@@ -205,10 +205,19 @@ fn feet(
     if *screen.get() != Screen::Playing || dt <= 0.0 {
         return;
     }
+    // Each ankle, at the height of the lowest part of its foot (the ankle or
+    // the ball of the foot), as the game's foot locking judges it.
     let now: Vec<(Entity, Vec3)> = bones
         .iter()
         .filter(|(_, name, _)| matches!(name.as_str(), "foot_l" | "foot_r"))
-        .map(|(entity, _, at)| (entity, at.translation()))
+        .map(|(entity, _, at)| {
+            let at = at.translation();
+            let toe = bones
+                .iter()
+                .find(|(ball, name, _)| name.as_str().starts_with("ball_") && parents.get(*ball).is_ok_and(|p| p.parent() == entity))
+                .map_or(at.y, |(.., toe)| toe.translation().y);
+            (entity, Vec3::new(at.x, at.y.min(toe), at.z))
+        })
         .collect();
     for (entity, body, _) in &bodies {
         let player = &game.current.players[body.0];

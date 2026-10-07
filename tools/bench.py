@@ -3,10 +3,15 @@ and compares runs, for the animation experiments in docs/animation.
 
     python3 tools/bench.py run NAME [NAME:VAR=VALUE ...] [--runs 3] [--seconds 90] [--arena neon|beach]
     python3 tools/bench.py compare NAME_A NAME_B
+    python3 tools/bench.py ab BEFORE AFTER [--runs 3] [--seconds 90] [--arena neon|beach]
 
 Several variants in one `run` alternate (A, B, A, B, ...), so they share the
 machine's state; NAME:VAR=VALUE runs a variant with an environment variable
 set (e.g. 06-crossfade:VOLLEY_BLEND=crossfade).
+
+`ab` compares the last commit (BEFORE) with the working tree (AFTER): it
+builds each once, sets the two programs aside, and alternates runs of them,
+so the code can keep changing while it runs (assets are shared, though).
 
 `run` writes docs/animation/bench/NAME-1.json, NAME-2.json, ... The match is the
 same every run; differences between runs of one build are measurement noise,
@@ -16,6 +21,8 @@ bigger than that spread.
 
 import json
 import os
+import shutil
+import tempfile
 import statistics
 import subprocess
 import sys
@@ -43,6 +50,39 @@ def run(variants, runs, seconds, arena):
             subprocess.run(["caffeinate", "-d", "-i", "cargo", "run", "-q", "-p", "volley_client"], cwd=ROOT, env=env, check=True,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             print(f"wrote {out.relative_to(ROOT)}")
+
+
+def build_copy(dest):
+    subprocess.run(["cargo", "build", "-q", "-p", "volley_client"], cwd=ROOT, check=True)
+    shutil.copy(ROOT / "target/debug/volley_client", dest)
+
+
+def ab(before, after, runs, seconds, arena):
+    """The last commit against the working tree, alternating runs."""
+    BENCH.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="volley-ab-"))
+    changed = subprocess.run(["git", "diff", "--quiet"], cwd=ROOT).returncode != 0
+    if changed:
+        subprocess.run(["git", "stash", "-q"], cwd=ROOT, check=True)
+    try:
+        build_copy(work / "before")
+    finally:
+        if changed:
+            subprocess.run(["git", "stash", "pop", "-q"], cwd=ROOT, check=True)
+    build_copy(work / "after")
+    for i in range(1, runs + 1):
+        for name, program in ((before, work / "before"), (after, work / "after")):
+            out = BENCH / f"{name}-{i}.json"
+            env = dict(os.environ, VOLLEY_BENCH=str(out), VOLLEY_BENCH_SECONDS=str(seconds), VOLLEY_BENCH_ARENA=arena,
+                       CARGO_MANIFEST_DIR=str(ROOT / "crates/client"))
+            for _ in range(2):
+                if out.exists():
+                    break
+                subprocess.run(["caffeinate", "-d", "-i", str(program)], cwd=ROOT, env=env,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print(f"wrote {out.relative_to(ROOT)}")
+    shutil.rmtree(work)
+    compare(before, after)
 
 
 def load(name):
@@ -97,6 +137,9 @@ def main():
         run(variants, int(value("--runs", 3)), int(value("--seconds", 90)), value("--arena", "neon"))
     elif len(args) == 3 and args[0] == "compare":
         compare(args[1], args[2])
+    elif len(args) >= 3 and args[0] == "ab":
+        value = lambda flag, default: args[args.index(flag) + 1] if flag in args else default
+        ab(args[1], args[2], int(value("--runs", 3)), int(value("--seconds", 90)), value("--arena", "neon"))
     else:
         sys.exit(__doc__)
 

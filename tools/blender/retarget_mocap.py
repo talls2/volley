@@ -386,6 +386,8 @@ def retarget(rig, name, spec):
         pelvis = rig.bones["pelvis"]
         pelvis.location = rest["pelvis"].inverted() @ offset
         pelvis.keyframe_insert("location", frame=index, group="pelvis")
+    if spec["still"] is False:
+        settle(rig, frames, rest)
     if NO_ACCENTS:
         print("  accents left off")
     for layer in () if NO_ACCENTS else spec["accents"]:
@@ -395,6 +397,34 @@ def retarget(rig, name, spec):
     seconds = (len(frames) - 1) / fps
     print(f"retargeted {name}: {len(frames)} frames, {seconds:.2f} s, {len(pairs)} bones, pace {pace([f[2] for f in frames], fps):.1f} m/s")
     return out, seconds
+
+
+def lowest_point(rig):
+    """How high the lowest part of the feet (ankles and balls) is in the pose."""
+    world = rig.arm.matrix_world
+    return min((world @ rig.bones[f"{part}_{side}"].head).z for part in ("foot", "ball") for side in "lr")
+
+
+def settle(rig, frames, rest):
+    """Lowers a clip whose feet never reach the floor: captures whose
+    skeleton is built differently from ours (Mixamo's) come out hovering
+    by a few centimeters, the hips scaled by leg length but the feet not
+    meeting the ground. The lowest the feet get through the clip touches
+    the floor, as our rest pose's feet do."""
+    scene = bpy.context.scene
+    floor = rig.arm.data.bones["ball_l"].head_local.z
+    lowest = []
+    for index in range(len(frames)):
+        scene.frame_set(index)
+        lowest.append(lowest_point(rig))
+    sink = min(lowest) - floor
+    if sink <= 0.005:
+        return
+    pelvis = rig.bones["pelvis"]
+    for index, (_, offset, _) in enumerate(frames):
+        pelvis.location = rest["pelvis"].inverted() @ (offset - Vector((0.0, 0.0, sink)))
+        pelvis.keyframe_insert("location", frame=index, group="pelvis")
+    print(f"  lowered {sink:.3f} m onto the floor")
 
 
 def accent_weight(layer, t):
@@ -532,6 +562,28 @@ def measure(rig, action):
     rig.reset()
 
 
+def heights(rig, action):
+    """Prints how high the ankles and balls of the feet get through a clip
+    (lowest, median), to check the feet meet the floor."""
+    scene = bpy.context.scene
+    rig.arm.animation_data_create()
+    rig.arm.animation_data.action = action
+    start, end = (round(f) for f in action.frame_range)
+    world = rig.arm.matrix_world
+    rows = {name: [] for name in ("foot_l", "foot_r", "ball_l", "ball_r")}
+    for frame in range(start, end + 1):
+        scene.frame_set(frame)
+        for name in rows:
+            rows[name].append((world @ rig.bones[name].head).z)
+    low = lambda side: [min(a, b) for a, b in zip(rows[f"ball_{side}"], rows[f"foot_{side}"])]
+    lowest = sorted(min(a, b) for a, b in zip(low("l"), low("r")))
+    ankles = sorted(min(a, b) for a, b in zip(rows["foot_l"], rows["foot_r"]))
+    print(f"  heights {action.name}: lowest point of the feet min {lowest[0]:.3f} median {lowest[len(lowest) // 2]:.3f}; "
+          f"lower ankle min {ankles[0]:.3f} median {ankles[len(ankles) // 2]:.3f}")
+    rig.arm.animation_data.action = None
+    rig.reset()
+
+
 def main():
     args = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     preview = args[args.index("--preview") + 1] if "--preview" in args else None
@@ -553,6 +605,8 @@ def main():
         action, seconds = retarget(rig, name, spec)
         if measuring:
             measure(rig, action)
+        if "--heights" in args:
+            heights(rig, action)
         if preview:
             Path(preview).mkdir(parents=True, exist_ok=True)
             sheet = {"name": action.name, "keys": [(0.0, {}), (seconds, {})]}

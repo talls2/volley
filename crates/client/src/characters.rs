@@ -528,6 +528,9 @@ struct Character {
     /// Both legs (thigh, calf, foot), left then right, and where each foot is
     /// locked to the ground.
     legs: Vec<[Entity; 3]>,
+    /// The balls of the feet, left then right: with the ankles, the lowest
+    /// part of each foot.
+    toes: Vec<Entity>,
     foot_locks: [FootLock; 2],
     /// Where the posed leg points, and how strongly (0 to 1) it's posed.
     leg_goal: Vec3,
@@ -585,6 +588,7 @@ impl Character {
             arm_weight: 0.0,
             leg: None,
             legs: Vec::new(),
+            toes: Vec::new(),
             foot_locks: [FootLock::default(); 2],
             leg_goal: Vec3::ZERO,
             leg_weight: 0.0,
@@ -730,6 +734,7 @@ fn hook_up_skeleton(
         .into_iter()
         .filter_map(|[thigh, calf, foot]| Some([bone(thigh)?, bone(calf)?, bone(foot)?]))
         .collect();
+    character.toes = ["ball_l", "ball_r"].into_iter().filter_map(bone).collect();
     character.neck = (|| Some([bone("neck_01")?, bone("Head")?]))();
     character.hips = (|| Some([bone("pelvis")?, bone("spine_01")?, bone("spine_02")?]))();
 
@@ -1538,18 +1543,29 @@ fn landing_dip(depth: f32, age: f32) -> f32 {
     }
 }
 
-/// Foot locking: a foot whose ankle is this low (m above the feet) is on the
-/// ground, and stays where it landed while it is, unless the animation pulls
-/// it this far away (m); once lifted, it eases back to the animation over
-/// this long (seconds).
-const PLANT_HEIGHT: f32 = 0.14;
+/// Foot locking: a foot is on the ground while its lowest point (the ankle
+/// or the ball of the foot) is within this much (m) of the lowest it gets,
+/// and the animation moves it slower than this over the ground (m/s): a foot
+/// skimming low through a stride isn't planted. It stays where it landed
+/// while it is, unless the animation pulls it this far away (m); once lifted
+/// or pulled away, it eases back to the animation over this long (seconds),
+/// from no farther than `MAX_RELEASE` (m).
+const PLANT_MARGIN: f32 = 0.03;
+const PLANT_SPEED: f32 = 2.5;
 const MAX_STRETCH: f32 = 0.35;
 const RELEASE_SECONDS: f32 = 0.1;
+const MAX_RELEASE: f32 = 1.0;
 
 /// Where a foot is held on the ground, and where it eases back from once
 /// lifted (with how far through that it is, 0 to 1).
 #[derive(Clone, Copy, Default)]
 struct FootLock {
+    /// The lowest this foot has been over the body's feet: standing flat.
+    floor: Option<f32>,
+    /// Where the animation had the foot last frame, to tell planted from swinging.
+    last: Option<Vec3>,
+    /// Pulled away mid-step: not held again until it has lifted.
+    pulled: bool,
     at: Option<Vec3>,
     release_from: Option<Vec3>,
     release: f32,
@@ -1580,28 +1596,47 @@ fn lock_feet(
     // stay on the floor, so the knees bend instead.
     let drop = landing_dip(character.dip, character.dip_age);
     let legs = character.legs.clone();
+    let toes = character.toes.clone();
     for (side, [thigh, calf, foot]) in legs.into_iter().enumerate() {
         let Ok(ankle) = globals.get(foot).map(|g| g.translation()) else { continue };
+        let toe = toes.get(side).and_then(|&toe| globals.get(toe).ok()).map_or(ankle.y, |g| g.translation().y);
         let lock = &mut character.foot_locks[side];
-        let planted = locking && ankle.y - body.translation.y < PLANT_HEIGHT;
+        // The height the animation has it, before the landing dip lowered it.
+        let height = ankle.y.min(toe) - body.translation.y + drop;
+        if locking {
+            lock.floor = Some(lock.floor.map_or(height, |floor| floor.min(height)));
+        }
+        let moving = lock.last.is_some_and(|last| dt > 0.0 && Vec2::new(ankle.x - last.x, ankle.z - last.z).length() / dt > PLANT_SPEED);
+        lock.last = Some(ankle);
+        let low = locking && lock.floor.is_some_and(|floor| height < floor + PLANT_MARGIN);
+        if !low {
+            lock.pulled = false;
+        }
+        let planted = low && !lock.pulled;
         let mut target = None;
         match lock.at {
             Some(at) if planted && Vec2::new(at.x - ankle.x, at.z - ankle.z).length() <= MAX_STRETCH => {
                 target = Some(Vec3::new(at.x, ankle.y + drop, at.z));
             }
             Some(at) => {
-                // Lifted (or stretched too far): ease back to the animation.
+                // Lifted, or pulled too far: ease back to the animation, and
+                // if pulled, wait for the step to finish before holding again.
                 lock.release_from = Some(at);
                 lock.release = 0.0;
-                lock.at = planted.then_some(ankle);
+                lock.pulled = planted;
+                lock.at = None;
             }
-            None if planted => {
+            None if planted && !moving => {
                 lock.at = Some(ankle);
                 if drop > 0.0 {
                     target = Some(ankle + Vec3::Y * drop);
                 }
             }
             None => {}
+        }
+        // From a teleport (a new rally), don't swoop across the court.
+        if lock.release_from.is_some_and(|from| Vec2::new(from.x - ankle.x, from.z - ankle.z).length() > MAX_RELEASE) {
+            lock.release_from = None;
         }
         if let Some(from) = lock.release_from {
             lock.release += dt / RELEASE_SECONDS;

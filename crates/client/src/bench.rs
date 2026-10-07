@@ -370,8 +370,10 @@ fn direct(
         .filter_map(|i| sim.predicted_contact(i, 90).map(|(ticks, _)| (ticks, i)))
         .min()
         .map(|(_, i)| i);
-    if next.is_some() {
+    // A new subject is a cut, as on television, not a pan across the court.
+    if next.is_some() && next != *subject {
         *subject = next;
+        *aim = None;
     }
     let Some(who) = *subject else { return };
     let body = sim.players[who].position;

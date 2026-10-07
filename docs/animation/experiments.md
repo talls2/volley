@@ -439,6 +439,50 @@ as planted only under 0.14 m, while these heroes stand with their ankles at
 about 0.17: foot locking (12) has been holding feet mostly during serves.
 That's next.
 
+## 15 · Feet on the floor
+
+**Found.** Chasing why foot locking (12) barely changed running, a log of
+each foot's height by clip: the clips retargeted from Mixamo float. Standing
+in the ready stance the feet hover 3 cm over the floor, a jog's feet never
+come closer than 7 cm, a sprint's 5 cm, the celebration's 9 cm, Cross's 15.
+The tracked set and serve stand on it. The retarget puts the lowest ankle
+at our rest pose's ankle height, but Mixamo's skeleton is built differently,
+and its ankles never get that low. And foot locking judged a foot planted by
+its ankle under 0.14 m, below where these heroes' ankles stand (0.17, on the
+balls of the feet): feet were held mostly during serves.
+
+**How.** `settle` in `retarget_mocap.py` lowers a clip until the lowest
+point of its feet (ankle or ball of the foot) touches the floor as our rest
+pose's does (`--heights` prints the numbers). Foot locking now judges a foot
+by its lowest point, against the lowest that foot gets (its floor, which
+depends on the hero), within 3 cm, and only if the animation isn't carrying
+it over the ground faster than 2.5 m/s (a foot skimming low through a stride
+isn't planted). Once a stride pulls a planted foot more than 0.35 m, it
+eases back and isn't held again until it has lifted, instead of being held
+afresh wherever it was, a jump. And a lock left over from before a new rally
+(the player put somewhere else) no longer swoops the foot across the court.
+The landing dip's sign was wrong in the floor test too.
+
+**Result** (three runs each, alternating; the bench judges planted feet
+the new way on both sides):
+
+| | Before | After |
+|---|---|---|
+| Lowest point of the feet in a jog, closest to the floor | 7.0 cm | 1.5 cm |
+| ...in the ready stance (median) | 5.2 cm | 1.9 cm |
+| Held feet that move (m/s, average) | 1.33 | 0.06 |
+| Planted foot slide (m/s, average) | 1.04 ±0.03 | 1.39 ±0.07 |
+| Contact gap, all touches (m) | 0.119 ±0.006 | 0.118 ±0.003 |
+| Frame time (ms) | 17.3 | 17.3 |
+
+The slide average goes up because there's more to count: with the strides
+off the floor, the bench never counted their feet as planted at all. Now
+every stance does, and a stride's foot comes down still moving (the clips'
+strides cover less ground than the body, 12). In the films the running and
+standing feet meet the floor. **Decision: keep.** The bench can't tell a
+foot coming down from one sliding; next would be stride warping, to make
+the clips' strides as long as the ground covered.
+
 ## Next
 
 Ranked in research.md.

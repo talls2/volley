@@ -98,6 +98,8 @@ struct Record {
     /// where each foot was.
     foot_slides: Vec<f32>,
     feet: Vec<(Entity, Vec3)>,
+    /// The lowest each ankle has been.
+    floors: Vec<(Entity, f32)>,
     /// Frames a running body faced more than 30° away from where it ran, of
     /// all running frames; and the same for its hips (where the legs point).
     strafing: (u32, u32),
@@ -180,8 +182,9 @@ fn hands(
     record.palms = now;
 }
 
-/// A foot this low (the ankle, m) is on the ground.
-const PLANTED: f32 = 0.14;
+/// A foot is on the ground while its ankle is within this much (m) of the
+/// lowest it gets, as the game's foot locking has it.
+const PLANT_MARGIN: f32 = 0.04;
 /// A standing torso leaning further than this from upright (degrees) is folded over.
 const FOLDED: f32 = 60.0;
 /// Running, for counting how often the body faces away from where it runs.
@@ -223,8 +226,28 @@ fn feet(
     if game.current.rally == record.rally {
         for &(entity, at) in &now {
             let Some(&(_, before)) = record.feet.iter().find(|(e, _)| *e == entity) else { continue };
+            // Standing on the feet, not lying in a dive or a knockdown.
+            let standing = bodies.iter().find(|(body, ..)| parents.iter_ancestors(entity).any(|a| a == *body)).is_some_and(|(_, body, _)| {
+                let player = &game.current.players[body.0];
+                let diving = player.action.is_some_and(|action| matches!(action.id, MoveId::Dive | MoveId::FootSave));
+                player.grounded() && !player.stunned(game.current.tick) && !diving
+            });
+            let floor = match record.floors.iter_mut().find(|(e, _)| *e == entity) {
+                Some((_, floor)) => {
+                    if standing {
+                        *floor = floor.min(at.y);
+                    }
+                    *floor
+                }
+                None if standing => {
+                    record.floors.push((entity, at.y));
+                    at.y
+                }
+                None => continue,
+            };
+            let planted = floor + PLANT_MARGIN;
             let slide = Vec2::new(at.x - before.x, at.z - before.z).length() / dt;
-            if at.y < PLANTED && before.y < PLANTED && slide < 20.0 {
+            if at.y < planted && before.y < planted && slide < 20.0 {
                 record.foot_slides.push(slide);
             }
         }

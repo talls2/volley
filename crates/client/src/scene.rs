@@ -4,8 +4,10 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use bevy::asset::RenderAssetUsages;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use volley_sim::court::{self, BALL_RADIUS};
 use volley_sim::{Ball, Event, Flight, Sim};
 
@@ -15,7 +17,7 @@ pub const TEAM_COLORS: [Color; 2] = [Color::srgb(0.9, 0.3, 0.3), Color::srgb(0.3
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Startup, spawn_ball)
-        .add_systems(Update, ((start_bounce, place_ball, place_decoy, place_shadows).chain(), draw_ball_guides));
+        .add_systems(Update, ((start_bounce, place_ball, place_decoy, shape_balls, place_shadows).chain(), draw_ball_guides));
 }
 
 #[derive(Component)]
@@ -44,7 +46,12 @@ const SHADOW_FADE_HEIGHT: f32 = 8.0;
 const LANDING_RING: f32 = 2.5;
 const LANDING_WARNING: f32 = 1.5;
 
-fn spawn_ball(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
+fn spawn_ball(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+) {
     let shadow_mesh = meshes.add(Circle::new(SHADOW_RADIUS));
     for decoy in [false, true] {
         commands.spawn((
@@ -60,11 +67,119 @@ fn spawn_ball(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mate
             NotShadowCaster,
         ));
     }
-    let ball_mesh = meshes.add(Sphere::new(BALL_RADIUS));
-    let ball_material = materials.add(Color::srgb(1.0, 0.92, 0.45));
+    let ball_mesh = meshes.add(Sphere::new(BALL_RADIUS).mesh().uv(32, 18));
+    let ball_material = materials.add(StandardMaterial {
+        base_color_texture: Some(images.add(ball_texture())),
+        perceptual_roughness: 0.55,
+        ..default()
+    });
     commands.insert_resource(BallLook(ball_material.clone()));
-    commands.spawn((BallView, Mesh3d(ball_mesh.clone()), MeshMaterial3d(ball_material.clone()), Transform::default()));
-    commands.spawn((DecoyView, Mesh3d(ball_mesh), MeshMaterial3d(ball_material), Transform::default(), Visibility::Hidden));
+    // Each ball: placed, and stretched along its flight, by the parent; the
+    // panels spin in the child.
+    let skin = |commands: &mut Commands, parent: Entity| {
+        commands.spawn((BallSkin, Mesh3d(ball_mesh.clone()), MeshMaterial3d(ball_material.clone()), Transform::default(), ChildOf(parent)));
+    };
+    let ball = commands.spawn((BallView, BallMotion::default(), Transform::default(), Visibility::Visible)).id();
+    skin(&mut commands, ball);
+    let decoy = commands.spawn((DecoyView, BallMotion::default(), Transform::default(), Visibility::Hidden)).id();
+    skin(&mut commands, decoy);
+}
+
+/// A ball's mesh, spinning inside the ball that places and stretches it.
+#[derive(Component)]
+struct BallSkin;
+
+/// How a ball has been moving, for its spin, stretch and squash.
+#[derive(Component)]
+struct BallMotion {
+    last: Vec3,
+    spin: Quat,
+    /// A hit's squash, from 0 (none) toward 1, fading fast.
+    squash: f32,
+}
+
+impl Default for BallMotion {
+    fn default() -> Self {
+        Self { last: Vec3::ZERO, spin: Quat::IDENTITY, squash: 0.0 }
+    }
+}
+
+/// Stretch along the flight per m/s, at most `MAX_STRETCH`; a hit's squash and
+/// how fast it springs back; the fastest the panels visibly spin (rad/s).
+const STRETCH_PER_SPEED: f32 = 0.012;
+const MAX_STRETCH: f32 = 0.3;
+const HIT_SQUASH: f32 = 0.35;
+const SQUASH_RECOVERY: f32 = 18.0;
+const MAX_SPIN: f32 = 28.0;
+
+/// A volleyball's panels, for the sphere's (u, v): three-panel sections in
+/// yellow, blue and white, curving, with thin dark seams, so spin shows.
+fn ball_texture() -> Image {
+    const W: usize = 256;
+    const H: usize = 128;
+    let colors = [[255u8, 214, 64], [38, 92, 214], [242, 242, 236]];
+    let mut data = Vec::with_capacity(W * H * 4);
+    for y in 0..H {
+        let v = y as f32 / H as f32;
+        for x in 0..W {
+            let u = x as f32 / W as f32;
+            let band = u * 6.0 + 0.35 * (v * std::f32::consts::TAU).sin();
+            let fraction = band - band.floor();
+            let seam = fraction < 0.03 || fraction > 0.97;
+            let [r, g, b] = if seam { [40, 40, 50] } else { colors[(band.floor() as i32).rem_euclid(3) as usize] };
+            data.extend_from_slice(&[r, g, b, 255]);
+        }
+    }
+    Image::new(
+        Extent3d { width: W as u32, height: H as u32, depth_or_array_layers: 1 },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+}
+
+/// Spins each ball's panels the way it rolls through the air, stretches it
+/// along its flight the faster it goes, and squashes the real one for an
+/// instant when it's hit.
+fn shape_balls(
+    time: Res<Time>,
+    mut events: MessageReader<SimEvent>,
+    mut balls: Query<(&mut Transform, &mut BallMotion, &Children, Has<BallView>), Or<(With<BallView>, With<DecoyView>)>>,
+    mut skins: Query<&mut Transform, (With<BallSkin>, Without<BallMotion>)>,
+) {
+    let hit = events.read().any(|SimEvent(event)| matches!(event, Event::Touched { .. }));
+    let dt = time.delta_secs();
+    for (mut transform, mut motion, children, real) in &mut balls {
+        let at = transform.translation;
+        let moved = at - motion.last;
+        motion.last = at;
+        if real && hit {
+            motion.squash = 1.0;
+        }
+        motion.squash *= (-SQUASH_RECOVERY * dt).exp();
+        let velocity = if dt > 0.0 && moved.length() < 3.0 { moved / dt } else { Vec3::ZERO };
+        let speed = velocity.length();
+        let along = if speed > 0.5 { velocity / speed } else { Vec3::Z };
+        if speed > 0.5 {
+            let axis = along.cross(Vec3::Y).normalize_or_zero();
+            if axis != Vec3::ZERO {
+                let spin = (speed / BALL_RADIUS * 0.15).min(MAX_SPIN);
+                motion.spin = (Quat::from_axis_angle(axis, -spin * dt) * motion.spin).normalize();
+            }
+        }
+        let stretch = 1.0 + (speed * STRETCH_PER_SPEED).min(MAX_STRETCH) - HIT_SQUASH * motion.squash;
+        let across = 1.0 / stretch.max(0.3).sqrt();
+        let facing = Quat::from_rotation_arc(Vec3::Z, along);
+        transform.rotation = facing;
+        transform.scale = Vec3::new(across, across, stretch);
+        // The panels turn in the world, whatever way the stretch points.
+        for &child in children {
+            if let Ok(mut skin) = skins.get_mut(child) {
+                skin.rotation = facing.inverse() * motion.spin;
+            }
+        }
+    }
 }
 
 /// How far between the previous and current tick to draw, or `None` right

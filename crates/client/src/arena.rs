@@ -16,17 +16,73 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use volley_sim::court::{HALF_LENGTH, HALF_WIDTH, NET_HALF_WIDTH, NET_HEIGHT};
 
+use crate::SimEvent;
 use crate::scene::{BallLook, TEAM_COLORS};
+use volley_sim::Event;
 
 pub fn plugin(app: &mut App) {
-    app.init_resource::<Arena>().add_systems(
+    app.init_resource::<Arena>().init_resource::<Crowd>().add_systems(
         Update,
         (
             build_arena.run_if(resource_changed::<Arena>),
             generate_mipmaps.run_if(resource_exists::<NeedsMipmaps>),
             spin,
+            cheer,
         ),
     );
+}
+
+/// How worked up the crowd is, from 0 (seated) to 1 (on its feet), and how
+/// long it's been jumping (seconds).
+#[derive(Resource, Default)]
+struct Crowd {
+    excitement: f32,
+    jumping: f32,
+}
+
+/// A fan in the stands (body or head), where they sit and their own rhythm.
+#[derive(Component)]
+struct Fan {
+    seat: Vec3,
+    phase: f32,
+    pace: f32,
+}
+
+/// How high a fan jumps at the crowd's most excited (m), and how quickly the
+/// crowd settles back down (per second).
+const FAN_JUMP: f32 = 0.35;
+const CROWD_CALMS: f32 = 0.45;
+
+/// The crowd jumps for the big moments, more for bigger ones, and settles.
+fn cheer(
+    time: Res<Time>,
+    mut events: MessageReader<SimEvent>,
+    mut crowd: ResMut<Crowd>,
+    mut fans: Query<(&Fan, &mut Transform)>,
+) {
+    for SimEvent(event) in events.read() {
+        let lift = match event {
+            Event::Point { .. } | Event::Posterized { .. } | Event::MatchWon { .. } | Event::SetWon { .. } => 1.0,
+            Event::Blocked { stuffed: true, .. } | Event::Split { .. } => 0.8,
+            Event::Chained { .. } => 0.6,
+            _ => continue,
+        };
+        if crowd.excitement < 0.05 {
+            crowd.jumping = 0.0;
+        }
+        crowd.excitement = crowd.excitement.max(lift);
+    }
+    if crowd.excitement <= 0.0 {
+        return;
+    }
+    let dt = time.delta_secs();
+    crowd.jumping += dt;
+    crowd.excitement = (crowd.excitement - CROWD_CALMS * dt).max(0.0);
+    let height = FAN_JUMP * crowd.excitement.sqrt();
+    for (fan, mut transform) in &mut fans {
+        let hop = (crowd.jumping * fan.pace + fan.phase).sin().max(0.0);
+        transform.translation.y = fan.seat.y + height * hop;
+    }
 }
 
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
@@ -142,7 +198,7 @@ fn build_arena(
     }
     // The ball glows a little in the dark, so it reads against the night.
     if let Some(mut material) = materials.get_mut(&ball.0) {
-        material.emissive = if *arena == Arena::Neon { Color::srgb(1.0, 0.85, 0.4).to_linear() * 0.8 } else { LinearRgba::BLACK };
+        material.emissive = if *arena == Arena::Neon { Color::srgb(1.0, 0.9, 0.6).to_linear() * 0.3 } else { LinearRgba::BLACK };
     }
     let mut build = Builder { commands: &mut commands, meshes: &mut meshes, materials: &mut materials };
     match *arena {
@@ -282,17 +338,19 @@ fn glass_walls(build: &mut Builder) {
             let pad = pads[usize::from(at.x > 0.0)].clone();
             build.block(along(along_x, long, PAD_HEIGHT, 0.25), &pad, at + Vec3::Y * PAD_HEIGHT / 2.0);
         }
-        for offset in posts(length) {
+        for offset in posts(length, along_x) {
             let offset = if along_x { Vec3::new(offset, 0.0, 0.0) } else { Vec3::new(0.0, 0.0, offset) };
             build.put(&post, &frame, Transform::from_translation(center + offset + Vec3::Y * WALL_HEIGHT / 2.0));
         }
     }
 }
 
-/// Offsets along a wall of `length` for its frame posts, ends included.
-fn posts(length: f32) -> impl Iterator<Item = f32> {
+/// Offsets along a wall of `length` for its frame posts, ends included. The
+/// end walls (`along_x` false) leave out the middle one: that's right behind
+/// a server, where the camera looks over their shoulder.
+fn posts(length: f32, along_x: bool) -> impl Iterator<Item = f32> {
     let count = (length / POST_SPACING).round() as i32;
-    (0..=count).map(move |i| -length / 2.0 + length * i as f32 / count as f32)
+    (0..=count).map(move |i| -length / 2.0 + length * i as f32 / count as f32).filter(move |offset| along_x || offset.abs() > 1.0)
 }
 
 // The Neon Stadium ------------------------------------------------------------
@@ -424,7 +482,7 @@ fn energy_walls(build: &mut Builder) {
     for (center, length, along_x) in walls() {
         build.block(along(along_x, length, WALL_HEIGHT, WALL_THICKNESS), &field, center + Vec3::Y * WALL_HEIGHT / 2.0).insert(NotShadowCaster);
         build.block(along(along_x, length, 0.08, 0.12), &rail, center + Vec3::Y * WALL_HEIGHT).insert(NotShadowCaster);
-        for offset in posts(length) {
+        for offset in posts(length, along_x) {
             let offset = if along_x { Vec3::new(offset, 0.0, 0.0) } else { Vec3::new(0.0, 0.0, offset) };
             build.put(&rib_mesh, &rib, Transform::from_translation(center + offset + Vec3::Y * WALL_HEIGHT / 2.0)).insert(NotShadowCaster);
         }
@@ -531,8 +589,11 @@ fn stands(build: &mut Builder) {
                 let height = 0.35 + 0.25 * hash(seed, 4);
                 let at = middle + sideways * (offset + (hash(seed, 5) - 0.5) * 0.25) + out * (hash(seed, 1) - 0.5) * 0.4 + Vec3::Y * (top + height);
                 let fan = fans[(hash(seed, 2) * fans.len() as f32) as usize % fans.len()].clone();
-                build.put(&body_mesh, &fan, Transform::from_translation(at)).insert(NotShadowCaster);
-                build.put(&head_mesh, &skin, Transform::from_translation(at + Vec3::Y * 0.42)).insert(NotShadowCaster);
+                // Each their own rhythm, so the stands ripple rather than bounce as one.
+                let rhythm = |seat| Fan { seat, phase: hash(seed, 6) * TAU, pace: 8.0 + 4.0 * hash(seed, 7) };
+                build.put(&body_mesh, &fan, Transform::from_translation(at)).insert((NotShadowCaster, rhythm(at)));
+                let head = at + Vec3::Y * 0.42;
+                build.put(&head_mesh, &skin, Transform::from_translation(head)).insert((NotShadowCaster, rhythm(head)));
                 if hash(seed, 3) < 0.06 {
                     build.put(&phone_mesh, &phone, Transform::from_translation(at + Vec3::Y * 0.75 - out * 0.15)).insert(NotShadowCaster);
                 }

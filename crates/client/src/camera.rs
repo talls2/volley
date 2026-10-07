@@ -8,10 +8,10 @@ use std::f32::consts::{PI, TAU};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
-use volley_sim::Ball;
+use volley_sim::{Ball, Event};
 use volley_sim::court::{HALF_LENGTH, HALF_WIDTH};
 
-use crate::Match;
+use crate::{Match, SimEvent};
 use crate::feel::Shake;
 use crate::input::{self, LOCAL_TEAM};
 use crate::scene::player_feet;
@@ -43,11 +43,22 @@ const BALL_CAM_KEY: KeyCode = KeyCode::Tab;
 const BALL_CAM_BUTTON: GamepadButton = GamepadButton::RightThumb;
 /// Turning the camera this much (radians in a frame) takes it off ball cam.
 const MANUAL_TURN: f32 = 0.01;
-/// The camera stays this far inside the walls, closing in on the player
-/// rather than looking in from outside.
+/// The camera stays this far inside the side walls, closing in on the player
+/// rather than looking in through them; behind the end walls there's room
+/// (the stands start further back), so it may sit up to `END_ROOM` outside
+/// those, as when looking over a server's shoulder.
 const WALL_MARGIN: f32 = 0.4;
-/// How much of the distance lost to a wall the camera climbs instead.
+const END_ROOM: f32 = 4.0;
+/// How much of the distance lost to a wall the camera climbs instead, up to
+/// `MAX_RISE` meters, so it never ends up looking straight down.
 const WALL_RISE: f32 = 0.3;
+const MAX_RISE: f32 = 1.0;
+/// The lens: its field of view (radians), a little wider at a full sprint for
+/// a sense of speed, and a quick punch on hard hits, the harder the more.
+const FOV: f32 = 0.82;
+const SPRINT_FOV: f32 = 0.06;
+const PUNCH_FOV: f32 = 0.07;
+const PUNCH_DECAY: f32 = 9.0;
 
 pub fn plugin(app: &mut App) {
     // Red starts on the negative-x half.
@@ -197,9 +208,26 @@ fn follow(
     time: Res<Time<Fixed>>,
     real: Res<Time<Real>>,
     shake: Res<Shake>,
-    mut camera: Single<&mut Transform, With<Camera3d>>,
+    mut events: MessageReader<SimEvent>,
+    mut punch: Local<f32>,
+    mut camera: Single<(&mut Transform, &mut Projection), With<Camera3d>>,
 ) {
+    // The lens: wider with speed, punched by hard hits (by how fast the ball
+    // leaves, from a serve up), easing back.
+    for SimEvent(event) in events.read() {
+        if let Event::Touched { .. } = event
+            && let Ball::InFlight(flight) = game.current.ball
+        {
+            *punch = punch.max(((flight.velocity.length() - 15.0) / 12.0).clamp(0.0, 1.0));
+        }
+    }
+    *punch *= (-PUNCH_DECAY * real.delta_secs()).exp();
     let local = game.current.player_index(LOCAL_TEAM, 0);
+    let me = &game.current.players[local];
+    let sprint = (me.velocity.length() / me.kit.run_speed).clamp(0.0, 1.0);
+    if let Projection::Perspective(lens) = &mut *camera.1 {
+        lens.fov = FOV + SPRINT_FOV * sprint * sprint - PUNCH_FOV * *punch;
+    }
     let feet = player_feet(&game, &time, local);
     let look_at = Vec3::new(feet.x, feet.y * JUMP_FOLLOW + LOOK_HEIGHT, feet.z);
     let forward = rig.forward();
@@ -217,7 +245,7 @@ fn follow(
         transform.translation += offset * strength;
         transform.rotate_local_z(wobble(23.0, 47.0) * SHAKE_ROLL * strength);
     }
-    **camera = transform;
+    *camera.0 = transform;
 }
 
 /// `position`, pulled in toward `look_at` (inside the arena) as far as it
@@ -225,9 +253,8 @@ fn follow(
 /// over the player's shoulder rather than into the back of their head.
 fn inside_walls(look_at: Vec3, position: Vec3) -> Vec3 {
     let reach = |look: f32, at: f32, limit: f32| {
-        let limit = limit - WALL_MARGIN;
         if at.abs() <= limit || (at - look).abs() < f32::EPSILON { 1.0 } else { ((limit * at.signum() - look) / (at - look)).clamp(0.0, 1.0) }
     };
-    let t = reach(look_at.x, position.x, HALF_LENGTH).min(reach(look_at.z, position.z, HALF_WIDTH));
-    look_at + (position - look_at) * t + Vec3::Y * (1.0 - t) * DISTANCE * WALL_RISE
+    let t = reach(look_at.x, position.x, HALF_LENGTH + END_ROOM).min(reach(look_at.z, position.z, HALF_WIDTH - WALL_MARGIN));
+    look_at + (position - look_at) * t + Vec3::Y * ((1.0 - t) * DISTANCE * WALL_RISE).min(MAX_RISE)
 }

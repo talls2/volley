@@ -483,6 +483,34 @@ standing feet meet the floor. **Decision: keep.** The bench can't tell a
 foot coming down from one sliding; next would be stride warping, to make
 the clips' strides as long as the ground covered.
 
+## 16 · Stride warping
+
+**Idea.** The jog and sprint play at the speed that looks right (`JOG_PACE`
+4.0, `SPRINT_PACE` 7.0 m/s), but their strides only cover about 3.1 and
+5.2 m/s: planted feet travel back under the body slower than the ground goes
+by. Playing them faster pumps the arms (experiment 10); Unreal's stride
+warping lengthens the strides instead.
+
+**How.** `warp_strides` in `characters.rs`, before foot locking: while the
+legs run, each foot's reach ahead of or behind the hips, along the run, is
+scaled by how far short the stride falls (up to 1.35 times, eased in and
+out), and the leg solved to it with the same two-bone IK.
+
+**Result** (three runs each, alternating):
+
+| | Before | After |
+|---|---|---|
+| Planted foot slide (m/s, average) | 1.59 ±0.09 | 1.38 ±0.07 |
+| Planted foot slide (m/s, 90th percentile) | 4.79 ±0.10 | 4.37 ±0.02 |
+| Planted frames that slide | 40% | 35% |
+| Contact gap, all touches (m) | 0.147 ±0.018 | 0.119 ±0.008 |
+| Frames with a palm over 40 m/s | 2.7 | 1.7 |
+| Frame time (ms) | 18.8 | 18.6 |
+
+(The "before" slides more than experiment 15's "after", the same code: runs
+on different nights of the machine differ; within one A/B they alternate.)
+**Decision: keep.**
+
 ## Next
 
 Ranked in research.md.

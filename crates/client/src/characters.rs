@@ -72,6 +72,14 @@ const MOCAP: usize = 1;
 /// play faster or slower to match how fast a player really runs.
 const JOG_PACE: f32 = 4.0;
 const SPRINT_PACE: f32 = 7.0;
+/// How much ground the jog and sprint strides really cover at normal speed
+/// (m/s, on the heroes, measured by the retarget script): less than their
+/// paces above, which look right but would slide. Stride warping makes up
+/// the difference by lengthening the strides, up to `MAX_STRIDE_WARP` times.
+const JOG_STRIDE: f32 = 3.1;
+const SPRINT_STRIDE: f32 = 5.2;
+const MAX_STRIDE_WARP: f32 = 1.35;
+const STRIDE_WARP_RATE: f32 = 10.0;
 
 /// Blend time into and out of moves, and between running speeds and standing,
 /// which differ more and change more often.
@@ -532,6 +540,8 @@ struct Character {
     /// part of each foot.
     toes: Vec<Entity>,
     foot_locks: [FootLock; 2],
+    /// How much longer strides are made than the clip's, smoothed.
+    stride_warp: f32,
     /// Where the posed leg points, and how strongly (0 to 1) it's posed.
     leg_goal: Vec3,
     leg_weight: f32,
@@ -589,6 +599,7 @@ impl Character {
             leg: None,
             legs: Vec::new(),
             toes: Vec::new(),
+            stride_warp: 1.0,
             foot_locks: [FootLock::default(); 2],
             leg_goal: Vec3::ZERO,
             leg_weight: 0.0,
@@ -1416,6 +1427,8 @@ fn pose_limbs(
     let sim = &game.current;
     for (mut character, body) in &mut characters {
         let step = ARM_BLEND_SPEED * time.delta_secs();
+        let velocity = ground_velocity(&game, character.index);
+        warp_strides(&mut character, velocity, sim, time.delta_secs(), &locals, &children, &mut globals);
         lock_feet(&mut character, body, sim, time.delta_secs(), &locals, &children, &mut globals);
         look_at_ball(&mut character, body, sim, time.delta_secs(), &locals, &children, &mut globals);
 
@@ -1555,6 +1568,46 @@ const PLANT_SPEED: f32 = 2.5;
 const MAX_STRETCH: f32 = 0.35;
 const RELEASE_SECONDS: f32 = 0.1;
 const MAX_RELEASE: f32 = 1.0;
+
+/// Stride warping (Unreal's name for it): the jog and sprint play at the
+/// speed that looks right, but their strides cover less ground than the body
+/// does, so each foot's reach ahead of and behind the hips along the run is
+/// lengthened by the shortfall, and the legs solved to it. Planted feet then
+/// travel back under the body as fast as the ground goes by.
+fn warp_strides(
+    character: &mut Character,
+    velocity: Vec2,
+    sim: &Sim,
+    dt: f32,
+    locals: &Query<&Transform, Without<Character>>,
+    children: &Query<&Children>,
+    globals: &mut Query<&mut GlobalTransform>,
+) {
+    let me = &sim.players[character.index];
+    let speed = velocity.length();
+    let striding = me.grounded() && (character.action.is_none() || character.layered);
+    let wanted = match character.gait {
+        Clip::Jog | Clip::Sprint if striding => {
+            let (pace, stride) = if character.gait == Clip::Jog { (JOG_PACE, JOG_STRIDE) } else { (SPRINT_PACE, SPRINT_STRIDE) };
+            let rate = (speed / pace).clamp(0.7, 1.8);
+            (speed / (stride * rate)).clamp(1.0, MAX_STRIDE_WARP)
+        }
+        _ => 1.0,
+    };
+    character.stride_warp += (wanted - character.stride_warp) * (1.0 - (-STRIDE_WARP_RATE * dt).exp());
+    let warp = character.stride_warp;
+    let Some([pelvis, ..]) = character.hips else { return };
+    if warp < 1.005 || speed < 0.1 {
+        return;
+    }
+    let Ok(hips) = globals.get(pelvis).map(|g| g.translation()) else { return };
+    let along = Vec3::new(velocity.x, 0.0, velocity.y) / speed;
+    for leg in character.legs.clone() {
+        let Ok(ankle) = globals.get(leg[2]).map(|g| g.translation()) else { continue };
+        let reach = (ankle - hips).dot(along);
+        solve_leg(leg, ankle + along * reach * (warp - 1.0), locals, children, globals);
+    }
+}
 
 /// Where a foot is held on the ground, and where it eases back from once
 /// lifted (with how far through that it is, 0 to 1).

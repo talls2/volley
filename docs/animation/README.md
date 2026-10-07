@@ -20,6 +20,7 @@ how well swings are timed, and frame times. The match is the same every run.
 
     python3 tools/bench.py run NAME            # three runs, docs/animation/bench/NAME-N.json
     python3 tools/bench.py compare BEFORE AFTER
+    python3 tools/bench.py ab BEFORE AFTER     # last commit vs the working tree, alternating
 
 To compare two settings fairly, run them together: runs alternate (A, B, A,
 B...), so both see the same machine state. `NAME:VAR=VALUE` sets an
@@ -33,10 +34,20 @@ Or one run by hand, with screenshots of the first passes, spikes and serves
     VOLLEY_BENCH=/tmp/run.json VOLLEY_BENCH_SHOTS=/tmp/shots cargo run -p volley_client
 
 Other settings: `VOLLEY_BENCH_SECONDS` (default 90), `VOLLEY_BENCH_ARENA`
-(`neon` or `beach`), `VOLLEY_BENCH_HERO` (the hero you play, 0 to 2).
+(`neon` or `beach`), `VOLLEY_BENCH_HERO` (the hero you play, 0 to 2),
+`VOLLEY_BENCH_CAM=action` (a close camera beside whoever plays the ball
+next, cutting between players, to judge animation), `VOLLEY_BENCH_REPLAY`
+(instant replays play, as in a real match; off otherwise so every run is
+the same match).
+
+Besides contact and timing, the bench reports hand speeds (pops), how far
+planted feet slide (a foot is planted when its lowest point, ankle or ball,
+is within 3 cm of the lowest it gets), the torso's lean (`folded`: standing
+bodies bent over 60°), and knees pointing away from the body.
 
 A film: the game slows down while filming so every frame can be saved, and
-the frames stitch into a smooth real-speed video:
+the frames stitch into a smooth real-speed video (`log.txt` beside the
+frames says which tick each frame shows, and every touch):
 
     VOLLEY_BENCH=/tmp/run.json VOLLEY_BENCH_SECONDS=14 VOLLEY_BENCH_FILM=/tmp/film \
         VOLLEY_BENCH_FILM_FROM=1 VOLLEY_BENCH_FILM_SECONDS=12 caffeinate -d -i cargo run -p volley_client

@@ -566,6 +566,22 @@ by clip, they're in the set's push itself. In the films the setter now runs
 with the arms swinging, raises the hands just before the ball and runs off
 with them down. **Decision: keep**, the snaps to look into.
 
+## Also tonight, not measured by the bench
+
+- **Contact shadows**: a soft dark patch under every player, shrinking and
+  fading as they jump; the neon arena's light is too dim on its dark floor
+  for cast shadows to ground the bodies.
+- **Recoil**: a pass or dig of a ball faster than 12 m/s shoves the hips back
+  along its path (up to 14 cm), with held feet, so the legs give.
+- **A lost point shows**: the losing side's upper back and neck bend forward
+  for two seconds, and they stop watching the ball, while the winners cheer.
+- **Instant replays** of big moments (README): every step of the last four
+  seconds is kept with its events and fed back in, slowed down, filmed from
+  beside the player who made it.
+
 ## Next
 
-Ranked in research.md.
+Ranked in research.md. Seen in films and still to do: the set's push makes
+a few hand snaps a match (18); Golazo's kicks swing the arms faster than
+40 m/s; no anticipation before a spike's takeoff (the jump comes straight
+out of the run); the serve camera looks down steeply.

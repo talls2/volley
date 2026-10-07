@@ -583,5 +583,5 @@ with them down. **Decision: keep**, the snaps to look into.
 
 Ranked in research.md. Seen in films and still to do: the set's push makes
 a few hand snaps a match (18); Golazo's kicks swing the arms faster than
-40 m/s; no anticipation before a spike's takeoff (the jump comes straight
-out of the run); the serve camera looks down steeply.
+40 m/s; and no anticipation before a spike's takeoff (the jump comes straight
+out of the run).

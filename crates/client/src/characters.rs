@@ -98,9 +98,21 @@ const STOP_SPRINT_SPEED: f32 = 3.5;
 /// doesn't flick between strides, and a hit ending as the player stops doesn't
 /// chain through them.
 const MIN_GAIT_SECONDS: f32 = 0.25;
+/// A bot's pass starts this long (seconds) before the ball arrives, not as
+/// soon as it's pressed: hands come up late, as players' do.
+const LATE_HANDS: f32 = 0.45;
+/// The ready stance's loop (seconds, as retargeted): players start it this far
+/// apart, and play it up to this much faster or slower, so they don't sway in
+/// step.
+const IDLE_LOOP: f32 = 4.6;
+const IDLE_PHASE: f32 = 1.37;
+const IDLE_TEMPO: f32 = 0.06;
 /// A whole-body hit plays at least this long past contact (seconds) before
 /// running cuts it short.
 const FOLLOW_THROUGH: f32 = 0.1;
+/// A hit played on the upper body while running (a pass on the run) keeps
+/// its arms this long past contact.
+const LAYERED_FOLLOW_THROUGH: f32 = 0.3;
 
 pub fn plugin(app: &mut App) {
     app.add_message::<SwingReleased>()
@@ -505,6 +517,8 @@ struct Character {
     seek: Option<f32>,
     /// A pressed hit is winding up or holding, waiting for the ball.
     winding_up: bool,
+    /// A pass pressed early, waiting to start until the ball is nearly there.
+    late: Option<Clip>,
     /// The held hit connected: play through to contact and follow through.
     release: bool,
     /// Playing fast from a held wind-up until this contact time, in clip seconds.
@@ -583,6 +597,7 @@ impl Character {
             restart: false,
             seek: None,
             winding_up: false,
+            late: None,
             release: false,
             catch_up_to: None,
             contact: None,
@@ -623,7 +638,22 @@ impl Character {
         if self.feet { clip.with_feet() } else { clip }
     }
 
+    /// Starts a pressed hit winding up toward the ball. If the ball is
+    /// nearly there, it starts partway in, so the swing reaches contact just
+    /// as it touches.
+    fn wind_up(&mut self, clip: Clip, sim: &Sim, me: usize) {
+        let seek = clip.swing().zip(sim.predicted_contact(me, CONTACT_HORIZON)).and_then(|(swing, (ahead, _))| {
+            let seconds = ahead as f32 * DT;
+            let lead = swing.contact - seconds * clip.speed();
+            (lead > 0.0).then_some(lead.min(swing.contact))
+        });
+        self.start(clip, seek);
+        self.winding_up = true;
+        self.timed = seek.is_some();
+    }
+
     fn start(&mut self, clip: Clip, seek: Option<f32>) {
+        self.late = None;
         let clip = self.style(clip);
         self.action = Some(clip);
         self.restart = true;
@@ -811,6 +841,7 @@ fn react_to_events(
     mut events: MessageReader<SimEvent>,
     game: Res<Match>,
     time: Res<Time>,
+    driver: Res<crate::input::LocalDriver>,
     mut characters: Query<&mut Character>,
 ) {
     let face_until = time.elapsed_secs() + FACE_SECONDS;
@@ -871,19 +902,17 @@ fn react_to_events(
                         MoveId::Pass | MoveId::Spike | MoveId::Crossover | MoveId::Posterizer | MoveId::BananaKick | MoveId::Chilena => {
                             let serving = game.current.ball == Ball::Held { by: me };
                             if !serving && !character.action.is_some_and(Clip::is_game_action) {
-                                // If the ball is nearly there, start partway in, so
-                                // the swing reaches contact just as it touches.
                                 let clip = character.style(hit_clip(&game.current, me, id));
-                                let seek = clip.swing().zip(game.current.predicted_contact(me, CONTACT_HORIZON)).and_then(
-                                    |(swing, (ahead, _))| {
-                                        let seconds = ahead as f32 * DT;
-                                        let lead = swing.contact - seconds * clip.speed();
-                                        (lead > 0.0).then_some(lead.min(swing.contact))
-                                    },
-                                );
-                                character.start(clip, seek);
-                                character.winding_up = true;
-                                character.timed = seek.is_some();
+                                // Bots pass with their hands down until the ball
+                                // is nearly there, the way players do; your own
+                                // hands come up as you press.
+                                let yours = me == game.current.player_index(LOCAL_TEAM, 0) && *driver == crate::input::LocalDriver::Human;
+                                let far = game.current.predicted_contact(me, CONTACT_HORIZON).is_none_or(|(ahead, _)| ahead as f32 * DT > LATE_HANDS);
+                                if matches!(clip, Clip::Bump | Clip::Set) && !yours && far {
+                                    character.late = Some(clip);
+                                } else {
+                                    character.wind_up(clip, &game.current, me);
+                                }
                             }
                         }
                     }
@@ -1073,6 +1102,18 @@ fn animate_characters(
         let sim = &game.current;
         let me = &sim.players[character.index];
         let airborne = !me.grounded();
+        // A pass held back until the ball is nearly there, or dropped if the
+        // pass is gone.
+        let index = character.index;
+        if let Some(clip) = character.late {
+            match sim.predicted_contact(index, CONTACT_HORIZON) {
+                _ if me.active_move(sim.tick) != Some(MoveId::Pass) || character.action.is_some_and(Clip::is_game_action) => {
+                    character.late = None;
+                }
+                Some((ahead, _)) if ahead as f32 * DT <= LATE_HANDS => character.wind_up(clip, sim, index),
+                _ => {}
+            }
+        }
         if airborne != character.airborne {
             character.airborne = airborne;
             // Landing: the hips give under the body's weight, the more the
@@ -1125,15 +1166,16 @@ fn animate_characters(
                 Clip::Block => !me.blocking(),
                 // Running cuts a landing short, so it never slows you down.
                 Clip::Land if speed > JOG_SPEED => true,
-                // And a whole-body hit's follow-through, once it's past
-                // contact: the stride takes over instead of the body gliding
-                // off in the swing's pose (hits on the upper body already run).
+                // And a hit's follow-through, once it's past contact: the
+                // stride takes over instead of the body gliding off in the
+                // swing's pose, or, for a hit on the upper body, the arms
+                // running on with the hands still up.
                 _ if !character.winding_up
-                    && !character.layered
                     && speed > JOG_SPEED
                     && me.grounded()
                     && action.swing().is_some_and(|swing| {
-                        character.node.and_then(|node| player.animation(node)).is_some_and(|a| a.seek_time() > swing.contact + FOLLOW_THROUGH)
+                        let follow = if character.layered { LAYERED_FOLLOW_THROUGH } else { FOLLOW_THROUGH };
+                        character.node.and_then(|node| player.animation(node)).is_some_and(|a| a.seek_time() > swing.contact + follow)
                     }) =>
                 {
                     true
@@ -1274,12 +1316,18 @@ fn animate_characters(
             }
             let resume = clip.looping().then(|| player.animation(node).map(|a| a.seek_time())).flatten().or(legs_stride);
             let active = transitions.play(&mut player, node, blend);
+            let standing = matches!(clip, Clip::Ready | Clip::Idle);
             if let Some(at) = resume
                 && character.seek.is_none()
             {
                 active.seek_to(at);
+            } else if standing && character.seek.is_none() {
+                // Everyone standing at once (a new rally) would sway in step.
+                active.seek_to((character.index as f32 * IDLE_PHASE).rem_euclid(IDLE_LOOP));
             }
-            active.set_speed(if character.winding_up { WIND_UP_SPEED } else { clip.speed() });
+            // Each player sways at their own tempo, a little.
+            let tempo = if standing { 1.0 + IDLE_TEMPO * (character.index as f32 * 2.4).sin() } else { 1.0 };
+            active.set_speed(if character.winding_up { WIND_UP_SPEED } else { clip.speed() * tempo });
             let seek = character.seek.take().unwrap_or(clip.start_at());
             if seek > 0.0 {
                 active.seek_to(seek);

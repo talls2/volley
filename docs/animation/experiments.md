@@ -529,6 +529,43 @@ legs, planted foot slide 1.45 ±0.13 → 1.38 ±0.07 m/s; contact and frame
 time unchanged. The legs weren't twisting much to begin with. **Decision:
 keep**, as the right behaviour for turns, measured neutral.
 
+## 18 · Hands come up late; passes on the run let go; nobody sways in step
+
+**Seen first.** In the films a setter runs for most of a second with both
+hands over the head before the ball arrives, and again after it's gone. The
+tracked set starts with the hands up (it's cut from the moment they rise),
+and a pressed pass starts it at once and holds there; after contact the
+clip keeps them up 0.85 s more. Players raise their hands late and drop
+them as soon as the ball's away.
+
+**How.** A bot's pass pressed early (a set or a bump) waits to start until
+the ball is 0.45 s away (`LATE_HANDS`), seeked so it still reaches contact as
+the ball does; meanwhile the arms keep running. Your own player's hands
+still come up the moment you press, for the feedback. After contact, a pass
+played on the upper body over running legs ends 0.3 s past contact
+(`LAYERED_FOLLOW_THROUGH`), as whole-body hits already did (14), so the
+arms drop back into the stride. And the ready stance, which everyone plays
+at the start of a rally, starts at a different point of its loop for each
+player and runs a few percent faster or slower, so they don't sway in step.
+
+**Result** (three runs each, alternating):
+
+| | Before | After |
+|---|---|---|
+| Contact gap, passes (m) | 0.127 ±0.021 | 0.120 ±0.007 |
+| Contact gap, all touches (m) | 0.127 ±0.013 | 0.117 ±0.004 |
+| Set timing off (s) | 0.012 ±0.017 | 0.002 ±0.001 |
+| Frames with a palm over 30 m/s | 17.7 | 27.7 |
+| Frames with a palm over 40 m/s | 2.7 | 5.7 |
+| Frame time (ms) | 17.4 | 17.4 |
+
+The cost: about three more frames a match with a hand moving over 40 m/s,
+some from each of the late start and the early ending (toggled one at a time;
+a longer crossfade for both didn't change it, so it isn't the blend). Logged
+by clip, they're in the set's push itself. In the films the setter now runs
+with the arms swinging, raises the hands just before the ball and runs off
+with them down. **Decision: keep**, the snaps to look into.
+
 ## Next
 
 Ranked in research.md.

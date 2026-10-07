@@ -138,8 +138,9 @@ fn hands(
             Some((entity, at.translation(), body.translation()))
         })
         .collect();
-    // Skip the jump when a rally resets everyone's position.
-    if game.current.rally == record.rally {
+    // Skip the jump when a rally resets everyone's position, and the first
+    // second, while models load and take their first pose.
+    if game.current.rally == record.rally && game.current.tick > record.start_tick + TICK_HZ {
         for &(entity, at, body) in &now {
             let Some(&(_, before, body_before)) = record.palms.iter().find(|(e, ..)| *e == entity) else { continue };
             if body.distance(body_before) > TELEPORT {

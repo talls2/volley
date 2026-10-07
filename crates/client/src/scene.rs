@@ -1,6 +1,6 @@
 //! The ball, its shadow and where it will land, placed from the simulation
-//! each frame. The arena around the court is in `arena`; players are in
-//! `characters`.
+//! each frame, and the players' contact shadows. The arena around the court
+//! is in `arena`; players are in `characters`.
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -11,13 +11,14 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use volley_sim::court::{self, BALL_RADIUS};
 use volley_sim::{Ball, Event, Flight, Sim};
 
+use crate::characters::PlayerBody;
 use crate::{Match, SimEvent};
 
 pub const TEAM_COLORS: [Color; 2] = [Color::srgb(0.9, 0.3, 0.3), Color::srgb(0.3, 0.5, 0.95)];
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Startup, spawn_ball)
-        .add_systems(Update, ((start_bounce, place_ball, place_decoy, shape_balls, place_shadows).chain(), draw_ball_guides));
+    app.add_systems(Startup, (spawn_ball, spawn_player_shadows))
+        .add_systems(Update, ((start_bounce, place_ball, place_decoy, shape_balls, place_shadows).chain(), draw_ball_guides, place_player_shadows));
 }
 
 #[derive(Component)]
@@ -41,6 +42,18 @@ struct BallShadow(bool);
 const SHADOW_RADIUS: f32 = 0.35;
 /// The shadow is smallest and faintest with the ball this high.
 const SHADOW_FADE_HEIGHT: f32 = 8.0;
+/// A soft dark patch on the floor under each player, where the light from
+/// above is blocked: what makes a body look like it stands on the floor
+/// rather than over it. It shrinks and fades as the player jumps.
+#[derive(Component)]
+struct PlayerShadow(usize);
+
+/// The patch's size (m across), darkness, and the height (m) a jump takes
+/// it to its smallest and faintest.
+const PLAYER_SHADOW_SIZE: f32 = 1.3;
+const PLAYER_SHADOW_ALPHA: f32 = 0.6;
+const PLAYER_SHADOW_FADE: f32 = 2.5;
+
 /// A landing ring starts this big and closes to the landing spot as the ball
 /// comes down, over this many seconds.
 const LANDING_RING: f32 = 2.5;
@@ -289,6 +302,70 @@ fn place_shadows(
         transform.scale = Vec3::splat(1.0 - 0.6 * height);
         if let Some(mut material) = materials.get_mut(&material.0) {
             material.base_color = Color::srgba(0.0, 0.0, 0.0, 0.5 - 0.35 * height);
+        }
+    }
+}
+
+fn spawn_player_shadows(
+    mut commands: Commands,
+    game: Res<Match>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let mesh = meshes.add(Rectangle::new(PLAYER_SHADOW_SIZE, PLAYER_SHADOW_SIZE));
+    let blob = images.add(blob_texture());
+    for index in 0..game.current.players.len() {
+        commands.spawn((
+            PlayerShadow(index),
+            Mesh3d(mesh.clone()),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgba(0.0, 0.0, 0.0, PLAYER_SHADOW_ALPHA),
+                base_color_texture: Some(blob.clone()),
+                alpha_mode: AlphaMode::Blend,
+                unlit: true,
+                ..default()
+            })),
+            Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
+            Visibility::Hidden,
+            NotShadowCaster,
+        ));
+    }
+}
+
+/// White with alpha falling off smoothly from the middle: a soft round spot.
+fn blob_texture() -> Image {
+    const N: usize = 64;
+    let mut data = Vec::with_capacity(N * N * 4);
+    for y in 0..N {
+        for x in 0..N {
+            let d = Vec2::new(x as f32 + 0.5, y as f32 + 0.5) / N as f32 * 2.0 - Vec2::ONE;
+            let fall = (1.0 - d.length_squared()).max(0.0);
+            data.extend_from_slice(&[255, 255, 255, (fall * fall * 255.0) as u8]);
+        }
+    }
+    Image::new(
+        Extent3d { width: N as u32, height: N as u32, depth_or_array_layers: 1 },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+}
+
+fn place_player_shadows(
+    bodies: Query<(&PlayerBody, &Transform), Without<PlayerShadow>>,
+    mut shadows: Query<(&PlayerShadow, &mut Transform, &mut Visibility, &MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (shadow, mut transform, mut visibility, material) in &mut shadows {
+        let Some((_, body)) = bodies.iter().find(|(body, _)| body.0 == shadow.0) else { continue };
+        *visibility = Visibility::Visible;
+        let height = (body.translation.y / PLAYER_SHADOW_FADE).clamp(0.0, 1.0);
+        transform.translation = body.translation.with_y(0.012);
+        transform.scale = Vec3::splat(1.0 - 0.45 * height);
+        if let Some(mut material) = materials.get_mut(&material.0) {
+            material.base_color = Color::srgba(0.0, 0.0, 0.0, PLAYER_SHADOW_ALPHA * (1.0 - 0.75 * height));
         }
     }
 }

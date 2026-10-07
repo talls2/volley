@@ -83,8 +83,9 @@ struct Record {
     foot_slides: Vec<f32>,
     feet: Vec<(Entity, Vec3)>,
     /// Frames a running body faced more than 30° away from where it ran, of
-    /// all running frames.
+    /// all running frames; and the same for its hips (where the legs point).
     strafing: (u32, u32),
+    hips_strafing: u32,
     rally: u32,
     shots: u32,
 }
@@ -166,7 +167,8 @@ fn feet(
     game: Res<Match>,
     screen: Res<State<Screen>>,
     bones: Query<(Entity, &Name, &GlobalTransform)>,
-    bodies: Query<(&PlayerBody, &GlobalTransform)>,
+    bodies: Query<(Entity, &PlayerBody, &GlobalTransform)>,
+    parents: Query<&ChildOf>,
     mut record: ResMut<Record>,
 ) {
     let dt = time.delta_secs();
@@ -186,7 +188,7 @@ fn feet(
                 record.foot_slides.push(slide);
             }
         }
-        for (body, transform) in &bodies {
+        for (entity, body, transform) in &bodies {
             let player = &game.current.players[body.0];
             if !player.grounded() || player.velocity.length() < RUNNING {
                 continue;
@@ -196,6 +198,16 @@ fn feet(
             record.strafing.1 += 1;
             if angle > 30f32.to_radians() {
                 record.strafing.0 += 1;
+            }
+            // The hips face square to the line between the hip joints.
+            let joint = |name: &str| {
+                bones.iter().find(|(e, n, _)| n.as_str() == name && parents.iter_ancestors(*e).any(|a| a == entity)).map(|(.., at)| at.translation())
+            };
+            if let (Some(left), Some(right)) = (joint("thigh_l"), joint("thigh_r")) {
+                let hips = Vec3::Y.cross(right - left);
+                if Vec2::new(hips.x, hips.z).angle_to(player.velocity).abs() > 30f32.to_radians() {
+                    record.hips_strafing += 1;
+                }
             }
         }
     }
@@ -308,11 +320,12 @@ fn report(bench: &Bench, record: &Record) -> String {
     let slides = &record.foot_slides;
     let _ = write!(
         out,
-        "  \"feet\": {{ \"slide_mean\": {:.3}, \"slide_p90\": {:.3}, \"sliding_share\": {:.3}, \"strafing_share\": {:.3} }},\n",
+        "  \"feet\": {{ \"slide_mean\": {:.3}, \"slide_p90\": {:.3}, \"sliding_share\": {:.3}, \"strafing_share\": {:.3}, \"hips_strafing_share\": {:.3} }},\n",
         mean(slides),
         quantile(slides, 0.9),
         slides.iter().filter(|&&v| v > 0.5).count() as f32 / slides.len().max(1) as f32,
         record.strafing.0 as f32 / record.strafing.1.max(1) as f32,
+        record.hips_strafing as f32 / record.strafing.1.max(1) as f32,
     );
 
     // Contact gaps by kind of hit.

@@ -84,8 +84,10 @@ const JOG_SPEED: f32 = 0.8;
 const STOP_JOG_SPEED: f32 = 0.3;
 const SPRINT_SPEED: f32 = 4.5;
 const STOP_SPRINT_SPEED: f32 = 3.5;
-/// A gait plays at least this long (seconds) before another takes over, so a
-/// burst of braking and speeding up doesn't flick between strides.
+/// A stride plays at least this long (seconds) before a slower one, or the
+/// other of jog and sprint, takes over: braking and speeding up in a burst
+/// doesn't flick between strides, and a hit ending as the player stops doesn't
+/// chain through them.
 const MIN_GAIT_SECONDS: f32 = 0.25;
 
 pub fn plugin(app: &mut App) {
@@ -386,6 +388,10 @@ struct Animations {
     /// Standing and running played by the legs alone, under an upper-body hit;
     /// keyed by hero too, for heroes with their own.
     lower_nodes: HashMap<(Option<&'static str>, Clip), AnimationNodeIndex>,
+    /// Every hit and move has a twin node playing the same clip: starting it
+    /// again while it's still fading out plays the twin, instead of restarting
+    /// the fading copy (which would jump the limbs back to its first frame).
+    twins: HashMap<AnimationNodeIndex, AnimationNodeIndex>,
 }
 
 impl Animations {
@@ -396,6 +402,14 @@ impl Animations {
 
     /// The node that plays a character's current move: the upper-body version
     /// while it's layered over running legs.
+    /// `node`, or its twin if `node` is still playing (fading out).
+    fn fresh(&self, node: AnimationNodeIndex, player: &AnimationPlayer) -> AnimationNodeIndex {
+        match self.twins.get(&node) {
+            Some(&twin) if player.animation(node).is_some() => twin,
+            _ => node,
+        }
+    }
+
     fn action_node(&self, clip: Clip, hero: &str, layered: bool) -> AnimationNodeIndex {
         match self.upper_nodes.get(&clip) {
             Some(&node) if layered => node,
@@ -409,8 +423,8 @@ impl Animations {
     }
 }
 
-/// Hits the upper body can play while the legs keep running.
-const UPPER_BODY_HITS: [Clip; 2] = [Clip::Bump, Clip::Set];
+/// Hits (and the cheer) the upper body can play while the legs keep running.
+const UPPER_BODY_HITS: [Clip; 4] = [Clip::Bump, Clip::Set, Clip::Serve, Clip::Celebrate];
 /// Gaits the legs can keep playing under an upper-body hit.
 const LOWER_BODY_GAITS: [Clip; 3] = [Clip::Ready, Clip::Jog, Clip::Sprint];
 /// Mask groups: the hips and legs, and everything above.
@@ -519,6 +533,11 @@ struct Character {
     layered: bool,
     /// The legs-only gait playing under a layered move.
     lower_playing: Option<AnimationNodeIndex>,
+    /// The node playing the main clip (a clip's own, or its twin).
+    node: Option<AnimationNodeIndex>,
+    /// Legs-only gaits fading out, after the legs changed stride or the hit
+    /// left the upper body.
+    lower_fading: Vec<AnimationNodeIndex>,
 }
 
 impl Character {
@@ -555,6 +574,8 @@ impl Character {
             lean: Vec2::ZERO,
             layered: false,
             lower_playing: None,
+            node: None,
+            lower_fading: Vec::new(),
         }
     }
 
@@ -597,28 +618,37 @@ fn build_animation_graph(
     let mut hero_nodes = HashMap::default();
     let mut upper_nodes = HashMap::default();
     let mut lower_nodes = HashMap::default();
+    let mut twins = HashMap::default();
+    // A clip's node, and for one-shot clips, its twin.
+    let mut add = |graph: &mut AnimationGraph, clip: Clip, handle: &Handle<AnimationClip>, mask: u64| {
+        let node = graph.add_clip_with_mask(handle.clone(), mask, 1.0, graph.root);
+        if !clip.looping() {
+            twins.insert(node, graph.add_clip_with_mask(handle.clone(), mask, 1.0, graph.root));
+        }
+        node
+    };
     for clip in Clip::ALL {
         let (library, name) = clip.source();
         let handle = loaded[library].named_animations.get(name).unwrap_or_else(|| {
             panic!("{} has no animation named {name}", ANIMATION_LIBRARIES[library])
         });
-        nodes.insert(clip, graph.add_clip(handle.clone(), 1.0, graph.root));
+        nodes.insert(clip, add(&mut graph, clip, handle, 0));
         if UPPER_BODY_HITS.contains(&clip) {
-            upper_nodes.insert(clip, graph.add_clip_with_mask(handle.clone(), 1 << LOWER_BODY, 1.0, graph.root));
+            upper_nodes.insert(clip, add(&mut graph, clip, handle, 1 << LOWER_BODY));
         }
         if LOWER_BODY_GAITS.contains(&clip) {
             lower_nodes.insert((None, clip), graph.add_clip_with_mask(handle.clone(), 1 << UPPER_BODY, 1.0, graph.root));
         }
         for hero in HEROES {
             if let Some(handle) = loaded[library].named_animations.get(format!("{}_{name}", hero.name).as_str()) {
-                hero_nodes.insert((hero.name, clip), graph.add_clip(handle.clone(), 1.0, graph.root));
+                hero_nodes.insert((hero.name, clip), add(&mut graph, clip, handle, 0));
                 if LOWER_BODY_GAITS.contains(&clip) {
                     lower_nodes.insert((Some(hero.name), clip), graph.add_clip_with_mask(handle.clone(), 1 << UPPER_BODY, 1.0, graph.root));
                 }
             }
         }
     }
-    commands.insert_resource(Animations { graph: graphs.add(graph), nodes, hero_nodes, upper_nodes, lower_nodes });
+    commands.insert_resource(Animations { graph: graphs.add(graph), nodes, hero_nodes, upper_nodes, lower_nodes, twins });
 }
 
 /// Spawns everyone's model, dressed as their hero, replacing any from before
@@ -1030,7 +1060,7 @@ fn animate_characters(
                 // Running cuts a landing short, so it never slows you down.
                 Clip::Land if speed > JOG_SPEED => true,
                 _ if character.winding_up => false,
-                _ => player.animation(animations.action_node(action, hero, character.layered)).is_none_or(|active| active.is_finished()),
+                _ => character.node.and_then(|node| player.animation(node)).is_none_or(|active| active.is_finished()),
             };
             if finished {
                 character.action = None;
@@ -1041,7 +1071,7 @@ fn animate_characters(
             && !character.restart
             && let Some(action) = character.action
             && let Some(swing) = action.swing()
-            && let Some(active) = player.animation_mut(animations.action_node(action, hero, character.layered))
+            && let Some(active) = character.node.and_then(|node| player.animation_mut(node))
         {
             let at = active.seek_time();
             if character.release {
@@ -1084,7 +1114,7 @@ fn animate_characters(
         }
         if let Some(contact) = character.catch_up_to
             && let Some(action) = character.action
-            && let Some(active) = player.animation_mut(animations.action_node(action, hero, character.layered))
+            && let Some(active) = character.node.and_then(|node| player.animation_mut(node))
             && active.seek_time() >= contact
         {
             active.set_speed(action.speed());
@@ -1099,9 +1129,45 @@ fn animate_characters(
             _ if sim.phase == Phase::Rally => Clip::Ready,
             _ => Clip::Idle,
         };
-        if gait != character.gait && time.elapsed_secs() - character.gait_since >= MIN_GAIT_SECONDS {
+        // Speeding up changes stride at once; slowing down, or flicking between
+        // jog and sprint, waits until the current stride has played a moment.
+        let rank = |clip: Clip| match clip {
+            Clip::Sprint => 3,
+            Clip::Jog => 2,
+            Clip::Ready => 1,
+            _ => 0,
+        };
+        let settled = time.elapsed_secs() - character.gait_since >= MIN_GAIT_SECONDS;
+        let flicker = matches!((character.gait, gait), (Clip::Jog, Clip::Sprint) | (Clip::Sprint, Clip::Jog));
+        let slowing = rank(gait) < rank(character.gait);
+        if gait != character.gait && (settled || !(flicker || slowing)) {
             character.gait = gait;
             character.gait_since = time.elapsed_secs();
+        }
+        // A hit or cheer that can play on the upper body moves onto it as soon
+        // as the player runs, keeping its timing, and the legs take up the
+        // stride instead of gliding along under it.
+        if let Some(action) = character.action
+            && character.playing == Some(action)
+            && UPPER_BODY_HITS.contains(&action)
+            && !character.layered
+            && !character.restart
+            && !airborne
+            && speed > JOG_SPEED
+            && let Some((at, pace)) = character.node.and_then(|node| player.animation(node)).map(|a| (a.seek_time(), a.speed()))
+            // A serve keeps its whole body through the hit: its hips are part
+            // of where the hand meets the ball. Running in after it is fine.
+            && (action != Clip::Serve || action.swing().is_some_and(|swing| at > swing.contact + 0.05))
+        {
+            character.layered = true;
+            let node = animations.fresh(animations.action_node(action, hero, true), &player);
+            character.node = Some(node);
+            let active = transitions.play(&mut player, node, BLEND);
+            active.seek_to(at);
+            active.set_speed(pace);
+            if action.looping() {
+                active.repeat();
+            }
         }
         let movement = if airborne { Clip::Airborne } else { character.gait };
         let clip = character.action.unwrap_or(movement);
@@ -1110,7 +1176,7 @@ fn animate_characters(
             let blend = if changing_gait { GAIT_BLEND } else { BLEND };
             character.catch_up_to = None;
             // Hits made on the run play on the upper body; the legs keep running.
-            character.layered = UPPER_BODY_HITS.contains(&clip) && !airborne && speed > JOG_SPEED;
+            character.layered = UPPER_BODY_HITS.contains(&clip) && !airborne && speed > JOG_SPEED && !serving;
             // With inertialization on, cut into and out of hits and let the old
             // pose fade out; between gaits, always crossfade so strides line up.
             let blend = match (inertia.as_deref_mut(), *blending) {
@@ -1120,10 +1186,17 @@ fn animate_characters(
                 }
                 _ => blend,
             };
-            // Back into a stride that's still fading out: carry on from where
-            // it is rather than restarting it, which would jump the limbs.
-            let node = animations.action_node(clip, hero, character.layered);
-            let resume = clip.looping().then(|| player.animation(node).map(|a| a.seek_time())).flatten();
+            // Back into a stride that's still playing (fading out, or on the
+            // legs alone under a hit that just ended): carry on from where it
+            // is rather than restarting it, which would jump the limbs.
+            let node = animations.fresh(animations.action_node(clip, hero, character.layered), &player);
+            let legs_stride = clip.looping().then(|| animations.lower_nodes.get(&(Some(hero), clip)).or(animations.lower_nodes.get(&(None, clip))).and_then(|&n| player.animation(n)).map(|a| a.seek_time())).flatten();
+            character.node = Some(node);
+            // A stride starts its minimum time whenever it starts playing.
+            if !clip.is_game_action() {
+                character.gait_since = time.elapsed_secs();
+            }
+            let resume = clip.looping().then(|| player.animation(node).map(|a| a.seek_time())).flatten().or(legs_stride);
             let active = transitions.play(&mut player, node, blend);
             if let Some(at) = resume
                 && character.seek.is_none()
@@ -1147,15 +1220,42 @@ fn animate_characters(
             let gait = if speed > SPRINT_SPEED { Clip::Sprint } else if speed > STOP_JOG_SPEED { Clip::Jog } else { Clip::Ready };
             (gait, animations.lower_node(gait, hero))
         });
+        // The legs blend from one stride to the next, and in and out: the hips
+        // carry the whole upper body, so a sudden change would jump the hands.
         if character.lower_playing != legs.map(|(_, node)| node) {
             if let Some(old) = character.lower_playing.take() {
-                player.stop(old);
+                character.lower_fading.push(old);
             }
-            if let Some((_, node)) = legs {
-                player.play(node).repeat();
+            if let Some((gait, node)) = legs {
+                if let Some(i) = character.lower_fading.iter().position(|&n| n == node) {
+                    character.lower_fading.remove(i);
+                } else {
+                    // Pick up the stride where the whole body had it.
+                    let at = player.animation(animations.node(gait, hero)).map(|a| a.seek_time());
+                    let active = player.play(node).repeat().set_weight(0.0);
+                    if let Some(at) = at {
+                        active.seek_to(at);
+                    }
+                }
                 character.lower_playing = Some(node);
             }
         }
+        let step = time.delta_secs() / BLEND.as_secs_f32();
+        if let Some(node) = character.lower_playing
+            && let Some(active) = player.animation_mut(node)
+        {
+            active.set_weight((active.weight() + step).min(1.0));
+        }
+        character.lower_fading.retain(|&node| {
+            let Some(active) = player.animation_mut(node) else { return false };
+            let weight = active.weight() - step;
+            if weight <= 0.0 {
+                player.stop(node);
+                return false;
+            }
+            active.set_weight(weight);
+            true
+        });
         if let Some((gait, node)) = legs
             && let Some(active) = player.animation_mut(node)
         {

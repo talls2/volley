@@ -232,7 +232,64 @@ between strides at all.
 The few palms still over 40 m/s are most likely swings the game speeds up (up
 to 4×) to meet the ball on time, not pops. **Decision: keep.**
 
+## 09 · Legs that run
+
+**Found.** Starting on orientation warping, the bench gained two measures:
+how fast planted feet slide (a foot on the ground should stay put) and how
+often a running body faces away from where it runs. Planted feet slid at
+4.3 m/s on average, at the body's whole speed while sprinting: the legs
+weren't running at all. Logging what played while players moved fast on the
+ground: sets (650 frames a match), the serve's follow-through as the server
+runs in (342), celebrations while walking back (260), all played on the whole
+body; and the standing pose for 205 frames, the 0.25 s minimum stride time
+from 08 delaying the switch from standing to jogging. Only bumps and sets
+could play on the upper body over running legs, and only if the player was
+already running when they started.
+
+**Fix.** In `characters.rs`:
+
+- The serve and the cheer can play on the upper body too, and a hit already
+  playing moves onto the upper body (keeping its time) as soon as the player
+  runs. A serve stays whole through its hit (its hips are part of where the
+  hand meets the ball) and moves only for the follow-through.
+- The legs blend between strides and in and out, instead of switching in one
+  frame: the hips carry the upper body, so a sudden change jumped the hands.
+- A stride taking over picks up the outgoing stride's place in its cycle,
+  whole body to legs only and back.
+- Each one-shot clip has a twin node in the animation graph: starting a hit
+  again while it's still fading out plays the twin, instead of restarting the
+  fading copy at its first frame (the same jump as 08, for hits).
+- The minimum stride time applies to slowing down and to jog/sprint flicks,
+  counted from when a stride starts playing; speeding up is immediate.
+
+**Result** (three runs each, alternating with the build before):
+
+| | Before | After |
+|---|---|---|
+| Planted foot slide (m/s) | 4.27 | 1.67 |
+| Planted foot slide, p90 (m/s) | 8.64 | 4.18 |
+| Frames with a palm over 40 m/s | 1.3 | 2.0 ±2 |
+| Contact gap, all touches (m) | 0.184 ±0.010 | 0.177 ±0.012 |
+| Contact gap, spikes (m) | 0.120 ±0.007 | 0.095 ±0.010 |
+| Frame time (ms) | 16.76 | 16.74 |
+
+Getting here took four rounds: layering hits mid-play first brought pops
+(117 frames over 30 m/s) and worse serves; each was traced with the same
+logging to the cause above it. **Decision: keep.**
+
+## 10 · Stride paces from the clips
+
+**Idea.** The code assumes the jog and sprint look right at 4.0 and 7.0 m/s;
+the retarget script measured them at 2.9 and 4.9 (about 3.1 and 5.2 on the
+heroes). With the measured paces, strides play faster to match the ground.
+
+**Result.** Planted foot slide 1.67 → 1.57 m/s, but the faster cadence pumps
+the arms harder (frames with a palm over 30 m/s, 20 → 36) and looks hurried.
+**Decision: revert.** What's left of the sliding needs the legs to reach
+further rather than step faster: stride warping.
+
 ## Next
 
-Ranked in research.md: orientation and stride warping; chaining touch quality
-into the spike.
+Ranked in research.md: orientation warping (16% of running frames face more
+than 30° away from where the body runs) and stride warping; chaining touch
+quality into the spike.

@@ -1,0 +1,33 @@
+{
+  "seconds": 90,
+  "arena": "Neon",
+  "hero": 0,
+  "frames": 5499,
+  "frame_ms": { "mean": 16.74, "p50": 16.62, "p95": 20.52, "p99": 22.69 },
+  "hand_speed": { "p99": 18.71, "p999": 24.45, "max": 45.48, "over_30": 22, "over_40": 4, "teleports": 0 },
+  "feet": { "slide_mean": 1.667, "slide_p90": 4.228, "sliding_share": 0.629, "strafing_share": 0.163 },
+  "gap_m": {
+    "all": { "n": 49, "mean": 0.167, "p50": 0.184, "p90": 0.330 },
+    "Curve": { "n": 8, "mean": 0.271, "p50": 0.248, "p90": 0.330 },
+    "Kick": { "n": 1, "mean": 0.586, "p50": 0.586, "p90": 0.586 },
+    "Pass": { "n": 25, "mean": 0.184, "p50": 0.198, "p90": 0.331 },
+    "Serve": { "n": 10, "mean": 0.040, "p50": 0.013, "p90": 0.024 },
+    "Spike": { "n": 5, "mean": 0.090, "p50": 0.075, "p90": 0.171 }
+  },
+  "swings": {
+    "Bump": { "n": 2, "timed": 1.00, "off_s_mean": 0.003, "off_s_p90": 0.005, "warp_m_mean": 0.47 },
+    "High_Volley": { "n": 3, "timed": 1.00, "off_s_mean": 0.002, "off_s_p90": 0.003, "warp_m_mean": 0.12 },
+    "Kick_Pass_High": { "n": 1, "timed": 1.00, "off_s_mean": 0.003, "off_s_p90": 0.003, "warp_m_mean": 0.65 },
+    "Kick_Serve": { "n": 1, "timed": 1.00, "off_s_mean": 0.001, "off_s_p90": 0.001, "warp_m_mean": 0.04 },
+    "Serve": { "n": 9, "timed": 1.00, "off_s_mean": 0.001, "off_s_p90": 0.002, "warp_m_mean": 0.03 },
+    "Set": { "n": 22, "timed": 1.00, "off_s_mean": 0.002, "off_s_p90": 0.003, "warp_m_mean": 0.66 },
+    "Spike": { "n": 3, "timed": 1.00, "off_s_mean": 0.001, "off_s_p90": 0.001, "warp_m_mean": 0.58 }
+  },
+  "hit_stop": {
+    "Curve": { "n": 8, "speed_mean": 25.4, "speed_max": 28.3, "freeze_ms_mean": 93, "freeze_ms_max": 110 },
+    "Kick": { "n": 1, "speed_mean": 11.3, "speed_max": 11.3, "freeze_ms_mean": 8, "freeze_ms_max": 8 },
+    "Pass": { "n": 25, "speed_mean": 8.1, "speed_max": 11.5, "freeze_ms_mean": 1, "freeze_ms_max": 9 },
+    "Serve": { "n": 10, "speed_mean": 19.0, "speed_max": 19.2, "freeze_ms_mean": 54, "freeze_ms_max": 55 },
+    "Spike": { "n": 5, "speed_mean": 23.1, "speed_max": 24.6, "freeze_ms_mean": 78, "freeze_ms_max": 85 }
+  }
+}

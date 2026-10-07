@@ -1,0 +1,32 @@
+{
+  "seconds": 90,
+  "arena": "Neon",
+  "hero": 0,
+  "frames": 5498,
+  "frame_ms": { "mean": 16.74, "p50": 16.65, "p95": 20.64, "p99": 22.99 },
+  "hand_speed": { "p99": 18.75, "p999": 24.10, "max": 38.88, "over_30": 18, "over_40": 0, "teleports": 0 },
+  "feet": { "slide_mean": 1.654, "slide_p90": 4.112, "sliding_share": 0.624, "strafing_share": 0.162 },
+  "gap_m": {
+    "all": { "n": 49, "mean": 0.191, "p50": 0.217, "p90": 0.350 },
+    "Curve": { "n": 8, "mean": 0.319, "p50": 0.323, "p90": 0.361 },
+    "Kick": { "n": 1, "mean": 0.586, "p50": 0.586, "p90": 0.586 },
+    "Pass": { "n": 25, "mean": 0.212, "p50": 0.234, "p90": 0.338 },
+    "Serve": { "n": 10, "mean": 0.039, "p50": 0.011, "p90": 0.024 },
+    "Spike": { "n": 5, "mean": 0.107, "p50": 0.102, "p90": 0.206 }
+  },
+  "swings": {
+    "Bump": { "n": 2, "timed": 1.00, "off_s_mean": 0.001, "off_s_p90": 0.002, "warp_m_mean": 0.44 },
+    "Kick_Pass_High": { "n": 1, "timed": 1.00, "off_s_mean": 0.000, "off_s_p90": 0.000, "warp_m_mean": 0.54 },
+    "Kick_Serve": { "n": 1, "timed": 1.00, "off_s_mean": 0.001, "off_s_p90": 0.001, "warp_m_mean": 0.05 },
+    "Serve": { "n": 9, "timed": 1.00, "off_s_mean": 0.002, "off_s_p90": 0.003, "warp_m_mean": 0.03 },
+    "Set": { "n": 22, "timed": 1.00, "off_s_mean": 0.001, "off_s_p90": 0.003, "warp_m_mean": 0.66 },
+    "Spike": { "n": 3, "timed": 1.00, "off_s_mean": 0.002, "off_s_p90": 0.005, "warp_m_mean": 0.59 }
+  },
+  "hit_stop": {
+    "Curve": { "n": 8, "speed_mean": 25.4, "speed_max": 28.3, "freeze_ms_mean": 93, "freeze_ms_max": 110 },
+    "Kick": { "n": 1, "speed_mean": 11.3, "speed_max": 11.3, "freeze_ms_mean": 8, "freeze_ms_max": 8 },
+    "Pass": { "n": 25, "speed_mean": 8.1, "speed_max": 11.5, "freeze_ms_mean": 1, "freeze_ms_max": 9 },
+    "Serve": { "n": 10, "speed_mean": 19.0, "speed_max": 19.2, "freeze_ms_mean": 54, "freeze_ms_max": 55 },
+    "Spike": { "n": 5, "speed_mean": 23.1, "speed_max": 24.6, "freeze_ms_mean": 78, "freeze_ms_max": 85 }
+  }
+}

@@ -1,8 +1,8 @@
 ---
 date: 2026-10-07 13:17 UTC
 device: MacBook
-branch: overnight-animation
-commit: 56b89f3
+branch: main
+commit: 073538a
 topic: Overnight animation pass
 ---
 
@@ -10,9 +10,8 @@ topic: Overnight animation pass
 
 ## Where things stand
 The user asked for an autonomous overnight pass on animation and mechanics
-toward a "Triple A" feel. All of it is on branch `overnight-animation`
-(25 commits since main's f07da74), pushed, not merged, no PR yet. 58 sim
-tests pass. Each change was A/B-benched and written up as experiments 12–19
+toward a "Triple A" feel. It's merged into main (fast-forward from f07da74,
+26 commits) and pushed. 58 sim tests pass. Each change was A/B-benched and written up as experiments 12–19
 in docs/animation/experiments.md, with an "Also tonight" list and "Next".
 
 Done:
@@ -57,9 +56,18 @@ to empty.
   bots get late hands and jump anticipation.
 - Inertialization stays off (behind VOLLEY_BLEND=inertia).
 
+## Verdict
+The user merged it but isn't impressed: "it surely improved but we still have
+a long way to go". The night polished procedural layers (foot locking,
+warping, layering fixes) over thin source data: generic Mixamo locomotion,
+three clips tracked from videos, hand-keyed clips for the rest, placeholder
+bodies for the All-rounders. Those fixes are real but small on screen; the
+bigger levers are better and more source animation, the look (characters,
+lighting, post-processing) and presentation.
+
 ## Next steps
-1. The user reviews the films and decides whether to merge
-   `overnight-animation` into main (no PR opened yet).
+1. Agree with the user on the next big lever (see Verdict) before more
+   incremental polish; ask which moments bother them most when they play.
 2. Continuing in a cloud session: the user wants to carry on from here.
 3. Remaining snaps: a few frames a match with a hand over 40 m/s, mostly Cross
    airborne as a hit-stop ends around his crossover.

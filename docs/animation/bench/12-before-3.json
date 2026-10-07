@@ -1,0 +1,32 @@
+{
+  "seconds": 90,
+  "arena": "Neon",
+  "hero": 0,
+  "frames": 5185,
+  "frame_ms": { "mean": 17.76, "p50": 16.77, "p95": 25.00, "p99": 41.10 },
+  "hand_speed": { "p99": 18.64, "p999": 24.63, "max": 42.29, "over_30": 25, "over_40": 2, "teleports": 24 },
+  "feet": { "slide_mean": 1.597, "slide_p90": 4.048, "sliding_share": 0.614, "strafing_share": 0.160, "hips_strafing_share": 0.086, "body_off_deg": 14.3, "hips_off_deg": 13.2 },
+  "gap_m": {
+    "all": { "n": 49, "mean": 0.184, "p50": 0.194, "p90": 0.330 },
+    "Curve": { "n": 8, "mean": 0.278, "p50": 0.289, "p90": 0.338 },
+    "Kick": { "n": 1, "mean": 0.657, "p50": 0.657, "p90": 0.657 },
+    "Pass": { "n": 25, "mean": 0.208, "p50": 0.224, "p90": 0.319 },
+    "Serve": { "n": 10, "mean": 0.035, "p50": 0.000, "p90": 0.011 },
+    "Spike": { "n": 5, "mean": 0.119, "p50": 0.104, "p90": 0.186 }
+  },
+  "swings": {
+    "Bump": { "n": 2, "timed": 1.00, "off_s_mean": 0.040, "off_s_p90": 0.078, "warp_m_mean": 0.42 },
+    "Kick_Pass_High": { "n": 1, "timed": 1.00, "off_s_mean": 0.000, "off_s_p90": 0.000, "warp_m_mean": 0.62 },
+    "Kick_Serve": { "n": 1, "timed": 1.00, "off_s_mean": 0.001, "off_s_p90": 0.001, "warp_m_mean": 0.05 },
+    "Serve": { "n": 9, "timed": 1.00, "off_s_mean": 0.036, "off_s_p90": 0.137, "warp_m_mean": 0.03 },
+    "Set": { "n": 22, "timed": 1.00, "off_s_mean": 0.016, "off_s_p90": 0.014, "warp_m_mean": 0.66 },
+    "Spike": { "n": 3, "timed": 1.00, "off_s_mean": 0.103, "off_s_p90": 0.284, "warp_m_mean": 0.60 }
+  },
+  "hit_stop": {
+    "Curve": { "n": 8, "speed_mean": 25.4, "speed_max": 28.3, "freeze_ms_mean": 93, "freeze_ms_max": 110 },
+    "Kick": { "n": 1, "speed_mean": 11.3, "speed_max": 11.3, "freeze_ms_mean": 8, "freeze_ms_max": 8 },
+    "Pass": { "n": 25, "speed_mean": 8.1, "speed_max": 11.5, "freeze_ms_mean": 1, "freeze_ms_max": 9 },
+    "Serve": { "n": 10, "speed_mean": 19.0, "speed_max": 19.2, "freeze_ms_mean": 54, "freeze_ms_max": 55 },
+    "Spike": { "n": 5, "speed_mean": 23.1, "speed_max": 24.6, "freeze_ms_mean": 78, "freeze_ms_max": 85 }
+  }
+}

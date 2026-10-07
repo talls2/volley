@@ -46,6 +46,9 @@ pub struct Bench {
     pub film: Option<String>,
     pub film_from: f32,
     pub film_seconds: f32,
+    /// `VOLLEY_BENCH_CAM=action`: a director's camera follows whoever plays
+    /// the ball next, close and from the side, to review animation.
+    pub director: bool,
 }
 
 impl Bench {
@@ -62,6 +65,7 @@ impl Bench {
             film: var("VOLLEY_BENCH_FILM"),
             film_from: var("VOLLEY_BENCH_FILM_FROM").and_then(|s| s.parse().ok()).unwrap_or(2.0),
             film_seconds: var("VOLLEY_BENCH_FILM_SECONDS").and_then(|s| s.parse().ok()).unwrap_or(8.0),
+            director: var("VOLLEY_BENCH_CAM").as_deref() == Some("action"),
         })
     }
 }
@@ -72,7 +76,8 @@ pub fn plugin(app: &mut App) {
         .insert_resource(bench)
         .init_resource::<Record>()
         .add_systems(Update, (start, frames, releases, freezes, film, finish))
-        .add_systems(PostUpdate, (touches, hands, feet).after(PoseLimbs));
+        .add_systems(PostUpdate, (touches, hands, feet).after(PoseLimbs))
+        .add_systems(PostUpdate, direct.before(bevy::transform::TransformSystems::Propagate));
 }
 
 #[derive(Resource, Default)]
@@ -104,6 +109,7 @@ struct Record {
     shots: u32,
     film_frame: u32,
     film_last: f32,
+    film_log: String,
 }
 
 /// A body moving this far in one frame was put somewhere new, not animated.
@@ -271,6 +277,9 @@ fn touches(
         if gap < f32::MAX {
             record.touches.push((kind, gap));
         }
+        if bench.film.is_some() {
+            record.film_log.push_str(&format!("touch tick {} player {player} {kind:?}\n", game.current.tick));
+        }
         let shown = record.touches.iter().filter(|(k, _)| *k == kind).count();
         if let Some(dir) = &bench.shots
             && matches!(kind, HitKind::Pass | HitKind::Spike | HitKind::Serve)
@@ -283,6 +292,52 @@ fn touches(
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
         }
     }
+}
+
+/// The director's camera: how far from its subject (m), how high, how high
+/// it looks, and how
+/// quickly it glides to a new one (per second).
+const DIRECTOR_DISTANCE: f32 = 4.5;
+const DIRECTOR_HEIGHT: f32 = 1.7;
+const DIRECTOR_LOOK: f32 = 1.5;
+const DIRECTOR_GLIDE: f32 = 3.0;
+
+/// Films whoever plays the ball next, side on, close: the player with the
+/// soonest contact coming, else the last to touch it.
+fn direct(
+    bench: Res<Bench>,
+    game: Res<Match>,
+    time: Res<Time<Real>>,
+    mut subject: Local<Option<usize>>,
+    mut aim: Local<Option<(Vec3, Vec3)>>,
+    mut camera: Single<&mut Transform, With<Camera3d>>,
+) {
+    if !bench.director {
+        return;
+    }
+    let sim = &game.current;
+    let next = (0..sim.players.len())
+        .filter_map(|i| sim.predicted_contact(i, 90).map(|(ticks, _)| (ticks, i)))
+        .min()
+        .map(|(_, i)| i);
+    if next.is_some() {
+        *subject = next;
+    }
+    let Some(who) = *subject else { return };
+    let body = sim.players[who].position;
+    let ball = sim.ball_position();
+    // Side on to the line from the player to the ball.
+    let toward = Vec2::new(ball.x - body.x, ball.z - body.z).normalize_or(Vec2::X);
+    let side = Vec3::new(-toward.y, 0.0, toward.x);
+    // Steady at a height that frames the floor and a spike's reach, so jumps
+    // read as jumps.
+    let look = Vec3::new(body.x, DIRECTOR_LOOK, body.z);
+    let eye = look + side * DIRECTOR_DISTANCE + Vec3::Y * (DIRECTOR_HEIGHT - DIRECTOR_LOOK);
+    let (eye_now, look_now) = aim.get_or_insert((eye, look));
+    let glide = 1.0 - (-DIRECTOR_GLIDE * time.delta_secs()).exp();
+    *eye_now = eye_now.lerp(eye, glide);
+    *look_now = look_now.lerp(look, glide);
+    **camera = Transform::from_translation(*eye_now).looking_at(*look_now, Vec3::Y);
 }
 
 /// The game runs this fast while filming, so every saved frame covers a
@@ -316,6 +371,9 @@ fn film(
         record.film_frame += 1;
         let path = format!("{dir}/{:04}.png", record.film_frame);
         commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+        // Which tick each frame shows, to find moments in the film.
+        let line = format!("frame {} tick {}\n", record.film_frame, game.current.tick);
+        record.film_log.push_str(&line);
     }
 }
 
@@ -324,6 +382,9 @@ fn finish(bench: Res<Bench>, game: Res<Match>, record: Res<Record>) {
         return;
     }
     let json = report(&bench, &record);
+    if let Some(dir) = &bench.film {
+        let _ = std::fs::write(format!("{dir}/log.txt"), &record.film_log);
+    }
     if let Err(error) = std::fs::write(&bench.out, json) {
         eprintln!("bench: couldn't write {}: {error}", bench.out);
     } else {

@@ -103,6 +103,13 @@ SPIKE_ACCENT = accent(0.82, [
     arm("r", "shoulder", hand=(0.10, 0.22, 0.50), elbow=(1.0, -0.3, 0.3), wrist=-25, fingers=0.15),
     arm("l", "shoulder", hand=(0.30, 0.25, -0.45), elbow=(-1.0, -0.3, -0.2), fingers=0.6),
 ], into=0.12, hold=0.0, out=0.06)
+# The spike's follow-through: the capture's hitting arm stops at the chest
+# (trackers lose the fast whip), so it's carried on down across the body to
+# the opposite hip, the wrist snapped over, the free arm swept back by its side.
+SPIKE_FOLLOW = accent(0.97, [
+    arm("r", "shoulder", hand=(-0.32, 0.3, -0.4), elbow=(1.0, 0.0, -0.3), wrist=-40, fingers=0.3),
+    arm("l", "shoulder", hand=(-0.02, -0.12, -0.52), elbow=(-1.0, -0.2, 0.0), fingers=0.4),
+], into=0.15, hold=0.4, out=0.15)
 SET_ACCENT = accent(1.05, [
     arm("l", "hands", hand=(-0.11, 0.0, 0.0), elbow=(-1.0, 0.4, -0.4), wrist=55, fingers=0.3),
     arm("r", "hands", hand=(0.11, 0.0, 0.0), elbow=(1.0, 0.4, -0.4), wrist=55, fingers=0.3),
@@ -131,7 +138,7 @@ CLIPS = {
     # The spike, from the top of the jump: arm drawn back like a bow, the
     # whip through the ball and down. In the air, where the game jumps; the
     # actor hunches into the hit, so the body is raised to reach the ball.
-    "Spike": clip(DEEPMOTION / "spike_approach_man.bvh", straighten=5.83, span=(5.0, 6.3), still=0.2, accents=[SPIKE_ACCENT]),
+    "Spike": clip(DEEPMOTION / "spike_approach_man.bvh", straighten=5.83, span=(5.0, 6.3), still=0.2, accents=[SPIKE_ACCENT, SPIKE_FOLLOW]),
 }
 
 # Heroes' own versions of clips, for their style of moving: exported as

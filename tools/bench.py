@@ -64,17 +64,23 @@ def ab(before, after, runs, seconds, arena):
     changed = subprocess.run(["git", "diff", "--quiet"], cwd=ROOT).returncode != 0
     if changed:
         subprocess.run(["git", "stash", "-q"], cwd=ROOT, check=True)
+    # Each side keeps its own copy of the assets too, for changes to clips.
+    def snapshot(side):
+        build_copy(work / side)
+        shutil.copytree(ROOT / "crates/client/assets", work / f"{side}-root/assets")
+
     try:
-        build_copy(work / "before")
+        snapshot("before")
     finally:
         if changed:
             subprocess.run(["git", "stash", "pop", "-q"], cwd=ROOT, check=True)
-    build_copy(work / "after")
+    snapshot("after")
     for i in range(1, runs + 1):
-        for name, program in ((before, work / "before"), (after, work / "after")):
+        for name, side in ((before, "before"), (after, "after")):
+            program = work / side
             out = BENCH / f"{name}-{i}.json"
             env = dict(os.environ, VOLLEY_BENCH=str(out), VOLLEY_BENCH_SECONDS=str(seconds), VOLLEY_BENCH_ARENA=arena,
-                       CARGO_MANIFEST_DIR=str(ROOT / "crates/client"))
+                       CARGO_MANIFEST_DIR=str(work / f"{side}-root"))
             for _ in range(2):
                 if out.exists():
                     break

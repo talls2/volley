@@ -150,8 +150,12 @@ From sports science, for posing (14 NCAA players unless noted):
 3. Inertialization for snappy cuts into hits. Tried: experiments 06–07, no
    better than our crossfades; kept off behind `VOLLEY_BLEND=inertia`.
 4. Orientation and stride warping on the existing body layering and IK.
-   Orientation done: experiment 11 (and 09, legs that run under hits).
-5. Chain touch quality into the spike (Switch Sports).
+   Orientation done: experiment 11 (and 09, legs that run under hits);
+   instead of stride warping, foot locking with leg IK: experiment 12.
+5. Chain touch quality into the spike (Switch Sports). Done: a clean
+   reception and a clean set make a "chain spike", cleaner and faster
+   (`CHAIN_QUALITY`, `CHAIN_SPEED` in the simulation), with its own trail,
+   burst, sound and callout.
 6. Keep gameplay reach and timing as data, apart from the clips (Rocket
    League, Windjammers 2, Omega Strikers).
 7. Animation state as a pure function of the simulation, for online play.

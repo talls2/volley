@@ -325,7 +325,73 @@ sways in the stride. **Decision: keep.** It doesn't move the foot sliding
 that's left: that's about how far the strides reach, not which way they go.
 Not yet seen in game (the screen was locked); worth a look at a turnaround.
 
+## 12 · Foot locking, and landings that give
+
+**Idea.** What sliding was left after 09–11 came from strides that don't
+cover the ground the body does. Breaking it down by what the body was doing
+when a planted foot slid: an attack steering the body toward the ball (48%),
+sprinting (25%), jogging (16%), turning (11%). No stride can match steering,
+so instead of warping strides further, hold the feet: the standard fix
+(Unreal's leg IK and foot placement, every sports game's "foot plant").
+
+**How.** `lock_feet` in `characters.rs`, on the world transforms after the
+pose is propagated, before the arms are posed. A foot counts as planted while
+its ankle is under 0.14 m from the ground. It's held where it landed (its
+height still the animation's, so the heel rolls) and the leg is solved with
+two-bone IK: thigh and calf turn in the plane the knee already bends in, and
+the foot keeps its world turn. Once the animation lifts it, it eases back
+over 0.1 s; if the body gets more than 0.35 m away it lets go at once. Off
+in the air, while stunned, and for poses that slide on purpose (kicks,
+dives, slide tackles, knockdowns, foot saves).
+
+Landings also give: the pelvis drops by how hard the body came down (0.014 m
+per m/s, up to 0.1 m), quickly in and slowly out, so the knees bend and the
+legs (locked to the ground) take it.
+
+**Result** (three runs each, alternating: `bench.py ab`):
+
+| | Before | After |
+|---|---|---|
+| Planted foot slide (m/s, average) | 1.61 ±0.07 | 0.90 ±0.02 |
+| Planted foot slide (m/s, 90th percentile) | 4.02 ±0.20 | 2.80 ±0.05 |
+| Planted frames that slide | 62% | 30% |
+| Contact gap, all touches (m) | 0.181 ±0.004 | 0.191 ±0.033 |
+| Frames with a palm over 40 m/s | 1.7 | 1.0 |
+| Frame time (ms) | 18.4 ±1.2 | 17.6 ±0.1 |
+
+Sliding nearly halves: since experiment 08 it's gone from 4.27 to 0.90 m/s.
+What still slides is the release (the foot catching up with the animation)
+and feet the bench counts as planted while they pivot. Contact is unchanged
+within the noise (the spread on passes is one run). **Decision: keep.**
+
+## 13 · The spike's follow-through
+
+**Seen first.** A director's camera for bench films (`VOLLEY_BENCH_CAM=action`:
+close and side on to whoever plays the ball next) showed what the far camera
+hid: after contact the spiker's arm stops at the chest and stays there, held
+out in front, for half a second until they land. The capture tracked the
+whip through the ball but not its finish; trackers smooth the fastest motion.
+
+**How.** A second hand-keyed accent in `retarget_mocap.py`, after the contact
+one: from 0.15 s after contact the hitting arm is carried down across the body
+to the opposite hip, the wrist snapped over, the free arm swept back by its
+side, held until the clip ends. `bench.py ab` now gives each side its own
+copy of the assets, so it can compare clip changes too.
+
+**Result** (three runs each, alternating). What happens after contact isn't
+something the bench measures; this checks that contact didn't move.
+
+| | Before | After |
+|---|---|---|
+| Contact gap, spikes (m) | 0.118 ±0.016 | 0.136 ±0.019 |
+| Contact gap, all touches (m) | 0.184 ±0.008 | 0.194 ±0.013 |
+| Spike timing off (s) | 0.004 | 0.007 |
+| Frames with a palm over 40 m/s | 2.0 | 1.3 |
+| Frame time (ms) | 17.9 | 18.0 |
+
+All within the noise. In the films the arm now finishes the swing and stays
+down through the landing. **Decision: keep.**
+
 ## Next
 
-Ranked in research.md: stride warping, for the sliding that's left (planted
-feet still slide 1.6 m/s on average); chaining touch quality into the spike.
+Ranked in research.md.

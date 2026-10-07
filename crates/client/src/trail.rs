@@ -24,6 +24,9 @@ const TRAIL_SECONDS: f32 = 0.35;
 const HEAD_WIDTH: f32 = 0.9;
 
 const BLOCK_COLOR: Color = Color::srgb(0.85, 0.5, 1.0);
+/// A chain spike's streak: white-hot, and wider.
+const CHAIN_COLOR: Color = Color::srgb(1.0, 0.97, 0.8);
+const CHAIN_WIDTH: f32 = 1.6;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Trail>()
@@ -51,12 +54,16 @@ struct Trail {
     /// Oldest first: where the ball was, and when.
     points: VecDeque<(Vec3, f32)>,
     color: Color,
+    /// The streak's width, relative to `HEAD_WIDTH`; and whether the next hit
+    /// is a chain.
+    width: f32,
+    chained: bool,
     rally: u32,
 }
 
 impl Default for Trail {
     fn default() -> Self {
-        Self { points: VecDeque::new(), color: color_for(HitKind::Serve), rally: 0 }
+        Self { points: VecDeque::new(), color: color_for(HitKind::Serve), width: 1.0, chained: false, rally: 0 }
     }
 }
 
@@ -100,8 +107,11 @@ fn record_trail(
     // Every hit starts a fresh streak, so it never bends back through the contact.
     for SimEvent(event) in events.read() {
         match *event {
+            Event::Chained { .. } => trail.chained = true,
             Event::Touched { kind, .. } => {
-                trail.color = color_for(kind);
+                let chained = std::mem::take(&mut trail.chained);
+                trail.color = if chained { CHAIN_COLOR } else { color_for(kind) };
+                trail.width = if chained { CHAIN_WIDTH } else { 1.0 };
                 trail.points.clear();
             }
             Event::Blocked { .. } => {
@@ -155,7 +165,7 @@ fn draw_trail(
         let side = (after - before).cross(to_eye).normalize_or_zero();
         // 1 at the ball, 0 at the tail.
         let life = (1.0 - (now - born) / TRAIL_SECONDS).clamp(0.0, 1.0);
-        let half_width = BALL_RADIUS * HEAD_WIDTH * life;
+        let half_width = BALL_RADIUS * HEAD_WIDTH * trail.width * life;
         let color = trail.color.to_linear().with_alpha(life * life).to_f32_array();
         positions.extend([(point + side * half_width).to_array(), (point - side * half_width).to_array()]);
         normals.extend([to_eye.to_array(); 2]);

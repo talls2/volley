@@ -1107,6 +1107,22 @@ fn no_wall_jump_in_open_court() {
 }
 
 #[test]
+fn clean_passes_chain_into_a_harder_spike() {
+    // Bots playing a match chain some spikes, not all of them.
+    let mut sim = Sim::new(MatchConfig::default());
+    let events = run_bots(&mut sim, 300 * TICK_HZ);
+    let chains = count(&events, |e| matches!(e, Event::Chained { .. }));
+    let spikes = count(&events, |e| matches!(e, Event::Touched { kind: HitKind::Spike, .. }));
+    assert!(chains > 0 && chains < spikes, "{chains} chains in {spikes} spikes");
+    // Every chain is an attack, announced as it's made.
+    for (i, event) in events.iter().enumerate() {
+        if matches!(event, Event::Chained { .. }) {
+            assert!(matches!(events.get(i + 1), Some(Event::Touched { kind, .. }) if kind.is_attack()), "{:?}", events.get(i + 1));
+        }
+    }
+}
+
+#[test]
 fn passes_meet_the_ball_within_arms_reach() {
     let body = Player::new(0, -1.0, Vec3::new(-3.0, 0.0, 0.0));
     // Over the forehead, a set; over the fingertips, out of reach.

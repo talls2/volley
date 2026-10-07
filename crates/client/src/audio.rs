@@ -131,6 +131,8 @@ fn play_game_sounds(
             // The catch: a soft slap of the palm.
             Event::Carried { .. } => play(&mut commands, next(&sounds.pass, &mut turn), 0.5, Some(ball)),
             Event::Dribbled { .. } => {}
+            // The crowd knows a chain when it sees one.
+            Event::Chained { .. } => play(&mut commands, &sounds.cheer, 0.5, None),
             Event::Split { .. } => play(&mut commands, &sounds.roar, 0.7, None),
             Event::DecoyPopped { player } => {
                 play(&mut commands, next(&sounds.pass, &mut turn), 0.4, Some(game.current.players[player].position));

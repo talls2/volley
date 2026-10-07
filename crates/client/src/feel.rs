@@ -102,6 +102,8 @@ fn react_to_hits(
             Event::Carried { .. } => (0.04, 0.1),
             Event::Posterized { .. } => (0.12, 0.9),
             Event::Split { .. } => (0.1, 0.5),
+            // A chain spike shakes harder; its speed already stretches the stop.
+            Event::Chained { .. } => (0.0, 0.35),
             Event::Landed { velocity, .. } if velocity.length() > 15.0 => (0.0, 0.3),
             _ => continue,
         };

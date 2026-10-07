@@ -219,12 +219,14 @@ fn announce_points(
                 *callout_until = Some(time.elapsed_secs() + CALLOUT_SECONDS);
             }
             Event::Dribbled { player }
+            | Event::Chained { player }
             | Event::Carried { player }
             | Event::Posterized { player }
             | Event::Split { player }
             | Event::DecoyPopped { player } => {
                 text.0 = match *event {
                     Event::Dribbled { .. } => "Dribble!",
+                    Event::Chained { .. } => "Chain spike!",
                     Event::Carried { .. } => "Crossover!",
                     Event::Split { .. } => "CHILENA! Which ball is real?",
                     Event::DecoyPopped { .. } => "Fooled! That one was the decoy",

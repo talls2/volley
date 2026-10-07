@@ -119,6 +119,19 @@ fn aim_distance(kind: HitKind) -> f32 {
 /// makes it a little better, and the game stays quick.
 const BOOST_RANGE: f32 = 0.2;
 const BOOST_SPEED: f32 = 0.15;
+/// A pass is clean taken this close to the body (horizontally, m), the body
+/// behind the ball rather than stretching for it: a reception within
+/// `CLEAN_RECEPTION` (it comes in fast and flat, so it's taken further out),
+/// a set within `CLEAN_SET` (the ball drops onto the setter). Both are the
+/// median of what bots manage. Two clean touches in a row (a clean pass, a
+/// clean set) make the attack after them a chain: cleaner by `CHAIN_QUALITY`
+/// and flying `CHAIN_SPEED` faster (as Switch Sports volleyball rewards good
+/// touches with a power spike).
+const CLEAN_RECEPTION: f32 = 1.12;
+const CLEAN_SET: f32 = 0.65;
+pub(crate) const CHAINED_TOUCHES: u32 = 2;
+const CHAIN_QUALITY: f32 = 0.25;
+const CHAIN_SPEED: f32 = 0.15;
 
 /// How much a hit is boosted, from 0 to 1.
 fn boost(aim: Option<Aim>) -> f32 {
@@ -252,6 +265,8 @@ pub enum Event {
     Carried { player: usize },
     /// Touched twice in a row, which only a dribbler may.
     Dribbled { player: usize },
+    /// An attack after a clean pass and a clean set: harder and faster.
+    Chained { player: usize },
     /// Knocked down by a dunk through their block.
     Posterized { player: usize },
     /// A hit split the ball in two: one of them is a decoy.
@@ -286,11 +301,14 @@ struct Touches {
     last: Option<usize>,
     /// Someone has already touched twice in a row this possession.
     dribbled: bool,
+    /// Clean passes in a row this possession: a clean pass and a clean set
+    /// make the attack a chain.
+    clean: u32,
 }
 
 impl Touches {
     fn new(team: usize) -> Self {
-        Self { team, count: 0, last: None, dribbled: false }
+        Self { team, count: 0, last: None, dribbled: false, clean: 0 }
     }
 }
 
@@ -810,7 +828,17 @@ impl Sim {
             events.push(Event::Carried { player: hitter });
             return;
         }
-        let plan = self.plan_hit(hitter, id, self.touches.count, ball);
+        let mut plan = self.plan_hit(hitter, id, self.touches.count, ball);
+        let player = &self.players[hitter];
+        if let Touch::Keep(HitKind::Pass) = id.spec().touch {
+            let reach = Vec2::new(ball.x - player.position.x, ball.z - player.position.z).length();
+            let clean = if self.touches.count <= 1 { CLEAN_RECEPTION } else { CLEAN_SET };
+            self.touches.clean = if reach <= clean { self.touches.clean + 1 } else { 0 };
+        } else if plan.preview.kind.is_attack() && self.touches.clean >= CHAINED_TOUCHES {
+            plan.preview.quality = (plan.preview.quality + CHAIN_QUALITY).min(1.0);
+            plan.seconds *= 1.0 - CHAIN_SPEED;
+            events.push(Event::Chained { player: hitter });
+        }
         self.hit(hitter, plan, ball, events);
     }
 

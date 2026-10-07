@@ -102,6 +102,8 @@ fn kick_up_sand(
             Event::Dashed { player } => puff(game.current.players[player].position, 30, 1.9),
             Event::MoveStarted { player, id: MoveId::Posterizer } => puff(game.current.players[player].position, 60, 3.0),
             Event::Posterized { player } => pending.0.push((now + 0.35, player)),
+            // A chain spike bursts off the hand.
+            Event::Chained { .. } => puff(game.current.ball_position(), 45, 3.2),
             // Off the wall, where the foot pushed.
             Event::WallJumped { player, away } => {
                 let body = game.current.players[player].position;

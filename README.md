@@ -112,6 +112,7 @@ It only ends when it hits the floor, and that side loses the point.
 - **Dive:** lunges toward where you're moving (or at the ball), reaching balls near the floor. You're on the ground for a moment afterwards.
 - **Keeping track of the ball:** ball cam (on by default) keeps the camera turned toward the ball and tilts it up for high ones. When the ball is off screen, a marker on the edge points the way, with the distance. A shadow right under the ball shrinks and fades as it rises, and the rings where it will land, in the color of the side it's falling on, close in as it comes down.
 - Presses count for a few frames early, so you don't need frame-perfect timing.
+- **Instant replays:** a point won outright by a big moment (a chain spike, a posterizer, a stuff block, a kicked kill, or a hard spike every few points) plays again a beat later, slowed down, from beside whoever made it, the camera then following the ball in. Any key or button skips it.
 
 ## Match rules
 

@@ -49,6 +49,9 @@ pub struct Bench {
     /// `VOLLEY_BENCH_CAM=action`: a director's camera follows whoever plays
     /// the ball next, close and from the side, to review animation.
     pub director: bool,
+    /// `VOLLEY_BENCH_REPLAY`: instant replays play, as in a real match (off
+    /// otherwise, so runs measure the same match).
+    pub replays: bool,
 }
 
 impl Bench {
@@ -66,6 +69,7 @@ impl Bench {
             film_from: var("VOLLEY_BENCH_FILM_FROM").and_then(|s| s.parse().ok()).unwrap_or(2.0),
             film_seconds: var("VOLLEY_BENCH_FILM_SECONDS").and_then(|s| s.parse().ok()).unwrap_or(8.0),
             director: var("VOLLEY_BENCH_CAM").as_deref() == Some("action"),
+            replays: var("VOLLEY_BENCH_REPLAY").is_some(),
         })
     }
 }
@@ -429,11 +433,12 @@ fn film(
     mut base: ResMut<BaseSpeed>,
     mut clock: ResMut<Time<Virtual>>,
     mut record: ResMut<Record>,
+    replay: Res<crate::replay::Replay>,
 ) {
     let Some(dir) = &bench.film else { return };
     let seconds = game.current.tick.saturating_sub(record.start_tick) as f32 / TICK_HZ as f32;
     let filming = record.started && seconds >= bench.film_from && seconds <= bench.film_from + bench.film_seconds;
-    let speed = if filming { FILM_SPEED } else { 1.0 };
+    let speed = if filming { FILM_SPEED } else { 1.0 } * replay.slowdown();
     if base.0 != speed {
         base.0 = speed;
         clock.set_relative_speed(speed);

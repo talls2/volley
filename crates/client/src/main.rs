@@ -15,6 +15,7 @@ mod heroes;
 mod hud;
 mod inertia;
 mod input;
+mod replay;
 mod scene;
 mod select;
 mod trail;
@@ -69,15 +70,29 @@ fn main() {
             hud::plugin,
             bench::plugin,
         ))
+        .add_plugins(replay::plugin)
         .add_systems(FixedUpdate, step_match.run_if(in_state(flow::Screen::Playing)))
         .run();
 }
 
-fn step_match(mut game: ResMut<Match>, mut controls: input::Controls, mut events: MessageWriter<SimEvent>) {
+fn step_match(
+    mut game: ResMut<Match>,
+    mut controls: input::Controls,
+    mut events: MessageWriter<SimEvent>,
+    mut replay: ResMut<replay::Replay>,
+    mut clock: ResMut<Time<Virtual>>,
+    mut base: ResMut<feel::BaseSpeed>,
+) {
+    // A replay plays instead, and the match waits for it.
+    if replay.step(&mut game, &mut events, &mut clock, &mut base) {
+        return;
+    }
     let Match { previous, current } = &mut *game;
     let inputs = controls.take_inputs(current);
     previous.clone_from(current);
-    for event in current.step(&inputs) {
+    let happened = current.step(&inputs);
+    replay.record(current, &happened);
+    for event in happened {
         events.write(SimEvent(event));
     }
 }

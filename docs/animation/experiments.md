@@ -566,6 +566,32 @@ by clip, they're in the set's push itself. In the films the setter now runs
 with the arms swinging, raises the hands just before the ball and runs off
 with them down. **Decision: keep**, the snaps to look into.
 
+## 19 · Anticipation: bots gather before they jump
+
+**Idea.** Anticipation is the first of the animation principles: a jump
+starts with the knees bending. The game jumps the instant jump is pressed,
+so there's nothing to know it by beforehand; but bots are deterministic.
+
+**How.** Each tick, `look_ahead` steps a copy of the simulation eight ticks
+ahead with the bots' inputs (your own player gets an empty input: your
+jumps stay instant and unpredicted) and notes who leaves the ground when.
+A player about to jump dips the hips by up to 8 cm on a half sine, lowest
+about 0.06 s before takeoff and back up as they leave; planted feet hold,
+so the knees bend.
+
+**Result.** All 11 takeoffs in a minute were predicted on the right tick.
+Three runs each, alternating:
+
+| | Before | After |
+|---|---|---|
+| Contact gap, spikes (m) | 0.077 ±0.007 | 0.079 ±0.007 |
+| Spike timing off (s) | 0.002 | 0.001 |
+| Frames with a palm over 40 m/s | 6.0 | 6.0 |
+| Frame time (ms, mean / 99th percentile) | 17.2 / 30.3 | 17.2 / 32.4 |
+
+Eight extra simulation steps a tick don't show in the frame time. In the
+film the spiker sinks into the last step and springs up. **Decision: keep.**
+
 ## Also tonight, not measured by the bench
 
 - **Contact shadows**: a soft dark patch under every player, shrinking and
@@ -583,5 +609,5 @@ with them down. **Decision: keep**, the snaps to look into.
 
 Ranked in research.md. Seen in films and still to do: the set's push makes
 a few hand snaps a match (18); Golazo's kicks swing the arms faster than
-40 m/s; and no anticipation before a spike's takeoff (the jump comes straight
-out of the run).
+40 m/s; and your own jumps have no anticipation (only bots' can be
+known ahead).

@@ -20,7 +20,7 @@ use bevy::transform::TransformSystems;
 use bevy::world_serialization::WorldInstanceReady;
 use volley_sim::court::BALL_RADIUS;
 use volley_sim::moves::{CROSS, GOLAZO, HEROES};
-use volley_sim::{Ball, DT, Event, HitKind, Kit, MoveId, MovePhase, Passive, Phase, Sim, attack};
+use volley_sim::{Ball, DT, Event, HitKind, Kit, MoveId, MovePhase, Passive, Phase, PlayerInput, Sim, attack};
 
 use crate::feel::HitStop;
 use crate::inertia::{Blending, Inertia};
@@ -116,6 +116,7 @@ const LAYERED_FOLLOW_THROUGH: f32 = 0.3;
 
 pub fn plugin(app: &mut App) {
     app.add_message::<SwingReleased>()
+        .init_resource::<Lookahead>()
         .add_systems(Startup, (load_animation_libraries, spawn_characters))
         .add_systems(OnEnter(Screen::Playing), spawn_characters)
         .add_systems(
@@ -126,6 +127,7 @@ pub fn plugin(app: &mut App) {
                     .chain()
                     .run_if(resource_exists::<Animations>),
                 draw_team_markers,
+                (look_ahead, gather).chain().run_if(in_state(Screen::Playing)),
             ),
         )
         // Overrides the animated arms, so it runs once the animation has been applied.
@@ -573,6 +575,8 @@ struct Character {
     /// pushes the hips (m, world), and how long ago (seconds).
     recoil: Vec3,
     recoil_age: f32,
+    /// How far (m) the hips are down gathering for a jump about to happen.
+    gather: f32,
     /// How long ago (seconds) the player's side lost a point.
     slump_age: f32,
     /// How strongly (0 to 1) the head tracks the ball.
@@ -630,6 +634,7 @@ impl Character {
             dip: 0.0,
             recoil: Vec3::ZERO,
             recoil_age: 1.0,
+            gather: 0.0,
             slump_age: SLUMP_SECONDS,
             dip_age: f32::MAX,
             look_weight: 0.0,
@@ -1588,7 +1593,7 @@ fn twist_hips(
         // feet stay put, so the knees take it.
         character.dip_age += time.delta_secs();
         character.recoil_age += time.delta_secs();
-        let drop = landing_dip(character.dip, character.dip_age);
+        let drop = landing_dip(character.dip, character.dip_age) + character.gather;
         // A recoil follows the same curve as a landing: quick in, slow out.
         let shove = character.recoil * landing_dip(1.0, character.recoil_age);
         let offset = Vec3::NEG_Y * drop + shove;
@@ -1660,6 +1665,61 @@ fn slump(age: f32) -> f32 {
         ((SLUMP_SECONDS - age) / (SLUMP_SECONDS - 1.5)).clamp(0.0, 1.0)
     };
     x * x * (3.0 - 2.0 * x)
+}
+
+/// Anticipation: a jump is gathered for over this many ticks before it
+/// leaves the ground, the hips dipping by up to this much (m) and coming back
+/// up as the legs push off.
+const GATHER_TICKS: u32 = 8;
+const GATHER_DIP: f32 = 0.08;
+
+/// Who's about to jump, from the simulation stepped a few ticks ahead with
+/// the bots' inputs (they're deterministic; your own jumps can't be known
+/// ahead, so yours get none): ticks until each player leaves the ground.
+#[derive(Resource, Default)]
+struct Lookahead {
+    tick: u32,
+    takeoff: Vec<Option<u32>>,
+}
+
+fn look_ahead(game: Res<Match>, driver: Res<crate::input::LocalDriver>, mut ahead: ResMut<Lookahead>) {
+    let sim = &game.current;
+    if ahead.tick == sim.tick && ahead.takeoff.len() == sim.players.len() {
+        return;
+    }
+    ahead.tick = sim.tick;
+    ahead.takeoff = vec![None; sim.players.len()];
+    if sim.phase != Phase::Rally {
+        return;
+    }
+    let yours = (*driver == crate::input::LocalDriver::Human).then(|| sim.player_index(LOCAL_TEAM, 0));
+    let mut future = sim.clone();
+    for k in 1..=GATHER_TICKS {
+        let inputs: Vec<_> = (0..future.players.len())
+            .map(|i| if Some(i) == yours { PlayerInput::default() } else { volley_sim::bot::input_for(&future, i) })
+            .collect();
+        let grounded: Vec<bool> = future.players.iter().map(|p| p.grounded()).collect();
+        future.step(&inputs);
+        for (i, player) in future.players.iter().enumerate() {
+            if ahead.takeoff[i].is_none() && grounded[i] && !player.grounded() {
+                ahead.takeoff[i] = Some(k);
+            }
+        }
+    }
+}
+
+/// Dips each player about to jump: down, then back up as they leave.
+fn gather(ahead: Res<Lookahead>, mut characters: Query<&mut Character>) {
+    for mut character in &mut characters {
+        let wanted = match ahead.takeoff.get(character.index).copied().flatten() {
+            Some(k) => {
+                let x = 1.0 - (k - 1) as f32 / GATHER_TICKS as f32;
+                GATHER_DIP * (x * PI).sin()
+            }
+            None => 0.0,
+        };
+        character.gather = wanted;
+    }
 }
 
 /// How far (m) the hips are down `age` seconds into a landing of `depth`.
@@ -1770,7 +1830,7 @@ fn lock_feet(
     let locking = me.grounded() && !me.stunned(sim.tick) && !posed;
     // A landing's dip lowers the hips, and the legs with them: planted feet
     // stay on the floor, so the knees bend instead.
-    let drop = landing_dip(character.dip, character.dip_age);
+    let drop = landing_dip(character.dip, character.dip_age) + character.gather;
     let legs = character.legs.clone();
     let toes = character.toes.clone();
     for (side, [thigh, calf, foot]) in legs.into_iter().enumerate() {

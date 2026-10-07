@@ -573,6 +573,8 @@ struct Character {
     /// pushes the hips (m, world), and how long ago (seconds).
     recoil: Vec3,
     recoil_age: f32,
+    /// How long ago (seconds) the player's side lost a point.
+    slump_age: f32,
     /// How strongly (0 to 1) the head tracks the ball.
     look_weight: f32,
     /// Body lean from acceleration: forward and to the right, in radians.
@@ -628,6 +630,7 @@ impl Character {
             dip: 0.0,
             recoil: Vec3::ZERO,
             recoil_age: 1.0,
+            slump_age: SLUMP_SECONDS,
             dip_age: f32::MAX,
             look_weight: 0.0,
             lean: Vec2::ZERO,
@@ -962,6 +965,8 @@ fn react_to_events(
                 Event::Point { team, .. } if team == game.current.players[me].team => {
                     character.start(Clip::Celebrate, None);
                 }
+                // Losing the point: the chest and head drop for a moment.
+                Event::Point { .. } => character.slump_age = 0.0,
                 _ => {}
             }
         }
@@ -1569,12 +1574,12 @@ const HIP_TURN_RATE: f32 = 12.0;
 /// propagated.
 fn twist_hips(
     time: Res<Time>,
-    mut characters: Query<&mut Character>,
+    mut characters: Query<(Entity, &mut Character)>,
     parents: Query<&ChildOf>,
     globals: Query<&GlobalTransform>,
     mut transforms: Query<&mut Transform>,
 ) {
-    for mut character in &mut characters {
+    for (entity, mut character) in &mut characters {
         let Some([pelvis, spine_1, spine_2]) = character.hips else { continue };
         // The pelvis's parent (the skeleton's root bone) as last drawn: it
         // doesn't animate, and the body turns slowly.
@@ -1591,6 +1596,25 @@ fn twist_hips(
             && let Ok(mut transform) = transforms.get_mut(pelvis)
         {
             transform.translation += parent.affine().inverse().transform_vector3(offset);
+        }
+        // A lost point: the upper back and neck bend forward, about the
+        // body's own side to side.
+        character.slump_age += time.delta_secs();
+        let bow = slump(character.slump_age);
+        if bow > 0.0
+            && let Ok(body) = transforms.get(entity).map(|t| t.rotation)
+        {
+            let across = body * Vec3::X;
+            for (bone, share) in [(Some(spine_2), SLUMP_SPINE), (character.neck.map(|n| n[0]), SLUMP_NECK)] {
+                // The axis in the bone's parent's frame, as last drawn: it
+                // hardly moves in a frame.
+                let Some(bone) = bone else { continue };
+                let Some(above) = parents.get(bone).ok().and_then(|p| globals.get(p.parent()).ok()) else { continue };
+                let axis = above.rotation().inverse() * across;
+                if let Ok(mut transform) = transforms.get_mut(bone) {
+                    transform.rotation = Quat::from_axis_angle(axis, share * bow) * transform.rotation;
+                }
+            }
         }
         let angle = character.hip_yaw;
         if angle.abs() < 1e-3 {
@@ -1620,6 +1644,23 @@ const DIP_OUT: f32 = 0.3;
 const RECOIL_SPEED: f32 = 12.0;
 const RECOIL_PER_SPEED: f32 = 0.008;
 const MAX_RECOIL: f32 = 0.14;
+
+/// A lost point bends the upper back (radians) and the neck forward, in over
+/// `SLUMP_IN` seconds, held, and back up by `SLUMP_SECONDS`.
+const SLUMP_SPINE: f32 = 0.3;
+const SLUMP_NECK: f32 = 0.45;
+const SLUMP_IN: f32 = 0.35;
+const SLUMP_SECONDS: f32 = 2.2;
+
+/// How far into a slump (0 to 1) a player is `age` seconds after losing a point.
+fn slump(age: f32) -> f32 {
+    let x = if age < SLUMP_IN {
+        age / SLUMP_IN
+    } else {
+        ((SLUMP_SECONDS - age) / (SLUMP_SECONDS - 1.5)).clamp(0.0, 1.0)
+    };
+    x * x * (3.0 - 2.0 * x)
+}
 
 /// How far (m) the hips are down `age` seconds into a landing of `depth`.
 fn landing_dip(depth: f32, age: f32) -> f32 {
@@ -1871,7 +1912,7 @@ fn look_at_ball(
         )
     });
     let watching = matches!(sim.ball, Ball::InFlight(_) | Ball::Carried { .. } | Ball::Held { .. }) && !busy && !me.stunned(sim.tick);
-    let target = if watching { LOOK_WEIGHT } else { 0.0 };
+    let target = if watching && slump(character.slump_age) < 0.1 { LOOK_WEIGHT } else { 0.0 };
     character.look_weight += (target - character.look_weight).clamp(-LOOK_BLEND_SPEED * dt, LOOK_BLEND_SPEED * dt);
     if character.look_weight <= 0.0 {
         return;

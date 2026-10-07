@@ -61,7 +61,7 @@ pub fn plugin(app: &mut App) {
         .insert_resource(bench)
         .init_resource::<Record>()
         .add_systems(Update, (start, frames, releases, freezes, finish))
-        .add_systems(PostUpdate, touches.after(PoseLimbs));
+        .add_systems(PostUpdate, (touches, hands).after(PoseLimbs));
 }
 
 #[derive(Resource, Default)]
@@ -73,6 +73,10 @@ struct Record {
     touches: Vec<(HitKind, f32)>,
     releases: Vec<SwingReleased>,
     freezes: Vec<Froze>,
+    /// Every frame, every palm's speed (m/s), and where each palm was.
+    hand_speeds: Vec<f32>,
+    palms: Vec<(Entity, Vec3)>,
+    rally: u32,
     shots: u32,
 }
 
@@ -95,6 +99,36 @@ fn frames(time: Res<Time<Real>>, screen: Res<State<Screen>>, mut record: ResMut<
     if *screen.get() == Screen::Playing {
         record.frame_ms.push(time.delta_secs() * 1000.0);
     }
+}
+
+/// How fast every palm moves each frame, as drawn: a pop (a bone jumping
+/// between poses) shows up as an impossible speed.
+fn hands(
+    time: Res<Time<Real>>,
+    game: Res<Match>,
+    screen: Res<State<Screen>>,
+    palms: Query<(Entity, &Name, &GlobalTransform)>,
+    mut record: ResMut<Record>,
+) {
+    let dt = time.delta_secs();
+    if *screen.get() != Screen::Playing || dt <= 0.0 {
+        return;
+    }
+    let now: Vec<(Entity, Vec3)> = palms
+        .iter()
+        .filter(|(_, name, _)| matches!(name.as_str(), "middle_01_l" | "middle_01_r"))
+        .map(|(entity, _, at)| (entity, at.translation()))
+        .collect();
+    // Skip the jump when a rally resets everyone's position.
+    if game.current.rally == record.rally {
+        let speeds: Vec<f32> = now
+            .iter()
+            .filter_map(|(entity, at)| record.palms.iter().find(|(e, _)| e == entity).map(|(_, before)| at.distance(*before) / dt))
+            .collect();
+        record.hand_speeds.extend(speeds);
+    }
+    record.rally = game.current.rally;
+    record.palms = now;
 }
 
 fn freezes(mut froze: MessageReader<Froze>, mut record: ResMut<Record>) {
@@ -188,6 +222,15 @@ fn report(bench: &Bench, record: &Record) -> String {
         quantile(frames, 0.5),
         quantile(frames, 0.95),
         quantile(frames, 0.99),
+    );
+    let speeds = &record.hand_speeds;
+    let _ = write!(
+        out,
+        "  \"hand_speed\": {{ \"p99\": {:.2}, \"p999\": {:.2}, \"max\": {:.2}, \"over_30\": {} }},\n",
+        quantile(speeds, 0.99),
+        quantile(speeds, 0.999),
+        quantile(speeds, 1.0),
+        speeds.iter().filter(|&&v| v > 30.0).count(),
     );
 
     // Contact gaps by kind of hit.

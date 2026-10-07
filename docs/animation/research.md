@@ -147,7 +147,8 @@ From sports science, for posing (14 NCAA players unless noted):
    Done: experiments 02–04.
 2. Hit-stop that grows with the hit (spikes most, sets barely), with the
    hitter shaking through it (Lethal League, Smash). Done: experiment 05.
-3. Inertialization for snappy cuts into hits.
+3. Inertialization for snappy cuts into hits. Tried: experiments 06–07, no
+   better than our crossfades; kept off behind `VOLLEY_BLEND=inertia`.
 4. Orientation and stride warping on the existing body layering and IK.
 5. Chain touch quality into the spike (Switch Sports).
 6. Keep gameplay reach and timing as data, apart from the clips (Rocket

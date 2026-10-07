@@ -151,7 +151,56 @@ frame times only between runs made back to back, alternating builds.
 touches stay soft; the hardest kicks hit hardest. How it feels needs a
 playtest: does a spike feel heavier than a serve, and a set soft?
 
+## 06 · Inertialization
+
+**Idea.** Every switch into or out of a hit crossfades over 150 ms: both clips
+play at partial weight, so a dig or spike starts in a smear of the two poses.
+Inertialization (Gears of War 4, Bollo, GDC 2018) cuts to the new clip at
+full weight and carries the old pose's difference as an offset that fades out:
+the new motion shows from the first frame, and one clip plays at a time.
+
+**How.** `crates/client/src/inertia.rs`: right after Bevy applies the
+animation, each bone's offset from the last shown pose is taken at a cut and
+faded over the blend time (`1 - smoothstep`), the hair skeleton included.
+Gait changes still crossfade, so strides line up. The bench gained a pop
+measure: every palm's speed each frame (a pop is an impossible speed), and
+`tools/bench.py run A B` now alternates variants run by run, so both share the
+machine's state; `NAME:VAR=VALUE` sets an environment variable per variant.
+
+**Result** (06-crossfade against 06-inertia, alternating, same build):
+
+| | Crossfade | Inertialization |
+|---|---|---|
+| Gap, passes (m) | 0.203 ±0.008 | 0.210 ±0.022 |
+| Gap, spikes (m) | 0.088 ±0.021 | 0.125 ±0.034 |
+| Gap, banana kicks (m) | 0.238 ±0.022 | 0.285 ±0.035 |
+| Frames with a palm over 30 m/s | 68 ±3 | 52 ±11 |
+| Frame time (ms) | 18.95 | 18.92 |
+
+## 07 · Inertialization, fading fast
+
+**Idea.** The smooth fade keeps 78% of the old pose 30% of the way through, so
+a hit cut into just before contact may not reach its pose in time. A fade that
+drops fast at first, `(1 - x)³`, like Holden's dead blending.
+
+**Result** (07-crossfade against 07-inertia-fast): banana kicks still 5 cm
+further from the ball (0.264 ±0.004 against 0.211 ±0.017), hands the same
+within noise, and frames with a palm over 30 m/s doubled (134 against 72):
+the fast start snaps the hands.
+
+**Decision: keep crossfading.** Neither fade beat the crossfade on contact,
+and Golazo's kicks got consistently worse with both; the smooth fade only
+helped pops a little. The module stays, off, behind `VOLLEY_BLEND=inertia`, to
+try again for specific transitions (for instance into digs, which aren't
+timed to contact). Why the kicks suffer is open: kicks often switch clip at
+the very touch (a low kick turning into a volley), which may be where the
+offset matters.
+
+**Found along the way:** in every run some palm moves over 350 m/s in a frame,
+with or without inertialization: something teleports a hand (not a rally
+reset, which the measure skips). Worth hunting down.
+
 ## Next
 
-Ranked in research.md: inertialization for snappier cuts into hits;
-orientation and stride warping; chaining touch quality into the spike.
+Ranked in research.md: orientation and stride warping; chaining touch quality
+into the spike. Open: the hand teleports above.

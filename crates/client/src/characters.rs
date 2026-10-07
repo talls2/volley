@@ -22,6 +22,7 @@ use volley_sim::moves::{CROSS, GOLAZO, HEROES};
 use volley_sim::{Ball, DT, Event, HitKind, Kit, MoveId, MovePhase, Passive, Phase, Sim, attack};
 
 use crate::feel::HitStop;
+use crate::inertia::{Blending, Inertia};
 use crate::flow::Screen;
 
 use crate::input::LOCAL_TEAM;
@@ -653,7 +654,9 @@ fn hook_up_skeleton(
         warn!("character model has no Armature node");
         return;
     };
-    commands.entity(armature).insert((AnimationPlayer::default(), AnimationTransitions::new()));
+    let mut inertia = Inertia::default();
+    inertia.track(armature, &children);
+    commands.entity(armature).insert((AnimationPlayer::default(), AnimationTransitions::new(), inertia));
     add_animation_targets(&mut commands, armature, armature, &children, &names);
     character.armature = Some(armature);
     let bone = |name: &str| {
@@ -675,10 +678,15 @@ fn hook_up_skeleton(
               mut commands: Commands,
               children: Query<&Children>,
               names: Query<&Name>,
+              mut inertias: Query<&mut Inertia>,
               meshes: Query<&MeshMaterial3d<StandardMaterial>>,
               mut materials: ResMut<Assets<StandardMaterial>>| {
             if let Some(hair_armature) = find_armature(ready.entity, &children, &names) {
                 add_animation_targets(&mut commands, hair_armature, armature, &children, &names);
+                // The hair follows the head through cuts, too.
+                if let Ok(mut inertia) = inertias.get_mut(armature) {
+                    inertia.track(hair_armature, &children);
+                }
             }
             for mesh in meshes.iter_many(children.iter_descendants(ready.entity)) {
                 if let Some(mut material) = materials.get_mut(&mesh.0) {
@@ -950,14 +958,15 @@ fn animate_characters(
     animations: Res<Animations>,
     mut commands: Commands,
     mut characters: Query<&mut Character>,
-    mut rigs: Query<(&mut AnimationPlayer, &mut AnimationTransitions, Has<AnimationGraphHandle>)>,
+    blending: Res<Blending>,
+    mut rigs: Query<(&mut AnimationPlayer, &mut AnimationTransitions, Option<&mut Inertia>, Has<AnimationGraphHandle>)>,
     mut released: MessageWriter<SwingReleased>,
 ) {
     for mut character in &mut characters {
         let Some(armature) = character.armature else {
             continue;
         };
-        let Ok((mut player, mut transitions, has_graph)) = rigs.get_mut(armature) else {
+        let Ok((mut player, mut transitions, mut inertia, has_graph)) = rigs.get_mut(armature) else {
             continue;
         };
         if !has_graph {
@@ -1091,6 +1100,15 @@ fn animate_characters(
             character.catch_up_to = None;
             // Hits made on the run play on the upper body; the legs keep running.
             character.layered = UPPER_BODY_HITS.contains(&clip) && !airborne && speed > JOG_SPEED;
+            // With inertialization on, cut into and out of hits and let the old
+            // pose fade out; between gaits, always crossfade so strides line up.
+            let blend = match (inertia.as_deref_mut(), *blending) {
+                (Some(inertia), Blending::Inertia) if !changing_gait => {
+                    inertia.cut(blend.as_secs_f32());
+                    Duration::ZERO
+                }
+                _ => blend,
+            };
             let active = transitions.play(&mut player, animations.action_node(clip, hero, character.layered), blend);
             active.set_speed(if character.winding_up { WIND_UP_SPEED } else { clip.speed() });
             let seek = character.seek.take().unwrap_or(clip.start_at());

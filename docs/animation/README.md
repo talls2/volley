@@ -21,6 +21,12 @@ how well swings are timed, and frame times. The match is the same every run.
     python3 tools/bench.py run NAME            # three runs, docs/animation/bench/NAME-N.json
     python3 tools/bench.py compare BEFORE AFTER
 
+To compare two settings fairly, run them together: runs alternate (A, B, A,
+B...), so both see the same machine state. `NAME:VAR=VALUE` sets an
+environment variable for that variant:
+
+    python3 tools/bench.py run 06-crossfade 06-inertia:VOLLEY_BLEND=inertia
+
 Or one run by hand, with screenshots of the first passes, spikes and serves
 (the screen has to be awake and unlocked):
 
@@ -33,7 +39,7 @@ Other settings: `VOLLEY_BENCH_SECONDS` (default 90), `VOLLEY_BENCH_ARENA`
 
 1. Change one thing.
 2. `python3 tools/bench.py run NN-short-name`, then compare with the last kept
-   experiment.
+   experiment. For frame times, or anything close, alternate both in one run.
 3. Look at it: `retarget_mocap.py --preview` contact sheets for clips, the
    bench's screenshots in game.
 4. Write the entry in experiments.md: idea, how, result (with the ± noise),

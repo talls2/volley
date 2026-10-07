@@ -13,6 +13,7 @@ mod feel;
 mod flow;
 mod heroes;
 mod hud;
+mod inertia;
 mod input;
 mod scene;
 mod select;
@@ -55,6 +56,7 @@ fn main() {
             flow::plugin,
             select::plugin,
             characters::plugin,
+            inertia::plugin,
             audio::plugin,
             hud::plugin,
             bench::plugin,

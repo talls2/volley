@@ -1568,6 +1568,9 @@ const PLANT_SPEED: f32 = 2.5;
 const MAX_STRETCH: f32 = 0.35;
 const RELEASE_SECONDS: f32 = 0.1;
 const MAX_RELEASE: f32 = 1.0;
+/// Turning on the spot, a held foot steps round once the body has turned
+/// this far (radians) since it was planted: one foot at a time.
+const TURN_STEP: f32 = 0.6;
 
 /// Stride warping (Unreal's name for it): the jog and sprint play at the
 /// speed that looks right, but their strides cover less ground than the body
@@ -1617,8 +1620,10 @@ struct FootLock {
     floor: Option<f32>,
     /// Where the animation had the foot last frame, to tell planted from swinging.
     last: Option<Vec3>,
-    /// Pulled away mid-step: not held again until it has lifted.
+    /// Pulled away mid-step: not held again until it has eased back.
     pulled: bool,
+    /// Which way the body faced when the foot was planted.
+    yaw: f32,
     at: Option<Vec3>,
     release_from: Option<Vec3>,
     release: f32,
@@ -1653,6 +1658,8 @@ fn lock_feet(
     for (side, [thigh, calf, foot]) in legs.into_iter().enumerate() {
         let Ok(ankle) = globals.get(foot).map(|g| g.translation()) else { continue };
         let toe = toes.get(side).and_then(|&toe| globals.get(toe).ok()).map_or(ankle.y, |g| g.translation().y);
+        let other_still = character.foot_locks[1 - side].release_from.is_none();
+        let yaw = character.yaw;
         let lock = &mut character.foot_locks[side];
         // The height the animation has it, before the landing dip lowered it.
         let height = ankle.y.min(toe) - body.translation.y + drop;
@@ -1666,14 +1673,18 @@ fn lock_feet(
             lock.pulled = false;
         }
         let planted = low && !lock.pulled;
+        // Turned far enough on the spot to step round, unless the other foot
+        // is stepping now.
+        let turned = (yaw - lock.yaw + PI).rem_euclid(TAU) - PI;
+        let stepping = turned.abs() > TURN_STEP && other_still;
         let mut target = None;
         match lock.at {
-            Some(at) if planted && Vec2::new(at.x - ankle.x, at.z - ankle.z).length() <= MAX_STRETCH => {
+            Some(at) if planted && !stepping && Vec2::new(at.x - ankle.x, at.z - ankle.z).length() <= MAX_STRETCH => {
                 target = Some(Vec3::new(at.x, ankle.y + drop, at.z));
             }
             Some(at) => {
-                // Lifted, or pulled too far: ease back to the animation, and
-                // if pulled, wait for the step to finish before holding again.
+                // Lifted, pulled too far or stepping round: ease back to the
+                // animation before holding it again.
                 lock.release_from = Some(at);
                 lock.release = 0.0;
                 lock.pulled = planted;
@@ -1681,6 +1692,7 @@ fn lock_feet(
             }
             None if planted && !moving => {
                 lock.at = Some(ankle);
+                lock.yaw = yaw;
                 if drop > 0.0 {
                     target = Some(ankle + Vec3::Y * drop);
                 }
@@ -1695,6 +1707,7 @@ fn lock_feet(
             lock.release += dt / RELEASE_SECONDS;
             if lock.release >= 1.0 {
                 lock.release_from = None;
+                lock.pulled = false;
             } else if target.is_none() {
                 let x = lock.release * lock.release * (3.0 - 2.0 * lock.release);
                 let from = Vec3::new(from.x, ankle.y, from.z);

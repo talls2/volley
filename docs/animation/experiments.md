@@ -511,6 +511,24 @@ out), and the leg solved to it with the same two-bone IK.
 on different nights of the machine differ; within one A/B they alternate.)
 **Decision: keep.**
 
+## 17 · Turning on the spot steps the feet round
+
+**Idea.** With feet held in the ready stance (15), a player turning to face
+the ball keeps both feet where they were, and only a stretch past 0.35 m
+would let go: the legs could twist. Games step the feet round instead.
+
+**How.** A held foot lets go once the body has turned 35° since it was
+planted (one foot at a time), eases to where the animation has it over
+0.1 s, and is held again: a quick step. A foot pulled loose by a stride
+likewise is held again once it has eased back, instead of only after it
+lifts, which a foot in the ready stance never does. The bench now counts
+standing knees pointing over 60° away from where the body faces.
+
+**Result** (three runs each, alternating): knees off 1.4% → 1.3% of standing
+legs, planted foot slide 1.45 ±0.13 → 1.38 ±0.07 m/s; contact and frame
+time unchanged. The legs weren't twisting much to begin with. **Decision:
+keep**, as the right behaviour for turns, measured neutral.
+
 ## Next
 
 Ranked in research.md.

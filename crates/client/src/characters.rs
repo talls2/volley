@@ -569,6 +569,10 @@ struct Character {
     /// it was (seconds).
     dip: f32,
     dip_age: f32,
+    /// The latest hard ball taken on the arms: how far, and which way, it
+    /// pushes the hips (m, world), and how long ago (seconds).
+    recoil: Vec3,
+    recoil_age: f32,
     /// How strongly (0 to 1) the head tracks the ball.
     look_weight: f32,
     /// Body lean from acceleration: forward and to the right, in radians.
@@ -622,6 +626,8 @@ impl Character {
             hips: None,
             hip_yaw: 0.0,
             dip: 0.0,
+            recoil: Vec3::ZERO,
+            recoil_age: 1.0,
             dip_age: f32::MAX,
             look_weight: 0.0,
             lean: Vec2::ZERO,
@@ -850,6 +856,19 @@ fn react_to_events(
             let me = character.index;
             match *event {
                 Event::Touched { player, kind, .. } if player == me => {
+                    // Taking a hard-driven ball on the arms pushes the body
+                    // back along its path.
+                    if matches!(kind, HitKind::Pass | HitKind::Dig)
+                        && let Ball::InFlight(flight) = game.previous.ball
+                    {
+                        let incoming = flight.velocity_at_time(flight.elapsed(game.previous.tick));
+                        let push = Vec3::new(incoming.x, 0.0, incoming.z);
+                        let depth = ((incoming.length() - RECOIL_SPEED) * RECOIL_PER_SPEED).clamp(0.0, MAX_RECOIL);
+                        if depth > 0.0 {
+                            character.recoil = push.normalize_or_zero() * depth;
+                            character.recoil_age = 0.0;
+                        }
+                    }
                     // A no-look hitter keeps looking where they were.
                     let no_look = game.current.players[me].kit.has(Passive::NoLook);
                     if let Ball::InFlight(flight) = game.current.ball
@@ -1563,11 +1582,15 @@ fn twist_hips(
         // A landing's dip: the hips drop quickly and come back up; planted
         // feet stay put, so the knees take it.
         character.dip_age += time.delta_secs();
+        character.recoil_age += time.delta_secs();
         let drop = landing_dip(character.dip, character.dip_age);
-        if drop > 0.0
+        // A recoil follows the same curve as a landing: quick in, slow out.
+        let shove = character.recoil * landing_dip(1.0, character.recoil_age);
+        let offset = Vec3::NEG_Y * drop + shove;
+        if offset != Vec3::ZERO
             && let Ok(mut transform) = transforms.get_mut(pelvis)
         {
-            transform.translation += parent.affine().inverse().transform_vector3(Vec3::NEG_Y * drop);
+            transform.translation += parent.affine().inverse().transform_vector3(offset);
         }
         let angle = character.hip_yaw;
         if angle.abs() < 1e-3 {
@@ -1591,6 +1614,12 @@ const DIP_PER_SPEED: f32 = 0.014;
 const MAX_DIP: f32 = 0.1;
 const DIP_IN: f32 = 0.06;
 const DIP_OUT: f32 = 0.3;
+
+/// A pass or dig of a ball coming faster than `RECOIL_SPEED` (m/s) pushes the
+/// hips back this much (m) per m/s over it, up to `MAX_RECOIL`.
+const RECOIL_SPEED: f32 = 12.0;
+const RECOIL_PER_SPEED: f32 = 0.008;
+const MAX_RECOIL: f32 = 0.14;
 
 /// How far (m) the hips are down `age` seconds into a landing of `depth`.
 fn landing_dip(depth: f32, age: f32) -> f32 {

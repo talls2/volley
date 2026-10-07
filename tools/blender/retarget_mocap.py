@@ -49,7 +49,7 @@ MOCAP = ASSETS / "mocap"
 NO_ACCENTS = False
 
 
-def clip(path, straighten=False, loop=None, span=None, plant=False, still=False, accents=()):
+def clip(path, straighten=False, loop=None, span=None, plant=False, still=False, upright=False, accents=()):
     """A capture to retarget. `loop` (min, max seconds) cuts the best
     seamless loop of that length out of it; `span` (start, end seconds) cuts
     a fixed stretch; `straighten` takes out the capture's turning (or, given a
@@ -59,8 +59,13 @@ keeps the body's twist through a swing); `plant`
     a take where the actor moved around; `still` keeps the hips at standing
     height, raised by that many meters if it's a number, for a move made in
     the air, where the game does the jumping; `accents` are hand-keyed poses
-    blended over the capture (see `accent`)."""
-    return dict(path=Path(path), straighten=straighten, loop=loop, span=span, plant=plant, still=still, accents=accents)
+    blended over the capture (see `accent`); `upright` keeps the hips level,
+    turning only about the vertical, with the spine and legs keeping their
+    pose in the world: for hits the game plays on the upper body over running
+    legs, where the spine is posed on the running hips instead of the
+    capture's, so the capture's hips tilt would fold the body over."""
+    return dict(path=Path(path), straighten=straighten, loop=loop, span=span, plant=plant, still=still, upright=upright,
+                accents=accents)
 
 
 def accent(time, arms, into=0.12, hold=0.03, out=0.15):
@@ -131,7 +136,7 @@ CLIPS = {
     # wind-up through contact to the follow-through (the game's `Swing`
     # timings are measured with `--measure`). The set: hands rise to the
     # forehead, wait for the ball and push.
-    "Set": clip(DEEPMOTION / "set_overhead.bvh", straighten=True, span=(1.4, 3.3), accents=[SET_ACCENT]),
+    "Set": clip(DEEPMOTION / "set_overhead.bvh", straighten=True, span=(1.4, 3.3), upright=True, accents=[SET_ACCENT]),
     # A float serve: tossing arm up and hitting arm cocked, the hit above the
     # shoulder, and the arm held out after it.
     "Serve": clip(DEEPMOTION / "serve_standing.bvh", straighten=5.0, span=(4.45, 5.75)),
@@ -263,6 +268,12 @@ def heading(right):
     return math.atan2(right.y, right.x)
 
 
+def level(turn):
+    """Only the part of a turn that's about the vertical (its twist about z)."""
+    twist = Quaternion((turn.w, 0.0, 0.0, turn.z))
+    return twist.normalized() if twist.magnitude > 1e-6 else Quaternion()
+
+
 def retarget(rig, name, spec):
     source, action, imported, bone_map = load(spec["path"])
     scene = bpy.context.scene
@@ -321,6 +332,13 @@ def retarget(rig, name, spec):
             change[target.name] = world @ source_rest[bone.name].inverted() @ align[target.name]
         ankles = [(face @ (source.matrix_world @ foot.head)).z for foot in feet]
         feet_now = [(straight @ (face @ (source.matrix_world @ foot.head) - hip)) * scale for foot in feet]
+        if spec["upright"]:
+            # Level the hips, moving them so the hip joints stay where they
+            # were: the legs keep their place, the spine nearly so.
+            tilted, change["pelvis"] = change["pelvis"], level(change["pelvis"])
+            hip_joint = sum((rig.arm.data.bones[f"thigh_{side}"].head_local for side in "lr"), Vector()) / 2
+            hip_joint -= rig.arm.data.bones["pelvis"].head_local
+            hip += (tilted @ hip_joint - change["pelvis"] @ hip_joint) / scale
         frames.append([change, (hip.z, min(ankles)), feet_now])
 
     for ob in imported:

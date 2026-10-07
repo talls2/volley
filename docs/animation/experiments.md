@@ -392,6 +392,53 @@ something the bench measures; this checks that contact didn't move.
 All within the noise. In the films the arm now finishes the swing and stays
 down through the landing. **Decision: keep.**
 
+## 14 · Sets that don't fold the body over
+
+**Seen first.** In the director's films, after a set on the run the setter
+bent over at the waist like a hinge, the chest level with the floor and the
+arms out, for half a second. A per-frame log of every character's state
+found it: torsos leaning more than 60° from upright while standing, all of
+them during a set or a serve playing on the upper body over running legs.
+The bench now counts these (`posture`): about 1,350 frames a match.
+
+**Why.** Layering gives the legs, and the hips, to the stride and everything
+from the spine up to the hit. The spine's pose is relative to the hips, and
+in the tracked set and serve the hips are tipped far over, with the spine
+bent back the other way to stand the actor up. Put that spine on running
+hips, which are upright, and it folds the body over. Unreal's layered blend
+has an option for this ("mesh space rotation blend").
+
+**How.** For the set, the same idea baked into the data: `upright=True` in
+`retarget_mocap.py` keeps only the hips' turn about the vertical. Each bone
+is keyed by how it turns in the world, so the spine and legs keep their
+world pose whatever the hips do; the hips are raised or lowered so the hip
+joints stay where they were. The whole-body set looks the same, and on the
+upper body it's upright. The serve was tried the same way, but leveling
+moved its hand at contact 12 cm (the spine's base moves with the hips), and
+the serve only layered after contact anyway, as the server ran off. So
+instead the serve no longer goes onto the upper body: once a whole-body hit
+is 0.1 s past contact, running cuts it short (`FOLLOW_THROUGH`), as running
+already cut landings short. This also stops Golazo gliding away from a kick
+serve in the kick's pose, both feet skating, for half a second.
+
+**Result** (three runs each, alternating):
+
+| | Before | After |
+|---|---|---|
+| Frames with a standing torso over 60° | 1,373 | 0 |
+| Torso lean, 99th percentile | 111.5° | 35.1° |
+| Contact gap, passes (m) | 0.215 ±0.019 | 0.129 ±0.013 |
+| Contact gap, serves (m) | 0.038 ±0.003 | 0.048 ±0.007 |
+| Contact gap, all touches (m) | 0.171 ±0.007 | 0.126 ±0.010 |
+| Frames with a palm over 40 m/s | 4.3 | 2.3 |
+| Frame time (ms) | 17.9 | 17.9 |
+
+Upright, the setter's hands come up to where the ball is: pass contact is
+40% closer. **Decision: keep.** The hunt also showed the bench counts a foot
+as planted only under 0.14 m, while these heroes stand with their ankles at
+about 0.17: foot locking (12) has been holding feet mostly during serves.
+That's next.
+
 ## Next
 
 Ranked in research.md.

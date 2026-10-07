@@ -90,6 +90,9 @@ const STOP_SPRINT_SPEED: f32 = 3.5;
 /// doesn't flick between strides, and a hit ending as the player stops doesn't
 /// chain through them.
 const MIN_GAIT_SECONDS: f32 = 0.25;
+/// A whole-body hit plays at least this long past contact (seconds) before
+/// running cuts it short.
+const FOLLOW_THROUGH: f32 = 0.1;
 
 pub fn plugin(app: &mut App) {
     app.add_message::<SwingReleased>()
@@ -426,7 +429,7 @@ impl Animations {
 }
 
 /// Hits (and the cheer) the upper body can play while the legs keep running.
-const UPPER_BODY_HITS: [Clip; 4] = [Clip::Bump, Clip::Set, Clip::Serve, Clip::Celebrate];
+const UPPER_BODY_HITS: [Clip; 3] = [Clip::Bump, Clip::Set, Clip::Celebrate];
 /// Gaits the legs can keep playing under an upper-body hit.
 const LOWER_BODY_GAITS: [Clip; 3] = [Clip::Ready, Clip::Jog, Clip::Sprint];
 /// Mask groups: the hips and legs, and everything above.
@@ -1106,6 +1109,19 @@ fn animate_characters(
                 Clip::Block => !me.blocking(),
                 // Running cuts a landing short, so it never slows you down.
                 Clip::Land if speed > JOG_SPEED => true,
+                // And a whole-body hit's follow-through, once it's past
+                // contact: the stride takes over instead of the body gliding
+                // off in the swing's pose (hits on the upper body already run).
+                _ if !character.winding_up
+                    && !character.layered
+                    && speed > JOG_SPEED
+                    && me.grounded()
+                    && action.swing().is_some_and(|swing| {
+                        character.node.and_then(|node| player.animation(node)).is_some_and(|a| a.seek_time() > swing.contact + FOLLOW_THROUGH)
+                    }) =>
+                {
+                    true
+                }
                 _ if character.winding_up => false,
                 _ => character.node.and_then(|node| player.animation(node)).is_none_or(|active| active.is_finished()),
             };
@@ -1202,9 +1218,6 @@ fn animate_characters(
             && !airborne
             && speed > JOG_SPEED
             && let Some((at, pace)) = character.node.and_then(|node| player.animation(node)).map(|a| (a.seek_time(), a.speed()))
-            // A serve keeps its whole body through the hit: its hips are part
-            // of where the hand meets the ball. Running in after it is fine.
-            && (action != Clip::Serve || action.swing().is_some_and(|swing| at > swing.contact + 0.05))
         {
             character.layered = true;
             let node = animations.fresh(animations.action_node(action, hero, true), &player);

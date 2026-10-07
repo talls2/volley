@@ -1,7 +1,8 @@
 //! The places a match is played. The court is the same everywhere
 //! (`volley_sim::court`): only what's around it changes. The beach, a walled
 //! court on the sand by the sea; and the Neon Stadium, a night arena of light
-//! with a glowing floor, energy walls and a crowd all around. Picked on the
+//! with a glowing floor, energy walls and a crowd all around, the same on
+//! both sides. Picked on the
 //! hero select screen; the scene is rebuilt whenever the choice changes.
 
 use std::f32::consts::{FRAC_PI_2, TAU};
@@ -297,7 +298,7 @@ fn posts(length: f32) -> impl Iterator<Item = f32> {
 // The Neon Stadium ------------------------------------------------------------
 
 const NIGHT: Color = Color::srgb(0.008, 0.01, 0.025);
-/// The cool white of the arena's light strips.
+/// The cool white of the arena's lights.
 const NEON_WHITE: Color = Color::srgb(0.75, 0.9, 1.0);
 const NEON_CYAN: Color = Color::srgb(0.2, 0.85, 1.0);
 /// Floor grid squares, meters.
@@ -317,10 +318,10 @@ fn neon(build: &mut Builder, images: &mut Assets<Image>) {
         DirectionalLight { color: Color::srgb(0.85, 0.9, 1.0), illuminance: 3_500.0, shadow_maps_enabled: true, ..default() },
         Transform::from_xyz(-3.0, 10.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
-    // Each half washed in its team's color from its end.
-    for (team, side) in [(0, -1.0), (1, 1.0)] {
+    // Both halves washed in the same cool light from their ends.
+    for side in [-1.0, 1.0] {
         build.light((
-            PointLight { color: TEAM_COLORS[team], intensity: 2_500_000.0, range: 60.0, ..default() },
+            PointLight { color: NEON_WHITE, intensity: 2_000_000.0, range: 60.0, ..default() },
             Transform::from_xyz(side * (HALF_LENGTH - 3.0), 7.0, 0.0),
         ));
     }
@@ -332,31 +333,31 @@ fn neon(build: &mut Builder, images: &mut Assets<Image>) {
     sky(build);
 }
 
-/// A dark, glossy floor with a glowing grid, each half in its team's color,
-/// bright court lines and a ring in the middle of each half.
+/// A dark, glossy floor with a glowing grid, bright court lines and a ring in
+/// the middle of each half, the same on both sides.
 fn neon_floor(build: &mut Builder, images: &mut Assets<Image>) {
     let grid = images.add(grid_texture());
     let outside = build.material(StandardMaterial { base_color: Color::srgb(0.012, 0.014, 0.022), perceptual_roughness: 0.6, ..default() });
     let ground = build.mesh(Plane3d::default().mesh().size(600.0, 600.0));
     build.put(&ground, &outside, Transform::from_xyz(0.0, -0.02, 0.0));
 
-    let half = build.mesh(Plane3d::default().mesh().size(HALF_LENGTH, 2.0 * HALF_WIDTH));
-    for (team, side) in [(0, -1.0), (1, 1.0)] {
-        let floor = build.material(StandardMaterial {
-            base_color: Color::srgb(0.02, 0.024, 0.04),
-            perceptual_roughness: 0.15,
-            metallic: 0.2,
-            reflectance: 0.7,
-            emissive: TEAM_COLORS[team].to_linear() * 0.9,
-            emissive_texture: Some(grid.clone()),
-            uv_transform: Affine2::from_scale(Vec2::new(HALF_LENGTH, 2.0 * HALF_WIDTH) / GRID_TILE),
-            ..default()
-        });
-        build.put(&half, &floor, Transform::from_xyz(side * HALF_LENGTH / 2.0, 0.0, 0.0));
+    let court = build.mesh(Plane3d::default().mesh().size(2.0 * HALF_LENGTH, 2.0 * HALF_WIDTH));
+    let floor = build.material(StandardMaterial {
+        base_color: Color::srgb(0.02, 0.024, 0.04),
+        perceptual_roughness: 0.15,
+        metallic: 0.2,
+        reflectance: 0.7,
+        emissive: NEON_CYAN.to_linear() * 0.6,
+        emissive_texture: Some(grid),
+        uv_transform: Affine2::from_scale(Vec2::new(2.0 * HALF_LENGTH, 2.0 * HALF_WIDTH) / GRID_TILE),
+        ..default()
+    });
+    build.put(&court, &floor, Transform::default());
 
-        // A ring in the middle of the half, like a kickoff circle.
-        let ring = build.mesh(Annulus::new(2.8, 3.0));
-        let glow = build.glow(TEAM_COLORS[team], 5.0);
+    // A ring in the middle of each half, like a kickoff circle.
+    let ring = build.mesh(Annulus::new(2.8, 3.0));
+    let glow = build.glow(NEON_CYAN, 5.0);
+    for side in [-1.0, 1.0] {
         build.put(&ring, &glow, Transform::from_xyz(side * HALF_LENGTH / 2.0, 0.01, 0.0).with_rotation(Quat::from_rotation_x(-FRAC_PI_2)));
     }
 
@@ -406,8 +407,8 @@ fn grid_texture() -> Image {
     image
 }
 
-/// Walls of faint blue energy: glowing team-colored strips along the base, a
-/// bright rail on top, ribs between, and a big glowing frame on each end wall.
+/// Walls of faint blue energy: a bright rail on top, ribs between, and a big
+/// glowing frame on each end wall.
 fn energy_walls(build: &mut Builder) {
     let field = build.material(StandardMaterial {
         base_color: Color::srgba(0.3, 0.6, 1.0, 0.06),
@@ -419,33 +420,25 @@ fn energy_walls(build: &mut Builder) {
     });
     let rail = build.glow(NEON_WHITE, 5.0);
     let rib = build.glow(NEON_CYAN, 1.6);
-    let bases = [build.glow(TEAM_COLORS[0], 7.0), build.glow(TEAM_COLORS[1], 7.0)];
     let rib_mesh = build.mesh(Cuboid::new(0.06, WALL_HEIGHT, 0.06));
     for (center, length, along_x) in walls() {
         build.block(along(along_x, length, WALL_HEIGHT, WALL_THICKNESS), &field, center + Vec3::Y * WALL_HEIGHT / 2.0).insert(NotShadowCaster);
         build.block(along(along_x, length, 0.08, 0.12), &rail, center + Vec3::Y * WALL_HEIGHT).insert(NotShadowCaster);
-        build.block(along(along_x, length, 0.04, 0.08), &rib, center + Vec3::Y * WALL_HEIGHT / 2.0).insert(NotShadowCaster);
-        let halves: &[(f32, f32)] = if along_x { &[(-HALF_LENGTH / 2.0, HALF_LENGTH), (HALF_LENGTH / 2.0, HALF_LENGTH)] } else { &[(0.0, 2.0 * HALF_WIDTH)] };
-        for &(offset, long) in halves {
-            let at = center + if along_x { Vec3::new(offset, 0.0, 0.0) } else { Vec3::ZERO };
-            let base = bases[usize::from(at.x > 0.0)].clone();
-            build.block(along(along_x, long, 0.12, 0.16), &base, at + Vec3::Y * 0.12).insert(NotShadowCaster);
-        }
         for offset in posts(length) {
             let offset = if along_x { Vec3::new(offset, 0.0, 0.0) } else { Vec3::new(0.0, 0.0, offset) };
             build.put(&rib_mesh, &rib, Transform::from_translation(center + offset + Vec3::Y * WALL_HEIGHT / 2.0)).insert(NotShadowCaster);
         }
     }
-    // The end walls: a frame of light in the team's color, like a goal.
+    // The end walls: a frame of light, like a goal.
     let (width, height) = (12.0, 4.5);
-    for (team, side) in [(0, -1.0), (1, 1.0)] {
-        let frame = build.glow(TEAM_COLORS[team], 9.0);
-        let fill = build.material(StandardMaterial {
-            base_color: TEAM_COLORS[team].with_alpha(0.08),
-            emissive: TEAM_COLORS[team].to_linear() * 0.25,
-            alpha_mode: AlphaMode::Blend,
-            ..default()
-        });
+    let frame = build.glow(NEON_WHITE, 9.0);
+    let fill = build.material(StandardMaterial {
+        base_color: NEON_CYAN.with_alpha(0.06),
+        emissive: NEON_CYAN.to_linear() * 0.2,
+        alpha_mode: AlphaMode::Blend,
+        ..default()
+    });
+    for side in [-1.0, 1.0] {
         let x = side * (HALF_LENGTH + WALL_THICKNESS);
         let bar = 0.18;
         for (size, at) in [
@@ -488,12 +481,10 @@ fn energy_net(build: &mut Builder) {
     }
 }
 
-/// Rows of stands on all four sides, with a strip of light along each row
-/// (in the color of the half it's on) and a crowd in the seats.
+/// Rows of stands on all four sides with a crowd in the seats.
 fn stands(build: &mut Builder) {
     let concrete = build.material(StandardMaterial { base_color: Color::srgb(0.035, 0.04, 0.06), perceptual_roughness: 0.85, ..default() });
-    let strips = [build.glow(TEAM_COLORS[0], 4.0), build.glow(TEAM_COLORS[1], 4.0), build.glow(NEON_WHITE, 3.0)];
-    // Fans: a body and a head, in dark shirts the strips catch at the edges.
+    // Fans: a body and a head, in dark shirts.
     let body_mesh = build.mesh(Capsule3d::new(0.21, 0.3));
     let head_mesh = build.mesh(Sphere::new(0.12).mesh().ico(2).unwrap());
     let fans: Vec<_> = [
@@ -527,17 +518,6 @@ fn stands(build: &mut Builder) {
             let top = ROW_RISE * (row + 1) as f32;
             let middle = start + out * (ROW_DEPTH * (row as f32 + 0.5));
             build.block(along(along_x, long, top, ROW_DEPTH), &concrete, middle + Vec3::Y * top / 2.0);
-            // The strip along the row's front edge, split by half on the long sides.
-            let edge = start + out * (ROW_DEPTH * row as f32) + Vec3::Y * top;
-            if along_x {
-                for (index, offset) in [(0, -long / 4.0), (1, long / 4.0)] {
-                    let strip = strips[index].clone();
-                    build.block(along(true, long / 2.0, 0.06, 0.08), &strip, edge + Vec3::new(offset, 0.0, 0.0)).insert(NotShadowCaster);
-                }
-            } else {
-                let strip = strips[usize::from(start.x > 0.0)].clone();
-                build.block(along(false, long, 0.06, 0.08), &strip, edge).insert(NotShadowCaster);
-            }
             // The crowd: most seats taken, a few phone lights up.
             let seats = (long / SEAT_SPACING) as i32;
             for seat in 0..seats {

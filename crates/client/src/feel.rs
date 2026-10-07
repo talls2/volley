@@ -29,8 +29,20 @@ const SHAKE_DECAY: f32 = 1.6;
 pub fn plugin(app: &mut App) {
     app.init_resource::<HitStop>()
         .init_resource::<Shake>()
+        .init_resource::<BaseSpeed>()
         .add_message::<Froze>()
         .add_systems(Update, (react_to_hits, recover).chain());
+}
+
+/// How fast the game clock runs outside hit-stops: 1, or slower while the
+/// bench films.
+#[derive(Resource)]
+pub struct BaseSpeed(pub f32);
+
+impl Default for BaseSpeed {
+    fn default() -> Self {
+        Self(1.0)
+    }
 }
 
 /// A touch's hit-stop: how fast the ball left (m/s) and how long the game
@@ -69,6 +81,7 @@ pub struct Shake(pub f32);
 
 fn react_to_hits(
     game: Res<Match>,
+    base: Res<BaseSpeed>,
     mut froze: MessageWriter<Froze>,
     mut events: MessageReader<SimEvent>,
     real: Res<Time<Real>>,
@@ -97,7 +110,7 @@ fn react_to_hits(
         }
         shake.0 = (shake.0 + trauma).min(1.0);
         if freeze > 0.0 {
-            clock.set_relative_speed(FROZEN_SPEED);
+            clock.set_relative_speed(FROZEN_SPEED * base.0);
             let now = real.elapsed_secs();
             let hitter = match *event {
                 Event::Touched { player, .. } | Event::Blocked { player, .. } | Event::Carried { player } => Some(player),
@@ -108,9 +121,15 @@ fn react_to_hits(
     }
 }
 
-fn recover(real: Res<Time<Real>>, mut clock: ResMut<Time<Virtual>>, mut hit_stop: ResMut<HitStop>, mut shake: ResMut<Shake>) {
+fn recover(
+    real: Res<Time<Real>>,
+    base: Res<BaseSpeed>,
+    mut clock: ResMut<Time<Virtual>>,
+    mut hit_stop: ResMut<HitStop>,
+    mut shake: ResMut<Shake>,
+) {
     if hit_stop.until.is_some_and(|until| real.elapsed_secs() >= until) {
-        clock.set_relative_speed(1.0);
+        clock.set_relative_speed(base.0);
         *hit_stop = HitStop::default();
     }
     shake.0 = (shake.0 - SHAKE_DECAY * real.delta_secs()).max(0.0);

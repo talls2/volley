@@ -39,7 +39,7 @@ fn main() {
     // A bench run taking screenshots keeps its window on top: macOS doesn't
     // draw a window another one covers, and the screenshots would come out
     // black (see bench.rs).
-    let window_level = if bench::Bench::from_env().is_some_and(|b| b.shots.is_some()) {
+    let window_level = if bench::Bench::from_env().is_some_and(|b| b.shots.is_some() || b.film.is_some()) {
         bevy::window::WindowLevel::AlwaysOnTop
     } else {
         bevy::window::WindowLevel::Normal

@@ -26,7 +26,7 @@ use volley_sim::{Event, HitKind, TICK_HZ};
 
 use crate::arena::Arena;
 use crate::characters::{PlayerBody, PoseLimbs, SwingReleased};
-use crate::feel::Froze;
+use crate::feel::{BaseSpeed, Froze};
 use crate::flow::Screen;
 use crate::input::LocalDriver;
 use crate::scene::BallView;
@@ -40,6 +40,12 @@ pub struct Bench {
     pub arena: Arena,
     pub hero: usize,
     pub shots: Option<String>,
+    /// Where to save a film: every other frame from `film_from` for
+    /// `film_seconds` (simulation seconds), as numbered PNGs to stitch with
+    /// `ffmpeg -framerate 30 -i DIR/%04d.png out.mp4`.
+    pub film: Option<String>,
+    pub film_from: f32,
+    pub film_seconds: f32,
 }
 
 impl Bench {
@@ -53,6 +59,9 @@ impl Bench {
             arena: if var("VOLLEY_BENCH_ARENA").as_deref() == Some("beach") { Arena::Beach } else { Arena::Neon },
             hero: var("VOLLEY_BENCH_HERO").and_then(|s| s.parse().ok()).unwrap_or(0),
             shots: var("VOLLEY_BENCH_SHOTS"),
+            film: var("VOLLEY_BENCH_FILM"),
+            film_from: var("VOLLEY_BENCH_FILM_FROM").and_then(|s| s.parse().ok()).unwrap_or(2.0),
+            film_seconds: var("VOLLEY_BENCH_FILM_SECONDS").and_then(|s| s.parse().ok()).unwrap_or(8.0),
         })
     }
 }
@@ -62,7 +71,7 @@ pub fn plugin(app: &mut App) {
     app.insert_resource(bench.arena)
         .insert_resource(bench)
         .init_resource::<Record>()
-        .add_systems(Update, (start, frames, releases, freezes, finish))
+        .add_systems(Update, (start, frames, releases, freezes, film, finish))
         .add_systems(PostUpdate, (touches, hands, feet).after(PoseLimbs));
 }
 
@@ -93,6 +102,8 @@ struct Record {
     off_degrees: Vec<(f32, f32)>,
     rally: u32,
     shots: u32,
+    film_frame: u32,
+    film_last: f32,
 }
 
 /// A body moving this far in one frame was put somewhere new, not animated.
@@ -271,6 +282,40 @@ fn touches(
             let path = format!("{dir}/{:02}_{kind:?}_{:.0}_{:.0}.png", record.shots, spot.x * scale, spot.y * scale);
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
         }
+    }
+}
+
+/// The game runs this fast while filming, so every saved frame covers a
+/// sliver of game time and the film plays back smooth and at real speed.
+const FILM_SPEED: f32 = 0.2;
+
+/// Saves a frame each time the game has moved on a thirtieth of a second
+/// while filming, slowing the game down meanwhile; the film plays at 30 fps.
+fn film(
+    mut commands: Commands,
+    bench: Res<Bench>,
+    game: Res<Match>,
+    mut base: ResMut<BaseSpeed>,
+    mut clock: ResMut<Time<Virtual>>,
+    mut record: ResMut<Record>,
+) {
+    let Some(dir) = &bench.film else { return };
+    let seconds = game.current.tick.saturating_sub(record.start_tick) as f32 / TICK_HZ as f32;
+    let filming = record.started && seconds >= bench.film_from && seconds <= bench.film_from + bench.film_seconds;
+    let speed = if filming { FILM_SPEED } else { 1.0 };
+    if base.0 != speed {
+        base.0 = speed;
+        clock.set_relative_speed(speed);
+    }
+    if !filming {
+        return;
+    }
+    let now = clock.elapsed_secs();
+    if now - record.film_last >= 1.0 / 30.0 {
+        record.film_last = now;
+        record.film_frame += 1;
+        let path = format!("{dir}/{:04}.png", record.film_frame);
+        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
     }
 }
 

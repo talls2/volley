@@ -35,6 +35,13 @@ Or one run by hand, with screenshots of the first passes, spikes and serves
 Other settings: `VOLLEY_BENCH_SECONDS` (default 90), `VOLLEY_BENCH_ARENA`
 (`neon` or `beach`), `VOLLEY_BENCH_HERO` (the hero you play, 0 to 2).
 
+A film: the game slows down while filming so every frame can be saved, and
+the frames stitch into a smooth real-speed video:
+
+    VOLLEY_BENCH=/tmp/run.json VOLLEY_BENCH_SECONDS=14 VOLLEY_BENCH_FILM=/tmp/film \
+        VOLLEY_BENCH_FILM_FROM=1 VOLLEY_BENCH_FILM_SECONDS=12 caffeinate -d -i cargo run -p volley_client
+    ffmpeg -framerate 30 -i /tmp/film/%04d.png -vf scale=1280:-2 -pix_fmt yuv420p film.mp4
+
 ## Adding an experiment
 
 1. Change one thing.

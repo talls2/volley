@@ -522,6 +522,10 @@ struct Character {
     arm_weight: f32,
     /// The right leg's thigh, calf and foot bones, for foot saves.
     leg: Option<[Entity; 3]>,
+    /// Both legs (thigh, calf, foot), left then right, and where each foot is
+    /// locked to the ground.
+    legs: Vec<[Entity; 3]>,
+    foot_locks: [FootLock; 2],
     /// Where the posed leg points, and how strongly (0 to 1) it's posed.
     leg_goal: Vec3,
     leg_weight: f32,
@@ -531,6 +535,10 @@ struct Character {
     /// runs; and how far they're turned (radians about the vertical, as yaw).
     hips: Option<[Entity; 3]>,
     hip_yaw: f32,
+    /// The latest landing: how far the hips dip for it (m), and how long ago
+    /// it was (seconds).
+    dip: f32,
+    dip_age: f32,
     /// How strongly (0 to 1) the head tracks the ball.
     look_weight: f32,
     /// Body lean from acceleration: forward and to the right, in radians.
@@ -573,11 +581,15 @@ impl Character {
             arm_goal: Vec3::ZERO,
             arm_weight: 0.0,
             leg: None,
+            legs: Vec::new(),
+            foot_locks: [FootLock::default(); 2],
             leg_goal: Vec3::ZERO,
             leg_weight: 0.0,
             neck: None,
             hips: None,
             hip_yaw: 0.0,
+            dip: 0.0,
+            dip_age: f32::MAX,
             look_weight: 0.0,
             lean: Vec2::ZERO,
             layered: false,
@@ -711,6 +723,10 @@ fn hook_up_skeleton(
         .filter_map(|[upper, lower, hand]| Some([bone(upper)?, bone(lower)?, bone(hand)?]))
         .collect();
     character.leg = (|| Some([bone("thigh_r")?, bone("calf_r")?, bone("foot_r")?]))();
+    character.legs = [["thigh_l", "calf_l", "foot_l"], ["thigh_r", "calf_r", "foot_r"]]
+        .into_iter()
+        .filter_map(|[thigh, calf, foot]| Some([bone(thigh)?, bone(calf)?, bone(foot)?]))
+        .collect();
     character.neck = (|| Some([bone("neck_01")?, bone("Head")?]))();
     character.hips = (|| Some([bone("pelvis")?, bone("spine_01")?, bone("spine_02")?]))();
 
@@ -1040,6 +1056,13 @@ fn animate_characters(
         let airborne = !me.grounded();
         if airborne != character.airborne {
             character.airborne = airborne;
+            // Landing: the hips give under the body's weight, the more the
+            // faster it came down.
+            if !airborne {
+                let falling = game.previous.players.get(character.index).map_or(0.0, |p| -p.vertical_velocity);
+                character.dip = (falling * DIP_PER_SPEED).clamp(0.0, MAX_DIP);
+                character.dip_age = 0.0;
+            }
             if !character.action.is_some_and(Clip::is_game_action) && !me.blocking() {
                 character.start(if airborne { Clip::Takeoff } else { Clip::Land }, None);
             }
@@ -1375,6 +1398,7 @@ fn pose_limbs(
     let sim = &game.current;
     for (mut character, body) in &mut characters {
         let step = ARM_BLEND_SPEED * time.delta_secs();
+        lock_feet(&mut character, body, sim, time.delta_secs(), &locals, &children, &mut globals);
         look_at_ball(&mut character, body, sim, time.delta_secs(), &locals, &children, &mut globals);
 
         // Keep the last goal while blending out, so arms ease back from where they were.
@@ -1441,24 +1465,35 @@ const MAX_HIP_TURN: f32 = 1.3;
 const HIP_TURN_RATE: f32 = 12.0;
 
 /// Turns each character's hips by `hip_yaw` about the vertical and the lower
-/// spine back by as much, so the legs face one way and the chest another.
+/// spine back by as much, so the legs face one way and the chest another; and
+/// drops the hips for a landing.
 /// Works on the local transforms after the animation, before they're
 /// propagated.
 fn twist_hips(
-    characters: Query<&Character>,
+    time: Res<Time>,
+    mut characters: Query<&mut Character>,
     parents: Query<&ChildOf>,
     globals: Query<&GlobalTransform>,
     mut transforms: Query<&mut Transform>,
 ) {
-    for character in &characters {
+    for mut character in &mut characters {
         let Some([pelvis, spine_1, spine_2]) = character.hips else { continue };
+        // The pelvis's parent (the skeleton's root bone) as last drawn: it
+        // doesn't animate, and the body turns slowly.
+        let Some(parent) = parents.get(pelvis).ok().and_then(|p| globals.get(p.parent()).ok()) else { continue };
+        // A landing's dip: the hips drop quickly and come back up; planted
+        // feet stay put, so the knees take it.
+        character.dip_age += time.delta_secs();
+        let drop = landing_dip(character.dip, character.dip_age);
+        if drop > 0.0
+            && let Ok(mut transform) = transforms.get_mut(pelvis)
+        {
+            transform.translation += parent.affine().inverse().transform_vector3(Vec3::NEG_Y * drop);
+        }
         let angle = character.hip_yaw;
         if angle.abs() < 1e-3 {
             continue;
         }
-        // The pelvis's parent (the skeleton's root bone) as last drawn: it
-        // doesn't animate, and the body turns slowly.
-        let Some(parent) = parents.get(pelvis).ok().and_then(|p| globals.get(p.parent()).ok()) else { continue };
         // Turning a bone about the world's vertical: the vertical in its
         // parent's frame, from the parent's world rotation.
         let mut parent = parent.rotation();
@@ -1468,6 +1503,151 @@ fn twist_hips(
             transform.rotation = Quat::from_axis_angle(up, turn) * transform.rotation;
             parent *= transform.rotation;
         }
+    }
+}
+
+/// Landing: the hips dip this much (m) for each m/s the body came down at, up
+/// to `MAX_DIP`, reaching it in `DIP_IN` seconds and coming back over `DIP_OUT`.
+const DIP_PER_SPEED: f32 = 0.014;
+const MAX_DIP: f32 = 0.1;
+const DIP_IN: f32 = 0.06;
+const DIP_OUT: f32 = 0.3;
+
+/// How far (m) the hips are down `age` seconds into a landing of `depth`.
+fn landing_dip(depth: f32, age: f32) -> f32 {
+    if age < DIP_IN {
+        depth * (age / DIP_IN * std::f32::consts::FRAC_PI_2).sin()
+    } else if age < DIP_IN + DIP_OUT {
+        let x = (age - DIP_IN) / DIP_OUT;
+        depth * (1.0 - x * x * (3.0 - 2.0 * x))
+    } else {
+        0.0
+    }
+}
+
+/// Foot locking: a foot whose ankle is this low (m above the feet) is on the
+/// ground, and stays where it landed while it is, unless the animation pulls
+/// it this far away (m); once lifted, it eases back to the animation over
+/// this long (seconds).
+const PLANT_HEIGHT: f32 = 0.14;
+const MAX_STRETCH: f32 = 0.35;
+const RELEASE_SECONDS: f32 = 0.1;
+
+/// Where a foot is held on the ground, and where it eases back from once
+/// lifted (with how far through that it is, 0 to 1).
+#[derive(Clone, Copy, Default)]
+struct FootLock {
+    at: Option<Vec3>,
+    release_from: Option<Vec3>,
+    release: f32,
+}
+
+/// Feet stick where they land: while a foot is on the ground, the leg is
+/// solved so the ankle stays put on the floor (its height still the
+/// animation's, so heels roll as they should), however the body moves over
+/// it. Strides that don't quite match the ground speed, the body sliding into
+/// a hit and turning on the spot no longer drag planted feet along.
+fn lock_feet(
+    character: &mut Character,
+    body: &Transform,
+    sim: &Sim,
+    dt: f32,
+    locals: &Query<&Transform, Without<Character>>,
+    children: &Query<&Children>,
+    globals: &mut Query<&mut GlobalTransform>,
+) {
+    let me = &sim.players[character.index];
+    // Legs posed on purpose (dives, slides, kicks, getting knocked down) and
+    // legs in the air are left alone.
+    let posed = character.action.is_some_and(|clip| {
+        clip.kicks() || matches!(clip, Clip::Dive | Clip::SlideTackle | Clip::KnockedDown | Clip::FootSave)
+    });
+    let locking = me.grounded() && !me.stunned(sim.tick) && !posed;
+    // A landing's dip lowers the hips, and the legs with them: planted feet
+    // stay on the floor, so the knees bend instead.
+    let drop = landing_dip(character.dip, character.dip_age);
+    let legs = character.legs.clone();
+    for (side, [thigh, calf, foot]) in legs.into_iter().enumerate() {
+        let Ok(ankle) = globals.get(foot).map(|g| g.translation()) else { continue };
+        let lock = &mut character.foot_locks[side];
+        let planted = locking && ankle.y - body.translation.y < PLANT_HEIGHT;
+        let mut target = None;
+        match lock.at {
+            Some(at) if planted && Vec2::new(at.x - ankle.x, at.z - ankle.z).length() <= MAX_STRETCH => {
+                target = Some(Vec3::new(at.x, ankle.y + drop, at.z));
+            }
+            Some(at) => {
+                // Lifted (or stretched too far): ease back to the animation.
+                lock.release_from = Some(at);
+                lock.release = 0.0;
+                lock.at = planted.then_some(ankle);
+            }
+            None if planted => {
+                lock.at = Some(ankle);
+                if drop > 0.0 {
+                    target = Some(ankle + Vec3::Y * drop);
+                }
+            }
+            None => {}
+        }
+        if let Some(from) = lock.release_from {
+            lock.release += dt / RELEASE_SECONDS;
+            if lock.release >= 1.0 {
+                lock.release_from = None;
+            } else if target.is_none() {
+                let x = lock.release * lock.release * (3.0 - 2.0 * lock.release);
+                let from = Vec3::new(from.x, ankle.y, from.z);
+                target = Some(from.lerp(ankle, x));
+            }
+        }
+        if let Some(target) = target {
+            solve_leg([thigh, calf, foot], target, locals, children, globals);
+        }
+    }
+}
+
+/// Bends a leg (thigh, calf, foot) so the ankle reaches `target`, keeping the
+/// knee bending the way the animation bends it and the foot turned as the
+/// animation has it.
+fn solve_leg(
+    [thigh, calf, foot]: [Entity; 3],
+    target: Vec3,
+    locals: &Query<&Transform, Without<Character>>,
+    children: &Query<&Children>,
+    globals: &mut Query<&mut GlobalTransform>,
+) {
+    let (Ok(hip), Ok(knee), Ok(ankle)) = (globals.get(thigh).copied(), globals.get(calf).copied(), globals.get(foot).copied()) else {
+        return;
+    };
+    let (hip_at, knee_at, ankle_at) = (hip.translation(), knee.translation(), ankle.translation());
+    let (upper, lower) = (hip_at.distance(knee_at), knee_at.distance(ankle_at));
+    if upper < 1e-4 || lower < 1e-4 {
+        return;
+    }
+    let reach = target - hip_at;
+    let distance = reach.length().clamp(0.01, (upper + lower) * 0.999);
+    let along = reach.normalize_or_zero();
+    // The knee stays in the plane it bends in now.
+    let bend = ((knee_at - hip_at) - along * (knee_at - hip_at).dot(along)).normalize_or_zero();
+    let cos = ((upper * upper + distance * distance - lower * lower) / (2.0 * upper * distance)).clamp(-1.0, 1.0);
+    let new_knee = hip_at + (along * cos + bend * (1.0 - cos * cos).sqrt()) * upper;
+    let new_ankle = hip_at + along * distance;
+
+    let turn = |bone: Entity, from: Vec3, to: Vec3, globals: &mut Query<&mut GlobalTransform>| {
+        let Ok(global) = globals.get(bone).copied() else { return };
+        let (scale, rotation, translation) = global.to_scale_rotation_translation();
+        let arc = Quat::from_rotation_arc(from.normalize_or_zero(), to.normalize_or_zero());
+        follow_parent(bone, GlobalTransform::from(Transform { translation, rotation: arc * rotation, scale }), locals, children, globals);
+    };
+    turn(thigh, knee_at - hip_at, new_knee - hip_at, globals);
+    let (Ok(knee_now), Ok(ankle_now)) = (globals.get(calf).map(|g| g.translation()), globals.get(foot).map(|g| g.translation())) else {
+        return;
+    };
+    turn(calf, ankle_now - knee_now, new_ankle - knee_now, globals);
+    // The foot keeps the turn the animation gave it.
+    if let Ok(placed) = globals.get(foot).copied() {
+        let (scale, _, translation) = placed.to_scale_rotation_translation();
+        follow_parent(foot, GlobalTransform::from(Transform { translation, rotation: ankle.rotation(), scale }), locals, children, globals);
     }
 }
 

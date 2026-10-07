@@ -81,6 +81,8 @@ def compare(a, b):
         print(f"{'off ' + clip + ' (s)':28}{describe(series(ra, ['swings', clip, 'off_s_mean'])):>22}{describe(series(rb, ['swings', clip, 'off_s_mean'])):>22}")
     for stat in ("p99", "p999", "max", "over_30", "over_40", "teleports"):
         print(f"{'hand speed ' + stat:28}{describe(series(ra, ['hand_speed', stat])):>22}{describe(series(rb, ['hand_speed', stat])):>22}")
+    for stat in ("slide_mean", "slide_p90", "sliding_share", "strafing_share"):
+        print(f"{'feet ' + stat:28}{describe(series(ra, ['feet', stat])):>22}{describe(series(rb, ['feet', stat])):>22}")
     for stat in ("mean", "p95", "p99"):
         print(f"{'frame ' + stat + ' (ms)':28}{describe(series(ra, ['frame_ms', stat])):>22}{describe(series(rb, ['frame_ms', stat])):>22}")
 

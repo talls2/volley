@@ -61,7 +61,7 @@ pub fn plugin(app: &mut App) {
         .insert_resource(bench)
         .init_resource::<Record>()
         .add_systems(Update, (start, frames, releases, freezes, finish))
-        .add_systems(PostUpdate, (touches, hands).after(PoseLimbs));
+        .add_systems(PostUpdate, (touches, hands, feet).after(PoseLimbs));
 }
 
 #[derive(Resource, Default)]
@@ -78,6 +78,13 @@ struct Record {
     hand_speeds: Vec<f32>,
     palms: Vec<(Entity, Vec3, Vec3)>,
     teleports: u32,
+    /// Every frame, every planted foot's speed along the ground (m/s), and
+    /// where each foot was.
+    foot_slides: Vec<f32>,
+    feet: Vec<(Entity, Vec3)>,
+    /// Frames a running body faced more than 30° away from where it ran, of
+    /// all running frames.
+    strafing: (u32, u32),
     rally: u32,
     shots: u32,
 }
@@ -144,6 +151,54 @@ fn hands(
     }
     record.rally = game.current.rally;
     record.palms = now;
+}
+
+/// A foot this low (the ankle, m) is on the ground.
+const PLANTED: f32 = 0.14;
+/// Running, for counting how often the body faces away from where it runs.
+const RUNNING: f32 = 1.5;
+
+/// How much planted feet slide (a foot on the ground should stay put), and how
+/// often a running body faces away from where it runs.
+fn feet(
+    time: Res<Time<Real>>,
+    game: Res<Match>,
+    screen: Res<State<Screen>>,
+    bones: Query<(Entity, &Name, &GlobalTransform)>,
+    bodies: Query<(&PlayerBody, &GlobalTransform)>,
+    mut record: ResMut<Record>,
+) {
+    let dt = time.delta_secs();
+    if *screen.get() != Screen::Playing || dt <= 0.0 {
+        return;
+    }
+    let now: Vec<(Entity, Vec3)> = bones
+        .iter()
+        .filter(|(_, name, _)| matches!(name.as_str(), "foot_l" | "foot_r"))
+        .map(|(entity, _, at)| (entity, at.translation()))
+        .collect();
+    if game.current.rally == record.rally {
+        for &(entity, at) in &now {
+            let Some(&(_, before)) = record.feet.iter().find(|(e, _)| *e == entity) else { continue };
+            let slide = Vec2::new(at.x - before.x, at.z - before.z).length() / dt;
+            if at.y < PLANTED && before.y < PLANTED && slide < 20.0 {
+                record.foot_slides.push(slide);
+            }
+        }
+        for (body, transform) in &bodies {
+            let player = &game.current.players[body.0];
+            if !player.grounded() || player.velocity.length() < RUNNING {
+                continue;
+            }
+            let facing = transform.rotation() * Vec3::Z;
+            let angle = Vec2::new(facing.x, facing.z).angle_to(player.velocity).abs();
+            record.strafing.1 += 1;
+            if angle > 30f32.to_radians() {
+                record.strafing.0 += 1;
+            }
+        }
+    }
+    record.feet = now;
 }
 
 fn freezes(mut froze: MessageReader<Froze>, mut record: ResMut<Record>) {
@@ -248,6 +303,15 @@ fn report(bench: &Bench, record: &Record) -> String {
         speeds.iter().filter(|&&v| v > 30.0).count(),
         speeds.iter().filter(|&&v| v > 40.0).count(),
         record.teleports,
+    );
+    let slides = &record.foot_slides;
+    let _ = write!(
+        out,
+        "  \"feet\": {{ \"slide_mean\": {:.3}, \"slide_p90\": {:.3}, \"sliding_share\": {:.3}, \"strafing_share\": {:.3} }},\n",
+        mean(slides),
+        quantile(slides, 0.9),
+        slides.iter().filter(|&&v| v > 0.5).count() as f32 / slides.len().max(1) as f32,
+        record.strafing.0 as f32 / record.strafing.1.max(1) as f32,
     );
 
     // Contact gaps by kind of hit.

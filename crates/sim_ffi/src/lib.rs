@@ -320,8 +320,20 @@ impl From<&Event> for VolleyEvent {
 /// All-rounder for the player: Red is three All-rounders, Blue a Cross, a
 /// Golazo and an All-rounder.
 pub fn new_match() -> Sim {
+    new_match_as(KIT_ALL_ROUNDER)
+}
+
+/// The lineup with Red's first player (the one a person plays) as `kit`
+/// (`KIT_*`), two All-rounder teammates, against a Cross, a Golazo and an
+/// All-rounder: the client's `heroes::new_match(choice)`.
+pub fn new_match_as(kit: u32) -> Sim {
     let mut sim = Sim::new(MatchConfig::default());
-    let lineup = [[ALL_ROUNDER, ALL_ROUNDER, ALL_ROUNDER], [CROSS, GOLAZO, ALL_ROUNDER]];
+    let hero = match kit {
+        KIT_CROSS => CROSS,
+        KIT_GOLAZO => GOLAZO,
+        _ => ALL_ROUNDER,
+    };
+    let lineup = [[hero, ALL_ROUNDER, ALL_ROUNDER], [CROSS, GOLAZO, ALL_ROUNDER]];
     for (team, kits) in lineup.into_iter().enumerate() {
         for (slot, kit) in kits.into_iter().enumerate() {
             sim.set_kit(sim.player_index(team, slot), kit);
@@ -349,6 +361,12 @@ pub fn checksum(sim: &Sim) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn volley_match_new() -> *mut VolleyMatch {
     Box::into_raw(Box::new(VolleyMatch { sim: new_match(), events: Vec::new(), ahead: Vec::new() }))
+}
+
+/// A new match with Red's first player as `kit` (`KIT_*`): see [`new_match_as`].
+#[unsafe(no_mangle)]
+pub extern "C" fn volley_match_new_as(kit: u32) -> *mut VolleyMatch {
+    Box::into_raw(Box::new(VolleyMatch { sim: new_match_as(kit), events: Vec::new(), ahead: Vec::new() }))
 }
 
 /// # Safety

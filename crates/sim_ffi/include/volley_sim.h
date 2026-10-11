@@ -108,6 +108,8 @@ typedef struct VolleyEvent {
 } VolleyEvent;
 
 VolleyMatch *volley_match_new(void);
+/* Red's first player (the one a person plays) as a VOLLEY_KIT_*. */
+VolleyMatch *volley_match_new_as(uint32_t kit);
 void volley_match_free(VolleyMatch *game);
 uint32_t volley_match_player_count(const VolleyMatch *game);
 uint32_t volley_match_step(VolleyMatch *game, int32_t human, const VolleyInput *input);

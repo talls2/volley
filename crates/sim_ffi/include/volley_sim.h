@@ -50,6 +50,7 @@ typedef struct VolleyPlayerState {
     float contact_x, contact_y, contact_z;
     uint32_t technique;
     uint8_t no_look;
+    int32_t takeoff_ticks;
 } VolleyPlayerState;
 
 enum { VOLLEY_BALL_DEAD = 0, VOLLEY_BALL_HELD = 1, VOLLEY_BALL_IN_FLIGHT = 2, VOLLEY_BALL_CARRIED = 3 };
@@ -66,6 +67,7 @@ typedef struct VolleyMatchState {
     float landing_x, landing_y, landing_z;
     uint8_t has_decoy;
     float decoy_x, decoy_y, decoy_z;
+    float ball_vx, ball_vy, ball_vz;
 } VolleyMatchState;
 
 enum {

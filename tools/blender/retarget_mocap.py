@@ -15,6 +15,8 @@ whose last frame matches its first most closely.
 
 The clips the game uses (`CLIPS`, and heroes' own `HERO_CLIPS`) are exported
 to `crates/client/assets/animations/Mocap.glb` under the game's names.
+`--locomotion PATH` exports the motion-matching set instead (`LOCOMOTION`, for
+the Unreal test, docs/unreal-test.md), keeping the hips' travel and turning.
 
 Run from the repository root:
 
@@ -49,7 +51,7 @@ MOCAP = ASSETS / "mocap"
 NO_ACCENTS = False
 
 
-def clip(path, straighten=False, loop=None, span=None, plant=False, still=False, upright=False, accents=()):
+def clip(path, straighten=False, loop=None, span=None, plant=False, still=False, upright=False, accents=(), root_motion=False):
     """A capture to retarget. `loop` (min, max seconds) cuts the best
     seamless loop of that length out of it; `span` (start, end seconds) cuts
     a fixed stretch; `straighten` takes out the capture's turning (or, given a
@@ -63,9 +65,12 @@ keeps the body's twist through a swing); `plant`
     turning only about the vertical, with the spine and legs keeping their
     pose in the world: for hits the game plays on the upper body over running
     legs, where the spine is posed on the running hips instead of the
-    capture's, so the capture's hips tilt would fold the body over."""
+    capture's, so the capture's hips tilt would fold the body over.
+    `root_motion` keeps the hips' travel over the ground (from where they
+    start), for motion matching, which reads where each frame carries the
+    body; the game then plays it in place."""
     return dict(path=Path(path), straighten=straighten, loop=loop, span=span, plant=plant, still=still, upright=upright,
-                accents=accents)
+                accents=accents, root_motion=root_motion)
 
 
 def accent(time, arms, into=0.12, hold=0.03, out=0.15):
@@ -161,6 +166,27 @@ HERO_CLIPS = {
 # "runs" are jogs at about 1.2 m/s, far too slow for the game's running.
 RUN_LOOP = (0.55, 0.9)
 IDLE_LOOP = (2.5, 4.0)
+# The motion-matching set (`--locomotion`): whole takes, turning and travel
+# kept, so the database holds the starts, stops, turns and side steps between
+# the loops the game plays now. Mixamo's "Offensive Idle" was tried and left
+# out: matching chose it over the goalkeeper crouch, standing players upright.
+LOCOMOTION = {
+    name: clip(MIXAMO / f"{take}.fbx", root_motion=True) for name, take in {
+        "Ready": "Goalkeeper Idle",
+        "Jog": "Running",
+        "Sprint": "Fast Run",
+        "Start": "Idle To Sprint",
+        "Stop": "Fast Stop",
+        "Turn": "Running Turn 180",
+        "Cut": "Change Direction",
+        "Backpedal": "Running Backward",
+        "Strafe_Left": "Strafe Left",
+        "Strafe_Right": "Strafe Right",
+        "Sidestep_Left": "Sidestep Left",
+        "Sidestep_Right": "Sidestep Right",
+    }.items()
+}
+
 # Captures to judge before choosing: `--try all` previews every one.
 CANDIDATES = {
     **{f"{style}_Idle": clip(STYLE / f"{style}_ID.bvh", straighten=True, loop=IDLE_LOOP) for style in (
@@ -339,7 +365,7 @@ def retarget(rig, name, spec):
             hip_joint = sum((rig.arm.data.bones[f"thigh_{side}"].head_local for side in "lr"), Vector()) / 2
             hip_joint -= rig.arm.data.bones["pelvis"].head_local
             hip += (tilted @ hip_joint - change["pelvis"] @ hip_joint) / scale
-        frames.append([change, (hip.z, min(ankles)), feet_now])
+        frames.append([change, (hip.z, min(ankles)), feet_now, hip.copy()])
 
     for ob in imported:
         bpy.data.objects.remove(ob)
@@ -349,8 +375,11 @@ def retarget(rig, name, spec):
     # Hip height over the ground (the lowest the ankles get), in place: only
     # the bob up and down is kept.
     ground = min(f[1][1] for f in frames)
+    start_hip = frames[0][3]
     for f in frames:
-        f[1] = Vector((0.0, 0.0, (f[1][0] - ground) * scale + our_ankle - our_hip))
+        travel = (f[3] - start_hip) * scale if spec["root_motion"] else Vector()
+        f[1] = Vector((travel.x, travel.y, (f[1][0] - ground) * scale + our_ankle - our_hip))
+    frames = [f[:3] for f in frames]
     frames = cut(frames, fps, spec)
     if spec["still"] is not False:
         lift = Vector((0.0, 0.0, 0.0 if spec["still"] is True else spec["still"]))
@@ -588,6 +617,7 @@ def main():
     args = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     preview = args[args.index("--preview") + 1] if "--preview" in args else None
     trying = args[args.index("--try") + 1].split(",") if "--try" in args else None
+    locomotion = Path(args[args.index("--locomotion") + 1]) if "--locomotion" in args else None
     global NO_ACCENTS
     NO_ACCENTS = "--no-accents" in args
     measuring = "--measure" in args
@@ -595,6 +625,8 @@ def main():
     bpy.context.scene.render.fps = 30
     jobs = dict(CLIPS)
     jobs.update({f"{hero}_{name}": spec for hero, clips in HERO_CLIPS.items() for name, spec in clips.items()})
+    if locomotion:
+        jobs = dict(LOCOMOTION)
     if trying:
         pool = {**jobs, **CANDIDATES}
         jobs = CANDIDATES if trying == ["all"] else {name: pool[name] for name in trying}
@@ -612,9 +644,9 @@ def main():
             sheet = {"name": action.name, "keys": [(0.0, {}), (seconds, {})]}
             volley.render_contact_sheet(rig, sheet, action, preview)
     if not trying:
-        volley.OUTPUT = OUTPUT
+        volley.OUTPUT = locomotion or OUTPUT
         volley.export(rig)
-        print(f"wrote {OUTPUT}")
+        print(f"wrote {volley.OUTPUT}")
 
 
 main()

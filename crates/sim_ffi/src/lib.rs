@@ -14,8 +14,8 @@ use volley_sim::{Aim, Ball, Event, HitKind, MatchConfig, MovePhase, Passive, Pha
 pub struct VolleyMatch {
     pub sim: Sim,
     events: Vec<Event>,
-    /// Ticks until each player leaves the ground, if within `GATHER_TICKS`.
-    takeoff: Vec<Option<u32>>,
+    /// Each player's near future, from the match stepped ahead.
+    ahead: Vec<Ahead>,
 }
 
 /// One player's controls for one tick, as [`PlayerInput`]. Flags are 0 or 1.
@@ -122,6 +122,22 @@ pub struct VolleyPlayerState {
     /// within `GATHER_TICKS`), for the gather before a jump. From the match
     /// stepped ahead with the bots' inputs; a human's jumps can't be known.
     pub takeoff_ticks: i32,
+    /// Where the feet will be (world XZ) `FUTURE_TICKS` from now, for motion
+    /// matching: the same look ahead.
+    pub future_x: [f32; 3],
+    pub future_z: [f32; 3],
+}
+
+/// The ticks `future_x`/`future_z` look ahead: 0.2, 0.4 and 0.6 s.
+pub const FUTURE_TICKS: [u32; 3] = [12, 24, 36];
+
+/// A player's near future, from the match stepped ahead on a copy.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Ahead {
+    /// Ticks until the feet leave the ground, within `GATHER_TICKS`.
+    pub takeoff: Option<u32>,
+    /// Where the feet are at `FUTURE_TICKS`.
+    pub future: [Vec2; 3],
 }
 
 /// How far ahead (ticks) `takeoff_ticks` looks, as the Bevy client's gather.
@@ -332,7 +348,7 @@ pub fn checksum(sim: &Sim) -> u64 {
 /// `volley_match_free`.
 #[unsafe(no_mangle)]
 pub extern "C" fn volley_match_new() -> *mut VolleyMatch {
-    Box::into_raw(Box::new(VolleyMatch { sim: new_match(), events: Vec::new(), takeoff: Vec::new() }))
+    Box::into_raw(Box::new(VolleyMatch { sim: new_match(), events: Vec::new(), ahead: Vec::new() }))
 }
 
 /// # Safety
@@ -367,7 +383,7 @@ pub unsafe extern "C" fn volley_match_step(game: *mut VolleyMatch, human: i32, i
         _ => PlayerInput::default(),
     };
     game.events = step(&mut game.sim, human, input);
-    game.takeoff = look_ahead(&game.sim, human);
+    game.ahead = look_ahead(&game.sim, human);
     game.events.len() as u32
 }
 
@@ -448,14 +464,14 @@ pub unsafe extern "C" fn volley_match_state(
     };
     let count = sim.players.len().min(max_players as usize);
     for i in 0..count {
-        let takeoff = game.takeoff.get(i).copied().flatten();
-        unsafe { players.add(i).write(player_state(sim, i, takeoff)) };
+        let ahead = game.ahead.get(i).copied().unwrap_or_default();
+        unsafe { players.add(i).write(player_state(sim, i, ahead)) };
     }
     count as u32
 }
 
 /// Everything a client needs to animate player `i`.
-pub fn player_state(sim: &Sim, i: usize, takeoff: Option<u32>) -> VolleyPlayerState {
+pub fn player_state(sim: &Sim, i: usize, ahead: Ahead) -> VolleyPlayerState {
     let player = &sim.players[i];
     let p = player.position;
     let kit = match player.kit.name {
@@ -507,29 +523,43 @@ pub fn player_state(sim: &Sim, i: usize, takeoff: Option<u32>) -> VolleyPlayerSt
         contact_z: contact.map_or(0.0, |(_, at)| at.z),
         technique: hit_kind(technique),
         no_look: player.kit.has(Passive::NoLook) as u8,
-        takeoff_ticks: takeoff.map_or(-1, |ticks| ticks as i32),
+        takeoff_ticks: ahead.takeoff.map_or(-1, |ticks| ticks as i32),
+        future_x: ahead.future.map(|spot| spot.x),
+        future_z: ahead.future.map(|spot| spot.y),
     }
 }
 
-/// Ticks until each player leaves the ground, within `GATHER_TICKS`: the match
-/// stepped ahead on a copy, bots playing (they're deterministic) and `human`
-/// standing still. As the Bevy client's `look_ahead`.
-pub fn look_ahead(sim: &Sim, human: Option<usize>) -> Vec<Option<u32>> {
-    let mut takeoff = vec![None; sim.players.len()];
+/// Each player's near future: the match stepped ahead on a copy, bots playing
+/// (they're deterministic) and `human` standing still. Takeoffs within
+/// `GATHER_TICKS`, as the Bevy client's `look_ahead`; and where everyone will
+/// be at `FUTURE_TICKS`.
+pub fn look_ahead(sim: &Sim, human: Option<usize>) -> Vec<Ahead> {
+    let here = |sim: &Sim, i: usize| Vec2::new(sim.players[i].position.x, sim.players[i].position.z);
+    let mut ahead: Vec<Ahead> =
+        (0..sim.players.len()).map(|i| Ahead { takeoff: None, future: [here(sim, i); 3] }).collect();
     if sim.phase != Phase::Rally {
-        return takeoff;
+        return ahead;
     }
     let mut future = sim.clone();
-    for k in 1..=GATHER_TICKS {
+    for k in 1..=FUTURE_TICKS[2] {
         let grounded: Vec<bool> = future.players.iter().map(|p| p.grounded()).collect();
         step(&mut future, human, PlayerInput::default());
         for (i, player) in future.players.iter().enumerate() {
-            if takeoff[i].is_none() && grounded[i] && !player.grounded() {
-                takeoff[i] = Some(k);
+            if k <= GATHER_TICKS && ahead[i].takeoff.is_none() && grounded[i] && !player.grounded() {
+                ahead[i].takeoff = Some(k);
+            }
+            for (slot, &ticks) in FUTURE_TICKS.iter().enumerate() {
+                if k <= ticks {
+                    ahead[i].future[slot] = here(&future, i);
+                }
             }
         }
+        // A new rally resets everyone: the future stops at the point's end.
+        if future.phase != Phase::Rally {
+            break;
+        }
     }
-    takeoff
+    ahead
 }
 
 /// See [`checksum`].
@@ -568,7 +598,7 @@ mod tests {
     #[test]
     fn struct_sizes() {
         assert_eq!(size_of::<VolleyInput>(), 36);
-        assert_eq!(size_of::<VolleyPlayerState>(), 112);
+        assert_eq!(size_of::<VolleyPlayerState>(), 136);
         assert_eq!(size_of::<VolleyMatchState>(), 100);
         assert_eq!(size_of::<VolleyEvent>(), 44);
     }

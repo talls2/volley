@@ -51,6 +51,7 @@ typedef struct VolleyPlayerState {
     uint32_t technique;
     uint8_t no_look;
     int32_t takeoff_ticks;
+    float future_x[3], future_z[3];  /* feet 0.2, 0.4 and 0.6 s ahead */
 } VolleyPlayerState;
 
 enum { VOLLEY_BALL_DEAD = 0, VOLLEY_BALL_HELD = 1, VOLLEY_BALL_IN_FLIGHT = 2, VOLLEY_BALL_CARRIED = 3 };

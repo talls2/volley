@@ -168,4 +168,48 @@ Then:
 
 ## Log
 
-Nothing yet.
+### 2026-10-11: milestone 0, setup (Windows PC)
+
+Done in one session, except the Game Animation Sample, which comes with
+milestone 3.
+
+- **Installed**: Epic Games Launcher, Unreal Engine 5.8.3 (by the user, signed
+  in to Epic), Visual Studio 2022 17.14 with the C++ game, C++ desktop and .NET
+  desktop workloads (MSVC 14.44, Windows SDK 10.0.26100), and Rust 1.99. The
+  sim's 58 tests pass on this machine.
+- **Disk**: C: had 12 GB free. Removing a 135 GB game made room; about 137 GB
+  was left after the engine.
+- **Project**: `volley-unreal`, next to `volley`, made from the engine's blank
+  C++ template (`Templates/TP_Blank`) with the template's renames applied by
+  hand. Plugins: ModelContextProtocol, AllToolsets, PoseSearch, Chooser,
+  MotionWarping, AnimationWarping. The editor target builds in about 40 s.
+  Not in a repository yet: only its C++ source will go in one (Open
+  questions).
+- **MCP**: set up as in Epic's plugin's `references/setup.md`.
+  `bAutoStartServer=True` goes in the per-user
+  `Saved/Config/WindowsEditor/EditorPerProjectUserSettings.ini`, and a
+  hand-written `.mcp.json` next to the `.uproject` points at
+  `http://127.0.0.1:8000/mcp`. The server answers about 25 s after the editor
+  starts. Epic's Claude Code plugin is enabled in the project's
+  `.claude/settings.json`, which offers to install it when a session opens
+  there.
+
+What to know:
+
+- **Claude drives the editor only from a session opened in `volley-unreal`**,
+  with the editor running. `.mcp.json` and the plugin load at session start.
+- **The MCP server listens only on 127.0.0.1**, so it needs no firewall rule.
+  On first launch Windows asks to let the editor listen on the network (port
+  1985). That isn't needed for the test, so the prompt can be cancelled; the
+  firewall stays on.
+- The editor's log says what goes through MCP is "Licensed Technology" under
+  the Unreal EULA (section 6(e)): the LLM provider must not train on it.
+- Calling `UnrealBuildTool.exe` directly fails without a system-wide .NET 10.
+  `Engine/Build/BatchFiles/Build.bat` uses the engine's own copy and works,
+  for builds and for `-projectfiles`.
+- The blank template logs a GameFeatureData error at startup (no asset
+  manager rule for game feature plugins). It's harmless for now.
+
+Cost: mostly waiting on downloads. The user did the Epic sign-in, the engine
+install and the disk cleanup. Claude did the rest, with no clicking in the
+editor.

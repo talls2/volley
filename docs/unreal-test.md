@@ -814,3 +814,40 @@ stands are much busier than in earlier films.
 - `cargo run -p volley_sim_ffi --release --example events` lists the
   heroes' moments, to find them.
 - `MAKE_ASSETS_ONLY=materials` remakes just the materials.
+
+### 2026-10-11: animation lessons from Knockout City
+
+These come from a structural study of Knockout City's character animation
+tree. No data or assets were taken, only how it's organized and tuned. Each
+change was measured with bench mode: 90 s, Neon, the same bot match.
+Hand-pop counts vary about ±50 between identical runs.
+
+- **Blends.** Ground and air (and dashes) now blend over 0.1 s, and gaits
+  faster: a quicker one over 0.2 s, a slower one over 0.15 s (Bevy's were
+  0.15 and 0.25 s).
+  - Contact gaps fell from 0.25 m to 0.19 m; banana kicks, which start from
+    the air pose, from 0.78 to 0.39 m.
+  - Planted feet slid in 27% of frames instead of 29%.
+  - Knockout City's faster action blends (0.05–0.1 s) were tried and
+    dropped: hand pops (frames over 30 m/s) went from about 210 to 360–790.
+    Actions keep 0.15 s.
+- **Gameplay sets the swing's playhead.** It comes from the time left to
+  contact, like Knockout City's throws, instead of nudging clip speed. It
+  never goes backward and catches up at most 4× (1.5× broke the serve).
+  Contact-frame error fell from 5 ms to 2 ms.
+- **A charge pose.** Holding pass or attack leans the upper body into the
+  coming swing's wind-up, further as it charges, then hands over to the
+  swing. It's mostly the arms; the spine and head take 40%, so a spike's
+  arched wind-up doesn't fold a running body. It's for the person only:
+  bots don't charge.
+- **Graded impacts.** A hard ball (passes, digs and now blocks) lands at one
+  of four impact levels by its speed (12/18/24 m/s): the hips push back
+  0–14 cm, and from level 2 the upper body flinches back.
+- **Perfect contact.** A clean attack ("perfect!") follows through 30%
+  faster and flashes gold with gold sparks. Without a dedicated clip, that's
+  how it reads apart from an ordinary one.
+
+**Fixed:** the game crashed at its first garbage collection, about 60 s in.
+The audio's sounds and attenuation, and the HUD's font, were held only by raw
+pointers; they're properties now. A stress run with collection every 5 s
+passes.

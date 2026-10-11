@@ -55,6 +55,10 @@ On this PC now:
 - **The test runs on this Windows PC** (RTX 5070 Ti), not the MacBook.
 - **Art is stylized, like Knockout City**: saturated colors, soft light, bold
   simple shapes. That applies to the arena now and to Cross in milestone 3.
+- **The arena is futuristic, like Rocket League**: the Neon Stadium (from the
+  Bevy build) is the default; the Beach stays with `VOLLEY_ARENA=beach`.
+- **The camera is Bevy's**, behind the shoulders, but kept on the player's
+  side of the net.
 - **Unreal assets come from code**: `Tools/make_assets.py` generates the
   materials and the map in a headless editor, and C++ builds the arena at
   runtime. Generated content isn't committed.

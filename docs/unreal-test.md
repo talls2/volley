@@ -155,9 +155,10 @@ Then:
   animation much better (see the ik01 demo), and the choice changes how much
   retargeting and model work milestone 3 needs. Best decided before it.
 - **Version control** of the Unreal project: its assets are binary and large,
-  so it needs Git LFS, and GitHub's LFS quotas are small. During the test, the
-  project stays on this PC with only its C++ source in a repository. Decide
-  properly if Unreal wins.
+  so it needs Git LFS, and GitHub's LFS quotas are small. During the test,
+  its source, config and docs are in the private `talls2/volley-unreal`.
+  Builds, `Saved/` (films included) and any imported assets stay on this PC.
+  Decide properly if Unreal wins.
 - **Licenses**: the Game Animation Sample's clips may only be used in Unreal
   projects, so they can't come back to Bevy. Mixamo clips can go in the game
   but not be republished raw, as now.
@@ -183,8 +184,8 @@ milestone 3.
   C++ template (`Templates/TP_Blank`) with the template's renames applied by
   hand. Plugins: ModelContextProtocol, AllToolsets, PoseSearch, Chooser,
   MotionWarping, AnimationWarping. The editor target builds in about 40 s.
-  Not in a repository yet: only its C++ source will go in one (Open
-  questions).
+  Its source is in the private `talls2/volley-unreal`, cloned next to
+  `volley` (Open questions).
 - **MCP**: set up as in Epic's plugin's `references/setup.md`.
   `bAutoStartServer=True` goes in the per-user
   `Saved/Config/WindowsEditor/EditorPerProjectUserSettings.ini`, and a

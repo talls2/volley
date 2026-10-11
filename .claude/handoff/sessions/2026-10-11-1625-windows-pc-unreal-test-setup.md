@@ -34,7 +34,9 @@ On this PC now:
   with the MCP and motion-matching plugins enabled. It builds, and the
   editor's MCP server answers on 127.0.0.1:8000. `.mcp.json` and the Epic
   plugin (in `.claude/settings.json`) are set up in it.
-- **`volley-unreal` is only on this PC**, in no repository yet.
+- **`volley-unreal`'s source is in the private `talls2/volley-unreal`**
+  (source, config, README; no builds, `Saved/` or assets). Clone it next to
+  `volley`; its README says how to build.
 
 ## Decisions
 - **Test before porting.** Unreal replaces only the client. The Rust sim
@@ -68,9 +70,8 @@ On this PC now:
 ## Open questions
 - **Realistic or stylized art**: to decide before milestone 3, since it
   changes how much model and retargeting work Cross needs.
-- **Where `volley-unreal`'s C++ source lives**: a new repository, or a folder
-  in `volley`. Binary assets would need Git LFS, and GitHub's quotas are
-  small.
+- **Binary assets** for `volley-unreal` (maps, imported models) would need Git
+  LFS, and GitHub's quotas are small. Undecided until there are some.
 - **The Game Animation Sample**: the user adds it from Fab before milestone 3.
 
 ## Context

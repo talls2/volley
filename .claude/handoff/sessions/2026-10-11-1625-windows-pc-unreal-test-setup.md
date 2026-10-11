@@ -66,10 +66,10 @@ On this PC now:
 ## Next steps
 1. **The user watches the milestone 2 films** (orbit and broadcast) and gives
    feedback on the look.
-2. **Milestone 3, continued**: stylized team-coloured materials for the bodies,
-   then characters.rs's procedural layers, then motion matching with the
+2. **Milestone 3, continued**: characters.rs's procedural layers, then motion matching with the
    Mixamo locomotion in volley-assets. The first pass (bodies, clips, the
-   animation logic in C++) is done: see the plan's log.
+   animation logic in C++) and the team-coloured stylized look are done: see
+   the plan's log.
 3. Then milestones 4–6 as in the plan: hits and ball, playing it, the
    side-by-side comparison. Log each one in the plan.
 4. Optional: drive the editor through MCP. This session, opened in another

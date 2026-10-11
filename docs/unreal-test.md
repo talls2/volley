@@ -603,5 +603,12 @@ the Beach.
   swing across.
 - **Film**: `volley-unreal/Saved/Films/neon-stadium.mp4` (20 s, with sound).
 
-Still faithful to Bevy, and changeable: both halves are the same cyan. A
-Rocket League touch would be each half lit in its team's color.
+Changed afterwards, at the user's request: **the floor mustn't draw the eye
+from the ball**.
+- The glowing grid and kickoff rings are gone: the court is plain, dark and
+  glossy.
+- The court lines are dim.
+- The goal frames on the end walls are gone.
+- Both halves stay lit the same, with no team colors on the floor.
+
+Film: `volley-unreal/Saved/Films/neon-stadium-calm.mp4`.

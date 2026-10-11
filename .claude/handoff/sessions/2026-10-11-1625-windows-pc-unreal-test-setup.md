@@ -57,6 +57,8 @@ On this PC now:
   simple shapes. That applies to the arena now and to Cross in milestone 3.
 - **The arena is futuristic, like Rocket League**: the Neon Stadium (from the
   Bevy build) is the default; the Beach stays with `VOLLEY_ARENA=beach`.
+  Nothing on the floor should draw the eye from the ball: no glowing grid,
+  kickoff rings or goal frames; dim lines; both halves lit the same.
 - **The camera is Bevy's**, behind the shoulders, but kept on the player's
   side of the net.
 - **Unreal assets come from code**: `Tools/make_assets.py` generates the

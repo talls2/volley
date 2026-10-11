@@ -72,18 +72,12 @@ On this PC now:
 ## Next steps
 1. **The user watches the milestone 2 films** (orbit and broadcast) and gives
    feedback on the look.
-2. **Milestones 0 to 4 are done** (see the plan's log): setup, the sim in
-   Unreal, the stylized Beach, characters (volley's bodies and clips, the
-   animation logic and procedural layers ported, motion matching with our own
-   matcher), and the ball, its helpers and sound. The user chose to move on
-   from motion matching as it is.
-3. **Milestone 5: playing it**: control of a player (Enhanced Input to
-   `VolleyInput`, the DLL's `human` slot), the follow camera and ball cam,
-   the replay. Then milestone 6, the side-by-side comparison with Bevy.
-4. Optional: drive the editor through MCP. This session, opened in another
-   folder, did milestone 1 from code and the command line, and didn't need
-   it. For MCP tools, open a session in `volley-unreal` with the editor
-   running, approve `unreal-mcp`, and install Epic's plugin when asked.
+2. **Milestones 0 to 5 are done** (see the plan's log). The user plays it
+   (`volley-unreal/Tools/Play.bat`) and says how it feels.
+3. **Milestone 6: the comparison.** Film the same kind of rally from the Bevy
+   build and this one, cut them side by side, and the user plays both and
+   decides. The Bevy build needs Rust and its own build on this PC (or the
+   MacBook).
 
 ## Open questions
 - **Binary assets** for `volley-unreal` (maps, imported models) would need Git

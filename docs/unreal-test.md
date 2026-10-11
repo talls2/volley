@@ -612,3 +612,49 @@ from the ball**.
 - Both halves stay lit the same, with no team colors on the floor.
 
 Film: `volley-unreal/Saved/Films/neon-stadium-calm.mp4`.
+
+### 2026-10-11: milestone 5, playing it
+
+A person can play Red's first player. `Tools/Play.bat` in `volley-unreal`
+starts the game, and `Play.bat cross` or `Play.bat golazo` plays a hero, as
+the Bevy hero select does.
+
+- **Controls** (`FVolleyControls`), ported from input.rs:
+  - The same keyboard and controller bindings.
+  - Presses are kept until the next sim tick, so none is lost or counted
+    twice.
+  - Pass and attack charge while held (full in 0.5 s), and a serve goes on
+    release.
+  - Movement and aim are relative to the camera: hits go the way you move,
+    or the way you look standing still.
+  - Keys are read straight from the player controller (no Enhanced Input
+    assets), so it stays in code.
+  - The help line follows the device used last.
+- **Camera**: turned by the mouse (click to capture, Esc frees it) or the
+  right stick, with camera.rs's speeds. Turning by hand takes it off ball
+  cam; Tab or right stick click toggles ball cam.
+- **Also**: `P` pauses; `1` hands your player to a bot and back.
+  `sim_ffi`'s `volley_match_new_as(kit)` sets your player's hero. Your
+  passes don't get the bots' "late hands" wait, as in characters.rs.
+- **Instant replays** (`FVolleyReplay`, `AVolleyHUD`), ported from
+  replay.rs:
+  - Every tick's state and events are kept for 4 s.
+  - A point won by a big moment is replayed 0.9 s later, from 70 ticks before
+    the moment to 30 after, at 0.45 speed. Big moments are chain spikes,
+    posterizers, stuff blocks, volley and bicycle kicks, and spikes over
+    20 m/s every third point.
+  - The replay is fed back through the same code as live play, so
+    characters, ball, trail, sounds and hit-stops all play again.
+  - The camera films from beside whoever made the moment, then follows the
+    ball. Letterbox bars and a blinking REPLAY tag show; any key skips.
+  - The live match waits and resumes exactly: later points fall on the same
+    ticks.
+  - Replays are on when a person plays (`VOLLEY_REPLAY=1` while filming).
+- **Films and benches** still have a bot play your player, so they stay the
+  same every run (checksums unchanged).
+- **Film**: `volley-unreal/Saved/Films/milestone5-replay.mp4`, a replay of
+  Cross's winning spike. It's silent: film_audio.py places sounds by sim
+  time, which a replay rewinds.
+
+Not checked by Claude: how it feels to play. Only the user can judge that,
+by playing.

@@ -20,7 +20,9 @@ Unreal Editor through MCP. That led to a decision to **test Unreal as
 Volley's client** before porting anything. The plan is
 `docs/unreal-test.md` (commit 4428a5b). Milestones 0 (setup), 1 (the sim
 in Unreal) and 2 (the stylized Beach arena, sky and light) are done and logged
-there. Films are in `volley-unreal/Saved/Films`, on this PC only.
+there, with the first pass of milestone 3 (the Rust version's bodies and
+clips, animated by a C++ port of characters.rs). Films are in
+`volley-unreal/Saved/Films`, on this PC only.
 
 Milestone 1: the new crate `crates/sim_ffi` builds the sim as a DLL with a C
 interface. `volley-unreal` loads it and draws the bot match as a greybox
@@ -64,8 +66,10 @@ On this PC now:
 ## Next steps
 1. **The user watches the milestone 2 films** (orbit and broadcast) and gives
    feedback on the look.
-2. **Milestone 3: Cross and motion matching**, stylized. The user adds the
-   Game Animation Sample from Fab first.
+2. **Milestone 3, continued**: stylized team-coloured materials for the bodies,
+   then characters.rs's procedural layers, then motion matching with the
+   Mixamo locomotion in volley-assets. The first pass (bodies, clips, the
+   animation logic in C++) is done: see the plan's log.
 3. Then milestones 4–6 as in the plan: hits and ball, playing it, the
    side-by-side comparison. Log each one in the plan.
 4. Optional: drive the editor through MCP. This session, opened in another

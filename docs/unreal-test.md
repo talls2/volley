@@ -304,3 +304,72 @@ or foam. The players are still capsules (milestone 3).
 
 Cost: one session, all from code, the command line and a Python script. The
 editor wasn't opened.
+
+### 2026-10-11: milestone 3, first pass: the Rust version's characters
+
+The user asked to build on what the Rust version already has rather than
+Epic's Game Animation Sample. Unreal now plays volley's own bodies and clips,
+animated by a C++ port of `crates/client/src/characters.rs`.
+
+- **Import** (`Tools/make_assets.py`): the bodies (Cross, Golazo, the
+  Quaternius male and female All-rounders, their two hair meshes) and the
+  clips in `Mocap.glb` and `Volley.glb`, all on one Unreal skeleton.
+  - Volley's shared skeleton already uses the Unreal mannequin's bone names
+    (it's Quaternius's Unreal-compatible library), so nothing needed renaming.
+  - Unreal's glTF importer only finds a skeleton through a mesh, and the clip
+    files have none. `Tools/gltf_anim_helper.py` writes a copy with a 1 mm
+    triangle skinned to the root.
+  - Interchange ignores a pipeline object passed as an import task's options.
+    It takes one as a path in `ImportAssetParameters.override_pipelines`.
+  - Interchange imports don't save on their own, so the script saves the
+    folders after importing.
+- **Proportions**: the clips carry translations for all 65 bones, at the
+  proportions of the skeleton they were made on. The bodies differ: Cross's
+  legs are 10–14% longer, and the female body's upper arms are shorter. Played
+  as they are, the clips reshape every body to the clips' proportions (the
+  Bevy client probably does this today). `UVolleyAnimInstance` keeps each
+  body's own bone lengths, takes only rotations from the clips, and scales the
+  hips' height by the body's.
+- **`UVolleyAnimInstance`**: a native clip player, with no Blueprint graph.
+  It holds any number of crossfading clips with their own time and rate,
+  samples them in its proxy, and blends them with
+  `FAnimationRuntime::BlendPosesTogether`.
+- **`FVolleyCharacter`** ports characters.rs, keeping its names and constants
+  (with line references):
+  - looks per kit, and hair tint
+  - gait with hysteresis and the minimum gait time, stride-matched rates,
+    idle desync
+  - takeoff, airborne and landing; dash, knockdown, celebration, block, dive,
+    foot save
+  - the serve held until it's swung
+  - hit clip choice per move and per touch; wind-up timed to the predicted
+    contact; per-frame swing timing; technique switching; late hands for bots
+  - Golazo's feet swaps, follow-through cuts, finish rules, the crossover's
+    side, and facing with its priorities and turn rate
+- **`sim_ffi`** now exposes per player what that logic reads: kit; the
+  current move, its phase, start and direction; the active move; blocking,
+  grounded; dash and carry; must-not-touch; the Feet and NoLook passives;
+  predicted contact (ticks and spot, a second ahead); and the attack
+  technique. `VolleyPlayerState` is 108 bytes; the size checks on both sides
+  moved with it. The checksums still match the Rust run.
+- **Camera**: `VOLLEY_CAM=ball` follows the ball from inside the cage, close
+  enough to judge animation. `VOLLEY_EYE`/`VOLLEY_LOOK` place the camera by
+  hand. Motion blur is off (Knockout City is crisp, and it smeared films).
+- **Film**: `volley-unreal/Saved/Films/milestone3-characters-v1.mp4` (20 s,
+  ball camera).
+
+Not done yet in milestone 3:
+
+- **The look**: the bodies are the Quaternius "Dark" textures and Tripo
+  bakes, so they read as dark grey figures with no team color. They need
+  stylized, team-coloured materials.
+- **The procedural layers** of characters.rs, not ported yet:
+  - upper-body hits over running legs
+  - the body warp toward the ball
+  - arm and leg reach
+  - foot locking and stride warping
+  - head look, lean, hip twist, landing dip, slump
+  - hit-stop
+- **Motion matching** with the Mixamo locomotion in `volley-assets` (starts,
+  stops, turns, strafes, backpedal), retargeted in Unreal: the plan's key
+  experiment.

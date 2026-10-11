@@ -66,10 +66,12 @@ On this PC now:
 ## Next steps
 1. **The user watches the milestone 2 films** (orbit and broadcast) and gives
    feedback on the look.
-2. **Milestone 3, continued**: motion matching with the
-   Mixamo locomotion in volley-assets. The first pass (bodies, clips, the
-   animation logic in C++), the team-coloured stylized look and characters.rs's
-   procedural layers are done: see the plan's log.
+2. **The user watches the motion matching A/B film** and decides whether to
+   keep it, give it better data (Epic's Game Animation Sample, or more
+   takes), or move on. Milestone 3 is otherwise done: bodies and clips, the
+   animation logic in C++, the team-coloured look, characters.rs's procedural
+   layers, and motion matching (our own matcher, not Unreal's Pose Search).
+   See the plan's log.
 3. Then milestones 4–6 as in the plan: hits and ball, playing it, the
    side-by-side comparison. Log each one in the plan.
 4. Optional: drive the editor through MCP. This session, opened in another

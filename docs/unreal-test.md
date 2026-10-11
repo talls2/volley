@@ -428,5 +428,71 @@ references in the code).
   camera). Hit-stops don't show in films: frames are taken every two sim
   ticks, and a freeze slows the ticks.
 
-What's left in milestone 3: motion matching with the Mixamo locomotion in
-`volley-assets`, the plan's key experiment.
+
+### 2026-10-11: milestone 3, motion matching
+
+Locomotion is motion matched. The matcher is ours: a database built by our
+tools and searched in C++. It isn't Unreal's Pose Search, which needs an
+animation Blueprint graph or a Pose History node that this code-only client
+doesn't have. `VOLLEY_MM=0` brings back the picking by speed, as in Bevy.
+
+- **Data**: the locomotion takes in `volley-assets/mixamo`: run, sprint,
+  start, stop, 180° turn, change of direction, backpedal, two strafes, two
+  sidesteps and the goalkeeper ready stance.
+  - They're retargeted by volley's own `tools/blender/retarget_mocap.py`,
+    with a new `--locomotion PATH` run (the `LOCOMOTION` set,
+    `root_motion=True`). It keeps the capture's turning and the hips' travel
+    and writes `volley-unreal/Assets/Locomotion.glb`. Blender 5.2 was
+    already on this PC.
+  - The game's own `Mocap.glb` is untouched.
+  - Mixamo's "Offensive Idle" was tried and dropped: matching chose it over
+    the goalkeeper crouch, which stood players upright where the game had
+    them crouched.
+- **Database** (`Tools/locomotion_db.py`, standard library only):
+  - Each frame's root is the hips' travel and a smoothed heading from the hip
+    joints. The stride's hip swing stays in the pose.
+  - The clips are rewritten in place and facing forward for playback
+    (`LocomotionInPlace.glb`), and the junk Mixamo actions are dropped.
+  - 18 features per frame, in the body's terms: velocity, the spot 0.2 /
+    0.4 / 0.6 s ahead, the facing at 0.6 s, the feet's positions and
+    velocities.
+  - The body's speed comes from the planted foot sliding back under it, so
+    the takes downloaded "in place" (run, sprint, turn, change of direction)
+    work like the ones that travel.
+  - 12 clips, 417 frames.
+- **Query**: velocity, plus each player's real future: `sim_ffi` now steps
+  its look-ahead copy 36 ticks and gives where each player will be in 0.2,
+  0.4 and 0.6 s. The bots are deterministic, so this is exact. A typical game
+  has to predict it from input.
+- **Search** (`FVolleyMotionMatcher`):
+  - Brute force over all frames, every 0.1 s, each feature normalized by its
+    spread and weighted: trajectory 1.5, velocity and facing 1, feet 0.6 and
+    0.4.
+  - It keeps what's playing unless another frame is 25% better, and holds
+    each pick at least 0.25 s.
+  - One-shots aren't entered in their last 0.2 s.
+  - Changes crossfade over 0.2 s, and the clip's rate follows the sim's speed
+    (0.8–1.3×).
+- **Measured** over a minute of the bot match: 510 picks across 6 players.
+  - By clip: Sprint 109, Turn 99, Stop 60, Cut 54, Ready 43, Strafe_Left 37,
+    Start 33, Sidestep_Right 32, Jog 21, Backpedal 17, Strafe_Right 4,
+    Sidestep_Left 1.
+  - The left/right imbalance comes from the clips' speeds: Mixamo's
+    Strafe_Right is slower than Sidestep_Right, and the reverse on the left.
+    It isn't a sign error; the database's signs check out.
+  - Before the hysteresis was raised from 15% to 25% and the 0.25 s hold
+    added, there were 666 picks.
+  - The checksums still match the Rust run.
+- **Films**: `milestone3-motion-matching-ab.mp4` (the same 20 s rally, by
+  speed on the left, motion matched on the right) and
+  `milestone3-motion-matching.mp4`.
+
+Limits of this experiment:
+
+- The data is thin: Mixamo takes are short single cycles, with one turn and
+  one stop. Motion matching shines with long takes of dancing-around
+  movement (Epic's sample has about 500 clips). So this mostly shows the
+  pipeline works, not how good it can get.
+- The bots change direction all the time, so Turn and Cut are picked a lot.
+  The body's facing still comes from the game's turn rule, not from the
+  clips.

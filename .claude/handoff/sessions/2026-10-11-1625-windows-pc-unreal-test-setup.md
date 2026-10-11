@@ -66,14 +66,14 @@ On this PC now:
 ## Next steps
 1. **The user watches the milestone 2 films** (orbit and broadcast) and gives
    feedback on the look.
-2. **The user watches the motion matching A/B film** and decides whether to
-   keep it, give it better data (Epic's Game Animation Sample, or more
-   takes), or move on. Milestone 3 is otherwise done: bodies and clips, the
-   animation logic in C++, the team-coloured look, characters.rs's procedural
-   layers, and motion matching (our own matcher, not Unreal's Pose Search).
-   See the plan's log.
-3. Then milestones 4–6 as in the plan: hits and ball, playing it, the
-   side-by-side comparison. Log each one in the plan.
+2. **Milestones 0 to 4 are done** (see the plan's log): setup, the sim in
+   Unreal, the stylized Beach, characters (volley's bodies and clips, the
+   animation logic and procedural layers ported, motion matching with our own
+   matcher), and the ball, its helpers and sound. The user chose to move on
+   from motion matching as it is.
+3. **Milestone 5: playing it**: control of a player (Enhanced Input to
+   `VolleyInput`, the DLL's `human` slot), the follow camera and ball cam,
+   the replay. Then milestone 6, the side-by-side comparison with Bevy.
 4. Optional: drive the editor through MCP. This session, opened in another
    folder, did milestone 1 from code and the command line, and didn't need
    it. For MCP tools, open a session in `volley-unreal` with the editor

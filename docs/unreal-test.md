@@ -496,3 +496,49 @@ Limits of this experiment:
 - The bots change direction all the time, so Turn and Cut are picked a lot.
   The body's facing still comes from the game's turn rule, not from the
   clips.
+
+### 2026-10-11: milestone 4, hits, the ball and sound
+
+The hits already played on the sim's events (milestone 3). This milestone
+adds the ball and what helps you read it, and sound, both ported from the
+Bevy client with its constants.
+
+- **The ball** (`FVolleyBallView`):
+  - Made by `make_assets.py`: a UV sphere of the sim's radius, with the Bevy
+    client's six-panel texture generated as a PNG. It wears `M_Character`.
+  - It spins with speed (15% of rolling, at most 28 rad/s), stretches with
+    speed, and squashes on every touch.
+  - After a rally it bounces and rolls to a stop on its own
+    (`start_bounce`).
+  - The decoy looks the same.
+- **Helpers on the floor**:
+  - The ball's shadow shrinks and fades as it rises.
+  - Blob shadows under the players.
+  - Three landing rings in the color of the half the ball falls on, lighter.
+    Two are fixed (0.5 and 0.25 m); the third closes in from 2.5 m over the
+    last 1.5 s. Time to landing comes from the ball's height and vertical
+    speed.
+  - New materials `M_Shadow` and `M_Ring` (unlit, radial).
+- **Trail**: a camera-facing ribbon, a procedural mesh with the additive
+  `M_Trail`, over the ball's last 0.35 s.
+  - Colored by the last hit as in trail.rs: chain spikes wider and
+    near-white, blocks violet.
+  - Cleared on new hits, the net, new rallies, and while a decoy flies.
+- **Sand puff**: 40 instanced grains where the ball lands, as effects.rs.
+- **Sound** (`FVolleyAudio`):
+  - All 27 of volley's sound files, imported as they are (OGG and FLAC).
+  - audio.rs's table, event by event, with its volumes and round-robin
+    variants: spatial at the ball or player, crowd and whistle in 2D.
+  - Footsteps every 1.3 m run and on landing.
+  - The crowd's murmur on a loop, and a wave every 3.5–7 s.
+- **Films with sound**:
+  - Films are made of screenshots, so they're silent.
+  - With `VOLLEY_SOUND_LOG=FILE`, the game writes each sound: sim time,
+    sound, volume as heard from the camera, and pan.
+  - `Tools/film_audio.py` mixes them onto the film with ffmpeg at their exact
+    frames.
+- **Film**: `volley-unreal/Saved/Films/milestone4-ball-and-sound.mp4` (20 s,
+  ball camera, 323 sounds).
+
+Not ported, as it's HUD and camera (milestone 5): the off-screen ball marker
+and the camera shake.

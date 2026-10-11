@@ -151,9 +151,10 @@ Then:
 
 ## Open questions
 
-- **Art direction**: realistic heroes, or stylized? Stylized bodies hide thin
-  animation much better (see the ik01 demo), and the choice changes how much
-  retargeting and model work milestone 3 needs. Best decided before it.
+- **Art direction**: decided 2026-10-11, **stylized, like Knockout City**:
+  saturated colors, soft light, bold simple shapes rather than photo-real
+  detail. Stylized bodies also hide thin animation better. Cross's model and
+  materials in milestone 3 follow this.
 - **Version control** of the Unreal project: its assets are binary and large,
   so it needs Git LFS, and GitHub's LFS quotas are small. During the test,
   its source, config and docs are in the private `talls2/volley-unreal`.
@@ -261,3 +262,45 @@ Notes:
 
 Cost: one session. Everything was done by Claude from code and the
 command line. The editor wasn't opened and nothing was clicked.
+
+### 2026-10-11: milestone 2, the arena and the look
+
+The Beach is in Unreal, laid out like the Bevy one (`arena.rs`) and styled
+like Knockout City (the user's choice).
+
+- **Generated assets**: `Tools/make_assets.py`, run in a headless editor
+  (`UnrealEditor-Cmd -run=pythonscript`), imports our Poly Haven sand and
+  builds the materials node by node. It also makes an empty `Arena` map. The
+  output (`Content/Volley`) isn't committed: the script recreates it. The
+  materials:
+  - `M_Stylized`: a color with a soft rim of that color, plus optional glow.
+    Used for players, ball, frames, pads, straps.
+  - `M_Sand`: the photo texture pulled 45% toward a flat warm tone, with
+    softened bumps.
+  - `M_Glass`: nearly clear head-on, tinted and glowing at the edges.
+  - `M_Water`: turquoise by the beach to deep blue farther out, with two
+    layers of panning waves from an engine normal map.
+  - `M_Net`: a masked 10 cm cord grid.
+- **`AVolleyArena`** spawns the sky and light itself:
+  - a warm sun, high as in Bevy
+  - sky atmosphere, at 2× its physical brightness for the sunny look
+  - volumetric clouds
+  - live sky light and sea haze
+  - post-processing: fixed exposure at -1 (the washed-out look is gone),
+    saturation +18%, a little contrast, bloom and vignette
+
+  It also builds the geometry: 160 m of sand, the sea, 8 m glass walls with
+  frame posts every 4 m and a top rail, team-coloured pads, blue straps, and
+  the net with its top band, posts and pads. Lumen (software) is on.
+- **Tuning without rebuilding**: `VOLLEY_EXPOSURE`, `VOLLEY_SUN` and
+  `VOLLEY_SKY`. Exposure was chosen from side-by-side shots at -1, -2 and -3.
+  `VOLLEY_CAM=orbit` circles the arena, 24 s a turn.
+- **Films** in `volley-unreal/Saved/Films`: `milestone2-orbit.mp4` (20 s),
+  and `milestone2-broadcast.mp4`, the same rally as milestone 1.
+
+To fix later: from some angles a dark band shows on the sea near the horizon.
+The camera can see the edge of the square sand, and the sea has no shoreline
+or foam. The players are still capsules (milestone 3).
+
+Cost: one session, all from code, the command line and a Python script. The
+editor wasn't opened.

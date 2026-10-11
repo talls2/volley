@@ -18,8 +18,9 @@ look and presentation), the user shared posts on AI-driven game making. The
 one that mattered is Epic's official Claude Code plugin, which drives the
 Unreal Editor through MCP. That led to a decision to **test Unreal as
 Volley's client** before porting anything. The plan is
-`docs/unreal-test.md` (commit 4428a5b). Milestones 0 (setup) and 1 (the sim
-in Unreal) are done and logged there.
+`docs/unreal-test.md` (commit 4428a5b). Milestones 0 (setup), 1 (the sim
+in Unreal) and 2 (the stylized Beach arena, sky and light) are done and logged
+there. Films are in `volley-unreal/Saved/Films`, on this PC only.
 
 Milestone 1: the new crate `crates/sim_ffi` builds the sim as a DLL with a C
 interface. `volley-unreal` loads it and draws the bot match as a greybox
@@ -50,26 +51,29 @@ On this PC now:
   looks first. Feel (60 fps or more, no slower input), cost and workflow only
   have to be acceptable.
 - **The test runs on this Windows PC** (RTX 5070 Ti), not the MacBook.
+- **Art is stylized, like Knockout City**: saturated colors, soft light, bold
+  simple shapes. That applies to the arena now and to Cross in milestone 3.
+- **Unreal assets come from code**: `Tools/make_assets.py` generates the
+  materials and the map in a headless editor, and C++ builds the arena at
+  runtime. Generated content isn't committed.
 - **Commits** keep the noreply identity, now set in this clone's repo config,
   with no Claude co-author trailer.
 - **The Windows Firewall stays on.** The MCP server is localhost-only. The
   editor's prompt to listen on the network (port 1985) can be cancelled.
 
 ## Next steps
-1. **The user watches the milestone 1 film** before milestone 2 starts.
-2. **Milestone 2: the arena and the look.** Sand (our Poly Haven texture),
-   glass walls, net, sea and sky, Lumen, a sun, post-processing, still with
-   capsules. Fix the washed-out auto exposure.
-3. Then milestones 3–6 as in the plan: Cross and motion matching, hits and
-   ball, playing it, the side-by-side comparison. Log each one in the plan.
+1. **The user watches the milestone 2 films** (orbit and broadcast) and gives
+   feedback on the look.
+2. **Milestone 3: Cross and motion matching**, stylized. The user adds the
+   Game Animation Sample from Fab first.
+3. Then milestones 4–6 as in the plan: hits and ball, playing it, the
+   side-by-side comparison. Log each one in the plan.
 4. Optional: drive the editor through MCP. This session, opened in another
    folder, did milestone 1 from code and the command line, and didn't need
    it. For MCP tools, open a session in `volley-unreal` with the editor
    running, approve `unreal-mcp`, and install Epic's plugin when asked.
 
 ## Open questions
-- **Realistic or stylized art**: to decide before milestone 3, since it
-  changes how much model and retargeting work Cross needs.
 - **Binary assets** for `volley-unreal` (maps, imported models) would need Git
   LFS, and GitHub's quotas are small. Undecided until there are some.
 - **The Game Animation Sample**: the user adds it from Fab before milestone 3.

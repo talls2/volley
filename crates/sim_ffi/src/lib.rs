@@ -8,7 +8,8 @@
 use volley_sim::attack;
 use volley_sim::court::BALL_RADIUS;
 use volley_sim::moves::{ALL_ROUNDER, CROSS, GOLAZO};
-use volley_sim::{Aim, Ball, Event, HitKind, MatchConfig, MovePhase, Passive, Phase, PlayerInput, Sim, Vec2, Vec3, bot};
+use volley_sim::moves::Button;
+use volley_sim::{Aim, Ball, DT, Event, HitKind, MatchConfig, MoveId, MovePhase, Passive, Phase, PlayerInput, Sim, Vec2, Vec3, bot};
 
 /// A match, and the events of its latest tick.
 pub struct VolleyMatch {
@@ -255,6 +256,108 @@ impl VolleyEvent {
 
     fn at(kind: u32, at: Vec3) -> Self {
         Self { x: at.x, y: at.y, z: at.z, ..Self::new(kind) }
+    }
+}
+
+/// What the HUD shows for a player (the Bevy client's hud.rs and aim.rs).
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct VolleyHud {
+    /// Where their next hit would land (world, Y up), how far off a hit from a
+    /// bad position may stray (m), and its kind (`hit_kind`).
+    pub aim_x: f32,
+    pub aim_y: f32,
+    pub aim_z: f32,
+    pub aim_spread: f32,
+    pub aim_kind: u32,
+    /// The ball is theirs to play: held or carried by them, or coming down on
+    /// their side and theirs to touch. The aim marker shows then.
+    pub yours: u8,
+    /// `PROMPT_*`: a foot save or a dive is the move right now.
+    pub prompt: u8,
+    pub has_ability: u8,
+    pub has_ultimate: u8,
+    /// Seconds until the ability can be used again (0: ready).
+    pub ability_cooldown: f32,
+    /// The ultimate's charge, 0 to 1.
+    pub charge: f32,
+    /// Points needed to win the set being played.
+    pub points_to_win: u32,
+    /// The moves' names, zero-terminated.
+    pub ability_name: [u8; 24],
+    pub ultimate_name: [u8; 24],
+}
+
+pub const PROMPT_NONE: u8 = 0;
+pub const PROMPT_FOOT_SAVE: u8 = 1;
+pub const PROMPT_DIVE: u8 = 2;
+
+/// How far ahead (ticks) the save prompt looks.
+const PROMPT_LOOKAHEAD_TICKS: u32 = 30;
+
+fn name_bytes(name: &str) -> [u8; 24] {
+    let mut out = [0u8; 24];
+    for (slot, byte) in out.iter_mut().zip(name.bytes().take(23)) {
+        *slot = byte;
+    }
+    out
+}
+
+/// A foot save when the ball is about to come by too low for the arms but
+/// within a foot; a dive when it will land too far to run to (hud.rs's
+/// `save_prompt`).
+pub fn save_prompt(sim: &Sim, me: usize) -> u8 {
+    let player = &sim.players[me];
+    let Ball::InFlight(flight) = sim.ball else { return PROMPT_NONE };
+    let busy = player.action.is_some_and(|action| action.id.spec().lunge.is_some());
+    if sim.must_not_touch(me) || busy || !player.grounded() {
+        return PROMPT_NONE;
+    }
+    let upcoming = || (1..=PROMPT_LOOKAHEAD_TICKS).map(|ahead| flight.position_at(sim.tick + ahead));
+    let arms = upcoming().any(|ball| player.reaches(MoveId::Pass, ball));
+    let feet = player.kit.has_move(MoveId::FootSave) && upcoming().any(|ball| player.reaches(MoveId::FootSave, ball));
+    if feet && !arms {
+        return PROMPT_FOOT_SAVE;
+    }
+    let landing = flight.landing_point();
+    let seconds_left = flight.landing_time() - flight.elapsed(sim.tick);
+    let distance = Vec2::new(landing.x - player.position.x, landing.z - player.position.z).length();
+    let dive = MoveId::Dive.spec();
+    let dive_reach = dive.lunge.unwrap_or_default() * dive.active as f32 * DT + dive.reach;
+    let ours = sim.team_on(landing.x) == player.team;
+    if ours && seconds_left < 0.6 && distance > player.kit.run_speed * seconds_left + 1.0 && distance < dive_reach {
+        PROMPT_DIVE
+    } else {
+        PROMPT_NONE
+    }
+}
+
+/// The HUD's view of player `me`.
+pub fn hud(sim: &Sim, me: usize) -> VolleyHud {
+    let player = &sim.players[me];
+    let preview = sim.preview_hit(me);
+    let yours = match sim.ball {
+        Ball::Held { by } | Ball::Carried { by, .. } => by == me,
+        Ball::InFlight(flight) => sim.team_on(flight.landing_point().x) == player.team && !sim.must_not_touch(me),
+        Ball::Dead { .. } => false,
+    };
+    let ability = player.kit.move_on(Button::Ability);
+    let ultimate = player.kit.move_on(Button::Ultimate);
+    VolleyHud {
+        aim_x: preview.target.x,
+        aim_y: preview.target.y,
+        aim_z: preview.target.z,
+        aim_spread: preview.spread,
+        aim_kind: hit_kind(preview.kind),
+        yours: yours as u8,
+        prompt: save_prompt(sim, me),
+        has_ability: ability.is_some() as u8,
+        has_ultimate: ultimate.is_some() as u8,
+        ability_cooldown: ability.map_or(0.0, |id| if player.ready(id, sim.tick) { 0.0 } else { player.cooldown_left(id, sim.tick) }),
+        charge: player.charge,
+        points_to_win: sim.points_to_win_set(),
+        ability_name: name_bytes(ability.map_or("", |id| id.spec().name)),
+        ultimate_name: name_bytes(ultimate.map_or("", |id| id.spec().name)),
     }
 }
 
@@ -580,6 +683,17 @@ pub fn look_ahead(sim: &Sim, human: Option<usize>) -> Vec<Ahead> {
     ahead
 }
 
+/// Fills `out` with what the HUD shows for player `player`: see [`hud`].
+///
+/// # Safety
+/// `game` comes from `volley_match_new`; `out` is valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn volley_match_hud(game: *const VolleyMatch, player: u32, out: *mut VolleyHud) {
+    let sim = &unsafe { &*game }.sim;
+    let player = (player as usize).min(sim.players.len() - 1);
+    unsafe { out.write(hud(sim, player)) };
+}
+
 /// See [`checksum`].
 ///
 /// # Safety
@@ -619,6 +733,7 @@ mod tests {
         assert_eq!(size_of::<VolleyPlayerState>(), 136);
         assert_eq!(size_of::<VolleyMatchState>(), 100);
         assert_eq!(size_of::<VolleyEvent>(), 44);
+        assert_eq!(size_of::<VolleyHud>(), 84);
     }
 
     #[test]

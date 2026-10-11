@@ -107,6 +107,19 @@ typedef struct VolleyEvent {
     float vx, vy, vz;
 } VolleyEvent;
 
+/* What the HUD shows for a player: the aim marker (while the ball is theirs),
+ * the save prompt, the ability and ultimate, and the points to win the set. */
+enum { VOLLEY_PROMPT_NONE = 0, VOLLEY_PROMPT_FOOT_SAVE = 1, VOLLEY_PROMPT_DIVE = 2 };
+
+typedef struct VolleyHud {
+    float aim_x, aim_y, aim_z, aim_spread;
+    uint32_t aim_kind;
+    uint8_t yours, prompt, has_ability, has_ultimate;
+    float ability_cooldown, charge;
+    uint32_t points_to_win;
+    char ability_name[24], ultimate_name[24];
+} VolleyHud;
+
 VolleyMatch *volley_match_new(void);
 /* Red's first player (the one a person plays) as a VOLLEY_KIT_*. */
 VolleyMatch *volley_match_new_as(uint32_t kit);
@@ -116,6 +129,7 @@ uint32_t volley_match_step(VolleyMatch *game, int32_t human, const VolleyInput *
 uint32_t volley_match_events(const VolleyMatch *game, VolleyEvent *out, uint32_t max);
 uint32_t volley_match_state(const VolleyMatch *game, VolleyMatchState *state, VolleyPlayerState *players, uint32_t max_players);
 uint64_t volley_match_checksum(const VolleyMatch *game);
+void volley_match_hud(const VolleyMatch *game, uint32_t player, VolleyHud *out);
 
 #ifdef __cplusplus
 }

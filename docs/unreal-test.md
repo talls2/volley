@@ -689,3 +689,38 @@ The user skipped milestone 6 and chose Unreal. Open, for the user to decide:
    describe the Bevy client as the game. Decide whether `volley-unreal`
    stays separate or moves into `volley`, then update them. Binary assets
    (once there are any not made by script) need Git LFS.
+
+### 2026-10-11: the HUD
+
+The Bevy client's HUD (hud.rs, aim.rs) is ported, drawn on Unreal's canvas
+by `AVolleyHUD` (no UMG assets) with hud.rs's sizes and text shadow:
+
+- Score and set ("Set 1 (to 21) | sets 0 : 0"), with PAUSED when paused.
+- Callouts:
+  - points with their reason, held until the next rally, then sides
+    switching and sets won
+  - your attacks' contact, from "perfect!" to "scrambled"
+  - dribbles, chain spikes, crossovers, posterizers, chilenas, decoys
+    fooling someone, blocks
+- The "Foot save!" and "Dive!" prompts, with the right key for your device.
+- The hero's ability and ultimate: ready, cooldown, charge, gold when the
+  ultimate is ready.
+- Hero names over everyone, in team colors.
+- A pointer on the screen's edge to the ball when it's off screen, with its
+  distance; hidden while a decoy flies.
+- The "Ball cam" label, and hud.rs's controls help, worded for keyboard or
+  controller.
+- The replay's letterbox moved into the same HUD.
+- **The aim marker** (`FVolleyAimMarker`), drawn on the floor:
+  - rings of 1 m and 0.9 m, a cross, the spread ring when a hit may stray,
+    and a faint line from your feet
+  - warming from yellow to orange as the hit charges
+  - shown while the ball is yours to play
+- **`sim_ffi`'s `volley_match_hud(player)`** gives what the sim knows: the
+  hit preview and whether the ball is yours (aim.rs's rules), the save
+  prompt (hud.rs's `save_prompt`), the moves' names, cooldown and charge,
+  and the points to win the set.
+- Screenshots now include the HUD. `VOLLEY_HUD=player` shows the player's
+  part (aim, prompts, abilities) while a bot plays them, to film it.
+- **Film**: `volley-unreal/Saved/Films/hud.mp4` (20 s, playing Cross, with
+  sound).

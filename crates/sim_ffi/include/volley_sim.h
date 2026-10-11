@@ -23,11 +23,33 @@ typedef struct VolleyInput {
     uint8_t jump, jump_released, pass, pass_held, spike, dive, kick, dash, ability, ultimate;
 } VolleyInput;
 
+enum { VOLLEY_KIT_ALL_ROUNDER = 0, VOLLEY_KIT_CROSS = 1, VOLLEY_KIT_GOLAZO = 2 };
+enum { VOLLEY_MOVE_WINDUP = 0, VOLLEY_MOVE_ACTIVE = 1, VOLLEY_MOVE_RECOVERY = 2, VOLLEY_MOVE_OVER = 3 };
+
+/* Moves, in the sim's MoveId order. */
+enum {
+    VOLLEY_PASS = 0, VOLLEY_SPIKE = 1, VOLLEY_DIVE = 2, VOLLEY_FOOT_SAVE = 3,
+    VOLLEY_CROSSOVER = 4, VOLLEY_POSTERIZER = 5, VOLLEY_BANANA_KICK = 6, VOLLEY_CHILENA = 7,
+};
+
 typedef struct VolleyPlayerState {
     float x, y, z;    /* feet */
     float vx, vy, vz;
     uint32_t team;
-    uint8_t stunned;
+    uint8_t stunned, blocking, grounded, has_action;
+    uint32_t kit;
+    int32_t action_move;
+    uint32_t action_phase, action_start_tick;
+    float action_dir_x, action_dir_z;
+    int32_t active_move;
+    float dash_dir_x, dash_dir_z;
+    uint32_t dash_start_tick;
+    uint8_t has_dash, has_carry, must_not_touch, feet;
+    float carry_vx, carry_vz;
+    int32_t contact_ticks;
+    float contact_x, contact_y, contact_z;
+    uint32_t technique;
+    uint8_t no_look;
 } VolleyPlayerState;
 
 enum { VOLLEY_BALL_DEAD = 0, VOLLEY_BALL_HELD = 1, VOLLEY_BALL_IN_FLIGHT = 2, VOLLEY_BALL_CARRIED = 3 };

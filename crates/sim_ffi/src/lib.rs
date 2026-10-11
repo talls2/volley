@@ -5,9 +5,10 @@
 //! The sim's world is Y up, in meters, with the net along x = 0. Everything here
 //! keeps those units and axes; converting to an engine's is the client's job.
 
+use volley_sim::attack;
 use volley_sim::court::BALL_RADIUS;
 use volley_sim::moves::{ALL_ROUNDER, CROSS, GOLAZO};
-use volley_sim::{Aim, Ball, Event, HitKind, MatchConfig, Phase, PlayerInput, Sim, Vec2, Vec3, bot};
+use volley_sim::{Aim, Ball, Event, HitKind, MatchConfig, MovePhase, Passive, Phase, PlayerInput, Sim, Vec2, Vec3, bot};
 
 /// A match, and the events of its latest tick.
 pub struct VolleyMatch {
@@ -75,7 +76,60 @@ pub struct VolleyPlayerState {
     pub team: u32,
     /// 1 while knocked down.
     pub stunned: u8,
+    /// Hands up at the net, in the air.
+    pub blocking: u8,
+    pub grounded: u8,
+    /// 1 if `action_*` holds a move (playing or just finished).
+    pub has_action: u8,
+    /// `KIT_*`.
+    pub kit: u32,
+    /// The move (`MoveId::index`), its phase (`MOVE_*`), when it started and
+    /// its lunge direction (world XZ).
+    pub action_move: i32,
+    pub action_phase: u32,
+    pub action_start_tick: u32,
+    pub action_dir_x: f32,
+    pub action_dir_z: f32,
+    /// The move that can touch the ball right now, or -1.
+    pub active_move: i32,
+    /// The latest dash, and its direction (world XZ).
+    pub dash_dir_x: f32,
+    pub dash_dir_z: f32,
+    pub dash_start_tick: u32,
+    pub has_dash: u8,
+    /// Carrying the ball (a crossover), shifting sideways at (carry_vx, carry_vz).
+    pub has_carry: u8,
+    /// Touched the ball last: touching it again would be a fault.
+    pub must_not_touch: u8,
+    /// The kit's passives that change how a player looks: Feet (Golazo does
+    /// everything with his feet) and NoLook (Cross doesn't turn to his hits).
+    pub feet: u8,
+    pub carry_vx: f32,
+    pub carry_vz: f32,
+    /// When the active move will meet the ball, within a second: ticks from
+    /// now (-1 if not) and where the ball will be.
+    pub contact_ticks: i32,
+    pub contact_x: f32,
+    pub contact_y: f32,
+    pub contact_z: f32,
+    /// The attack technique (`hit_kind`: spike, volley or bicycle) for the
+    /// ball at contact, or the ball now if there's no contact.
+    pub technique: u32,
+    pub no_look: u8,
 }
+
+pub const KIT_ALL_ROUNDER: u32 = 0;
+pub const KIT_CROSS: u32 = 1;
+pub const KIT_GOLAZO: u32 = 2;
+
+pub const MOVE_WINDUP: u32 = 0;
+pub const MOVE_ACTIVE: u32 = 1;
+pub const MOVE_RECOVERY: u32 = 2;
+/// The action is still set but its move has played out.
+pub const MOVE_OVER: u32 = 3;
+
+/// How far ahead `contact_ticks` looks: a second, as the Bevy client does.
+const CONTACT_HORIZON: u32 = 60;
 
 pub const BALL_DEAD: u32 = 0;
 pub const BALL_HELD: u32 = 1;
@@ -371,22 +425,66 @@ pub unsafe extern "C" fn volley_match_state(
         })
     };
     let count = sim.players.len().min(max_players as usize);
-    for (i, player) in sim.players.iter().take(count).enumerate() {
-        let p = player.position;
-        unsafe {
-            players.add(i).write(VolleyPlayerState {
-                x: p.x,
-                y: p.y,
-                z: p.z,
-                vx: player.velocity.x,
-                vy: player.vertical_velocity,
-                vz: player.velocity.y,
-                team: player.team as u32,
-                stunned: (player.stunned_until > sim.tick) as u8,
-            })
-        };
+    for i in 0..count {
+        unsafe { players.add(i).write(player_state(sim, i)) };
     }
     count as u32
+}
+
+/// Everything a client needs to animate player `i`.
+pub fn player_state(sim: &Sim, i: usize) -> VolleyPlayerState {
+    let player = &sim.players[i];
+    let p = player.position;
+    let kit = match player.kit.name {
+        name if name == CROSS.name => KIT_CROSS,
+        name if name == GOLAZO.name => KIT_GOLAZO,
+        _ => KIT_ALL_ROUNDER,
+    };
+    let action = player.action;
+    let action_phase = action.map_or(MOVE_OVER, |action| match action.phase(sim.tick) {
+        Some(MovePhase::Windup) => MOVE_WINDUP,
+        Some(MovePhase::Active) => MOVE_ACTIVE,
+        Some(MovePhase::Recovery) => MOVE_RECOVERY,
+        None => MOVE_OVER,
+    });
+    let contact = sim.predicted_contact(i, CONTACT_HORIZON);
+    let ball = contact.map_or(sim.ball_position(), |(_, at)| at);
+    let (technique, _) = attack::best_technique(player, ball);
+    VolleyPlayerState {
+        x: p.x,
+        y: p.y,
+        z: p.z,
+        vx: player.velocity.x,
+        vy: player.vertical_velocity,
+        vz: player.velocity.y,
+        team: player.team as u32,
+        stunned: (player.stunned_until > sim.tick) as u8,
+        blocking: player.blocking() as u8,
+        grounded: player.grounded() as u8,
+        has_action: action.is_some() as u8,
+        kit,
+        action_move: action.map_or(-1, |action| action.id.index() as i32),
+        action_phase,
+        action_start_tick: action.map_or(0, |action| action.start_tick),
+        action_dir_x: action.map_or(0.0, |action| action.direction.x),
+        action_dir_z: action.map_or(0.0, |action| action.direction.y),
+        active_move: player.active_move(sim.tick).map_or(-1, |id| id.index() as i32),
+        dash_dir_x: player.dash.map_or(0.0, |dash| dash.direction.x),
+        dash_dir_z: player.dash.map_or(0.0, |dash| dash.direction.y),
+        dash_start_tick: player.dash.map_or(0, |dash| dash.start_tick),
+        has_dash: player.dash.is_some() as u8,
+        has_carry: player.carry.is_some() as u8,
+        must_not_touch: sim.must_not_touch(i) as u8,
+        feet: player.kit.has(Passive::Feet) as u8,
+        carry_vx: player.carry.map_or(0.0, |carry| carry.velocity.x),
+        carry_vz: player.carry.map_or(0.0, |carry| carry.velocity.y),
+        contact_ticks: contact.map_or(-1, |(ticks, _)| ticks as i32),
+        contact_x: contact.map_or(0.0, |(_, at)| at.x),
+        contact_y: contact.map_or(0.0, |(_, at)| at.y),
+        contact_z: contact.map_or(0.0, |(_, at)| at.z),
+        technique: hit_kind(technique),
+        no_look: player.kit.has(Passive::NoLook) as u8,
+    }
 }
 
 /// See [`checksum`].
@@ -425,7 +523,7 @@ mod tests {
     #[test]
     fn struct_sizes() {
         assert_eq!(size_of::<VolleyInput>(), 36);
-        assert_eq!(size_of::<VolleyPlayerState>(), 32);
+        assert_eq!(size_of::<VolleyPlayerState>(), 108);
         assert_eq!(size_of::<VolleyMatchState>(), 88);
         assert_eq!(size_of::<VolleyEvent>(), 44);
     }

@@ -753,3 +753,64 @@ are ported, drawn by `AVolleyHUD` like the rest of the HUD:
   menus, so films and checksums are unchanged: tick 1200 is still
   `21fa2aa0367dbf04`. `VOLLEY_SCREEN=title` or `select` opens on a menu
   anyway, and with `VOLLEY_SHOTS` it's shot in both arenas.
+
+### 2026-10-11: the heroes' ability looks, and the rest of the Bevy client
+
+**The abilities' looks.** Bevy has few: trail colors, the decoy, puffs and a
+gold ring. So they follow the concept art (`docs/concept`), in the hero's
+color (Cross orange, Golazo green):
+
+- **The kit glows** (`M_Character`'s new `HeroColor`, `Trim`, `Aura`):
+  - The trims light from the texture itself, from texels close to the hero's
+    hue, saturated and bright. That picks out Cross's orange stripes and
+    "00", and Golazo's green boots and gold trims.
+  - They glow a little at rest, brighter as the ultimate charges, and breathe
+    once it's ready. Through an ability move a soft aura joins them.
+- **Streaks** follow the limbs doing the move: Cross's hands through the
+  Crossover and Posterizer, and Golazo's feet through the Banana Kick and
+  Chilena.
+- **The ball glows** in the hero's color after a dunk, a banana kick or a
+  crossover. After the Chilena both balls glow alike.
+- **Flashes and sparks** in the hero's color: the split, the crossover's
+  catch, the dunk and the banana kick striking the ball, a decoy popping, a
+  dribble.
+- **The Posterizer**: its leap blasts sand and orange sparks off the floor.
+  The dunk landing through a block sends a shockwave across the floor.
+  Between bots, Cross starts the Posterizer (5 times in 40,000 ticks) but
+  never lands the dunk, so a posterize hasn't been seen in a film yet.
+
+**What was still missing from the Bevy client:**
+
+- **effects.rs**, all of it:
+  - sand where a dive hits the floor, a foot save sweeps, a dash pushes
+    off, a jump lands, a foot kicks off a wall, a chain spike bursts
+  - sparks instead in the Neon Stadium
+  - `FVolleyEffects` now owns the puffs, the ball's landing puff included
+- **draw_team_markers**: a ring in team color under everyone, doubled
+  under yours, and a gold ring that breathes once an ultimate is ready.
+- **The decoy's landing rings.** Only the real ball had them, which gave the
+  decoy away. `sim_ffi`'s match state now carries where the decoy lands and
+  how long until each ball lands (116 bytes). Player state carries the
+  ultimate's charge (140 bytes).
+- **The ball's glow in the Neon Stadium** (arena.rs).
+- **Ring lines** widen with distance from the camera, as Bevy's 2 px gizmo
+  lines do. On the Beach the markers glow brighter against the sand.
+- **Bench mode** (bench.rs): `VOLLEY_BENCH=out.json`, with Bevy's settings
+  and report fields, including the director's camera and screenshots at
+  touches.
+  - The first run (30 s, Neon) gives touch gaps of 0.25 m mean and swings
+    all timed. Hand pops reach 459 m/s, and 20% of planted-foot frames
+    slide. Those last two are the numbers to work on.
+- Not ported: inertia.rs. It's off by default in Bevy and measured no better
+  than crossfades (experiments 06 and 07).
+
+**Fixed on the way:** `M_Stylized` lacked the instanced-mesh flag. The Neon
+crowd, the stars, and the sand and sparks were drawing with the engine's
+grey default material. The crowd now shows its six shirt colors, so the
+stands are much busier than in earlier films.
+
+**Tools:**
+- `VOLLEY_FOLLOW=N` films one player close up.
+- `cargo run -p volley_sim_ffi --release --example events` lists the
+  heroes' moments, to find them.
+- `MAKE_ASSETS_ONLY=materials` remakes just the materials.

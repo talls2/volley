@@ -127,6 +127,8 @@ pub struct VolleyPlayerState {
     /// matching: the same look ahead.
     pub future_x: [f32; 3],
     pub future_z: [f32; 3],
+    /// The ultimate's charge, 0 to 1 (ready).
+    pub charge: f32,
 }
 
 /// The ticks `future_x`/`future_z` look ahead: 0.2, 0.4 and 0.6 s.
@@ -198,6 +200,12 @@ pub struct VolleyMatchState {
     pub ball_vx: f32,
     pub ball_vy: f32,
     pub ball_vz: f32,
+    /// Where the decoy lands, and how long until each ball does (seconds),
+    /// for landing guides that don't tell the two apart.
+    pub decoy_landing_x: f32,
+    pub decoy_landing_z: f32,
+    pub landing_seconds: f32,
+    pub decoy_landing_seconds: f32,
 }
 
 /// What `VolleyEvent::kind` can be, one per [`Event`] variant.
@@ -551,6 +559,11 @@ pub unsafe extern "C" fn volley_match_state(
         _ => Vec3::ZERO,
     };
     let decoy = sim.decoy().map(|flight| flight.position_at(sim.tick));
+    let decoy_landing = sim.decoy().map(|flight| (flight.landing_point(), flight.landing_time() - flight.elapsed(sim.tick)));
+    let landing_seconds = match sim.ball {
+        Ball::InFlight(flight) => flight.landing_time() - flight.elapsed(sim.tick),
+        _ => 0.0,
+    };
     let phase = match sim.phase {
         Phase::Rally => PHASE_RALLY,
         Phase::PointScored { .. } => PHASE_POINT_SCORED,
@@ -581,6 +594,10 @@ pub unsafe extern "C" fn volley_match_state(
             ball_vx: velocity.x,
             ball_vy: velocity.y,
             ball_vz: velocity.z,
+            decoy_landing_x: decoy_landing.map_or(0.0, |(p, _)| p.x),
+            decoy_landing_z: decoy_landing.map_or(0.0, |(p, _)| p.z),
+            landing_seconds,
+            decoy_landing_seconds: decoy_landing.map_or(0.0, |(_, t)| t),
         })
     };
     let count = sim.players.len().min(max_players as usize);
@@ -647,6 +664,7 @@ pub fn player_state(sim: &Sim, i: usize, ahead: Ahead) -> VolleyPlayerState {
         takeoff_ticks: ahead.takeoff.map_or(-1, |ticks| ticks as i32),
         future_x: ahead.future.map(|spot| spot.x),
         future_z: ahead.future.map(|spot| spot.y),
+        charge: player.charge,
     }
 }
 
@@ -730,8 +748,8 @@ mod tests {
     #[test]
     fn struct_sizes() {
         assert_eq!(size_of::<VolleyInput>(), 36);
-        assert_eq!(size_of::<VolleyPlayerState>(), 136);
-        assert_eq!(size_of::<VolleyMatchState>(), 100);
+        assert_eq!(size_of::<VolleyPlayerState>(), 140);
+        assert_eq!(size_of::<VolleyMatchState>(), 116);
         assert_eq!(size_of::<VolleyEvent>(), 44);
         assert_eq!(size_of::<VolleyHud>(), 84);
     }

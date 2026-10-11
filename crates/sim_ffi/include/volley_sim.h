@@ -52,6 +52,7 @@ typedef struct VolleyPlayerState {
     uint8_t no_look;
     int32_t takeoff_ticks;
     float future_x[3], future_z[3];  /* feet 0.2, 0.4 and 0.6 s ahead */
+    float charge;     /* the ultimate's charge, 0 to 1 (ready) */
 } VolleyPlayerState;
 
 enum { VOLLEY_BALL_DEAD = 0, VOLLEY_BALL_HELD = 1, VOLLEY_BALL_IN_FLIGHT = 2, VOLLEY_BALL_CARRIED = 3 };
@@ -69,6 +70,9 @@ typedef struct VolleyMatchState {
     uint8_t has_decoy;
     float decoy_x, decoy_y, decoy_z;
     float ball_vx, ball_vy, ball_vz;
+    /* Where the decoy lands, and how long until each ball does (s). */
+    float decoy_landing_x, decoy_landing_z;
+    float landing_seconds, decoy_landing_seconds;
 } VolleyMatchState;
 
 enum {

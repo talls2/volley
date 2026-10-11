@@ -78,9 +78,10 @@ On this PC now:
    `volley-unreal/Tools/Play.bat` and says how it feels.
 3. The open questions from the plan's last log entry: where the rules live
    (recommendation: keep them in Rust behind the DLL), how online play works,
-   what comes over next from the Bevy client (HUD, menus, hero select), and
-   updating `volley`'s README and CLAUDE.md, which still describe Bevy as
-   the game.
+   and updating `volley`'s README and CLAUDE.md, which still describe Bevy
+   as the game. The HUD and the title, hero select, pause and match-over
+   screens have come over from Bevy (logged in the plan); next from it are
+   the looks of the heroes' abilities.
 
 ## Open questions
 - **Binary assets** for `volley-unreal` (maps, imported models) would need Git

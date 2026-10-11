@@ -724,3 +724,32 @@ by `AVolleyHUD` (no UMG assets) with hud.rs's sizes and text shadow:
   part (aim, prompts, abilities) while a bot plays them, to film it.
 - **Film**: `volley-unreal/Saved/Films/hud.mp4` (20 s, playing Cross, with
   sound).
+
+### 2026-10-11: the title and hero select screens
+
+The Bevy client's screens around a match (flow.rs, select.rs, heroes.rs)
+are ported, drawn by `AVolleyHUD` like the rest of the HUD:
+
+- **Title**: "VOLLEY" over the arena, with the paused preview match behind
+  it. Enter, Space or A goes on.
+- **Hero select**: heroes.rs's three cards, each with the hero's name in
+  their colour, title, blurb and lines. The buttons are filled in for your
+  device ([R]/[G] or [X]/[Y]). The chosen card has a border in the hero's
+  colour, and the newest hero (Golazo) is chosen by default.
+  - A / D, the arrows, the d-pad or a flick of the stick pick the hero.
+  - W / S or up / down switch the arena. It rebuilds behind the cards:
+    `AVolleyArena::Build` takes down the old one's actors and pieces first.
+  - Enter starts the match.
+- **Playing**: each match is new (`AVolleyMatchActor::NewMatch`): the old
+  players go, a fresh sim starts with your hero, and the controls forget the
+  press that started it, as Bevy's do. The sim only steps while playing.
+- **Pause**: an overlay replaces the "PAUSED" in the score line.
+- **Match over**: "Red wins!" in the team colour, with the sets. Enter goes
+  back to the hero select for a rematch.
+- The menus are sized from Bevy's 1280x720 and scale with the window. The
+  HUD's text is now the engine's runtime Roboto with a copy at each size,
+  so big text stays sharp.
+- `Play.bat cross` (or `golazo`, `all-rounder`) and filming skip the
+  menus, so films and checksums are unchanged: tick 1200 is still
+  `21fa2aa0367dbf04`. `VOLLEY_SCREEN=title` or `select` opens on a menu
+  anyway, and with `VOLLEY_SHOTS` it's shot in both arenas.

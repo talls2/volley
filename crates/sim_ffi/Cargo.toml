@@ -1,0 +1,12 @@
+[package]
+name = "volley_sim_ffi"
+version.workspace = true
+edition.workspace = true
+
+# A DLL with a C interface for clients outside Rust (the Unreal test,
+# docs/unreal-test.md), and a Rust library for its own tests and examples.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+volley_sim = { path = "../sim" }

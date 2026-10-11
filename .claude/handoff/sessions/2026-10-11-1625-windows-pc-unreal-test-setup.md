@@ -18,8 +18,14 @@ look and presentation), the user shared posts on AI-driven game making. The
 one that mattered is Epic's official Claude Code plugin, which drives the
 Unreal Editor through MCP. That led to a decision to **test Unreal as
 Volley's client** before porting anything. The plan is
-`docs/unreal-test.md` (commit 4428a5b). Milestone 0, setup, is done and logged
-there (fd910b5).
+`docs/unreal-test.md` (commit 4428a5b). Milestones 0 (setup) and 1 (the sim
+in Unreal) are done and logged there.
+
+Milestone 1: the new crate `crates/sim_ffi` builds the sim as a DLL with a C
+interface. `volley-unreal` loads it and draws the bot match as a greybox
+(capsules, ball, net, broadcast camera). Over a minute of play it gives the
+same match as plain Rust: all six checksums match the `checksum` example. A
+14 s film is in `volley-unreal/Saved/Films/milestone1-greybox.mp4`.
 
 On this PC now:
 - Unreal Engine 5.8.3, Visual Studio 2022 (C++ game workloads), Rust 1.99.
@@ -48,18 +54,16 @@ On this PC now:
   editor's prompt to listen on the network (port 1985) can be cancelled.
 
 ## Next steps
-1. **Open a new Claude Code session in `volley-unreal`** with the editor
-   running. Approve the `unreal-mcp` server and install Epic's plugin when
-   asked. The session that wrote this note couldn't load them, because it was
-   started in another folder.
-2. **Milestone 1: the sim in Unreal.** Add `crates/sim_ffi` to `volley` (a
-   cdylib wrapping `Sim::new`, `step` and a state snapshot). Load it from a
-   C++ plugin in `volley-unreal`, and show the bot match as capsules and a
-   sphere. Check that the same inputs give the same events as
-   `cargo run -p volley_server`.
-3. Then milestones 2–6 as in the plan: arena and look, Cross and motion
-   matching, hits and ball, playing it, the side-by-side comparison. Log each
-   one in the plan.
+1. **The user watches the milestone 1 film** before milestone 2 starts.
+2. **Milestone 2: the arena and the look.** Sand (our Poly Haven texture),
+   glass walls, net, sea and sky, Lumen, a sun, post-processing, still with
+   capsules. Fix the washed-out auto exposure.
+3. Then milestones 3–6 as in the plan: Cross and motion matching, hits and
+   ball, playing it, the side-by-side comparison. Log each one in the plan.
+4. Optional: drive the editor through MCP. This session, opened in another
+   folder, did milestone 1 from code and the command line, and didn't need
+   it. For MCP tools, open a session in `volley-unreal` with the editor
+   running, approve `unreal-mcp`, and install Epic's plugin when asked.
 
 ## Open questions
 - **Realistic or stylized art**: to decide before milestone 3, since it

@@ -213,3 +213,50 @@ What to know:
 Cost: mostly waiting on downloads. The user did the Epic sign-in, the engine
 install and the disk cleanup. Claude did the rest, with no clicking in the
 editor.
+
+### 2026-10-11: milestone 1, the sim in Unreal
+
+The bot match plays inside Unreal and gives **the same match tick for tick**
+as plain Rust. Every checksum over a minute of play is identical.
+
+- **`crates/sim_ffi`** (new): the sim as `volley_sim_ffi.dll` with a C
+  interface. It creates the game's lineup (Red three All-rounders; Blue Cross,
+  Golazo and an All-rounder), steps it with bots and optionally one human
+  input, and reads back the match, the players and the tick's events. The
+  header is `include/volley_sim.h`. Tests check that the C interface plays the
+  same match as the sim used directly, and that the struct sizes match the
+  ones the Unreal module `static_assert`s. The `checksum` example plays the
+  same match in Rust and prints a fingerprint every 10 s of play:
+  `cargo run -p volley_sim_ffi --release --example checksum`.
+- **`volley-unreal`**: the game module delay-loads the DLL at startup.
+  `VolleyUnreal.Build.cs` links it from `../volley/target/release` and copies
+  it next to the module, so build it there first. `AVolleyMatchActor` steps the
+  sim at a fixed 60 Hz and draws positions blended between the last two ticks.
+  It builds a greybox from the engine's basic shapes: sand, low edges where the
+  walls are, the net, team-coloured capsules, the ball, the decoy and the
+  landing marker. A broadcast camera looks across the court, and the score
+  shows on screen. `AVolleyGameMode` (no pawn) spawns it on the engine's
+  `Template_Default` map. Sim to Unreal: x stays x, sim z becomes y, sim y
+  becomes z, and meters become centimeters (which also turns right-handed into
+  left-handed).
+- **Bench settings**, like the Bevy bench: `VOLLEY_SHOTS=DIR` saves a
+  screenshot every `VOLLEY_SHOT_EVERY` ticks between `VOLLEY_SHOT_FROM` and
+  `VOLLEY_SHOT_TO`, and `VOLLEY_QUIT_AT` quits at that tick. For a film, run
+  with `-game -benchmark -fps=30` and `VOLLEY_SHOT_EVERY=2`: every frame is
+  then two ticks, and none are skipped while saving.
+- **Check**: 3600 ticks in Unreal against the `checksum` example. All six
+  fingerprints (ticks 600 to 3600), scores and touch counts are identical.
+- **Film**: `volley-unreal/Saved/Films/milestone1-greybox.mp4`, a 14 s rally
+  (ticks 400 to 1250).
+
+Notes:
+
+- Rebuilding C++ needs the editor closed (Live Coding blocks
+  `Build.bat`). An editor build takes about 16 s.
+- In `-game` mode, the Epic toolset plugins log Python errors at startup
+  (their editor-only Python modules). They're harmless.
+- The engine's auto exposure makes the sand look washed out. That's for
+  milestone 2.
+
+Cost: one session. Everything was done by Claude from code and the
+command line. The editor wasn't opened and nothing was clicked.

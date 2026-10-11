@@ -360,13 +360,6 @@ animated by a C++ port of `crates/client/src/characters.rs`.
 
 Not done yet in milestone 3:
 
-- **The procedural layers** of characters.rs, not ported yet:
-  - upper-body hits over running legs
-  - the body warp toward the ball
-  - arm and leg reach
-  - foot locking and stride warping
-  - head look, lean, hip twist, landing dip, slump
-  - hit-stop
 - **Motion matching** with the Mixamo locomotion in `volley-assets` (starts,
   stops, turns, strafes, backpedal), retargeted in Unreal: the plan's key
   experiment.
@@ -392,3 +385,48 @@ Not done yet in milestone 3:
 To improve: at a distance, Blue's heroes (Cross dark, Golazo green) read
 less clearly as Blue than the All-rounders do. Options: a stronger rim, or a
 team-coloured accent on their outfits (shorts, shoes, armbands).
+
+### 2026-10-11: milestone 3, characters.rs's procedural layers
+
+All of characters.rs's procedural layers are ported, with its constants (line
+references in the code).
+
+- **`FVolleyCharacter`** decides the goals and weights each frame, in world
+  space:
+  - lean into acceleration
+  - hips turned toward the run
+  - the body warp so the swing's contact spot meets the real ball
+  - landing dip, jump gather, recoil on hard balls, slump after a lost point
+  - stride warp
+  - when feet may lock
+  - head look, arm reach (both arms, or only the right for a spike), and
+    the leg's reach for foot saves and kicks
+  - bumps, sets and cheers moving onto the upper body once the player runs
+    (`UpperBody`)
+- **`UVolleyAnimInstance`** applies them after blending, in Bevy's order:
+  - A legs layer, a looping gait taking the root, hips and legs under a
+    layered hit.
+  - Local edits: hips down and turned (spine turned back), back and neck
+    bowed.
+  - Component-space edits, through a small forward-kinematics helper:
+    stride warping and foot locking (with each foot's memory kept in the
+    proxy), both solved with Bevy's two-bone leg solver; then the head turn,
+    and `point_limb` for arms and leg.
+- **Hit-stop** (`AVolleyMatchActor::HitStop`): as feel.rs, the game clock
+  slows to 5% for a beat on hard hits, stuff blocks, catches, posterizers and
+  splits, and the hitter shakes through it. It's timed on real time, through
+  Unreal's global time dilation. The camera shake isn't ported.
+- **`sim_ffi`**:
+  - `takeoff_ticks` per player: the match stepped 8 ticks ahead on a copy
+    with the bots' inputs, as Bevy's `look_ahead`, for the jump gather.
+  - The ball's velocity, for the hit-stop and recoil.
+  - The checksums still match the Rust run.
+- **Fixed**: a member `FaceSeconds` shadowed the constant of the same name,
+  so the face-this-way overrides (where a hit goes, a dash, a dive) never
+  took effect. It was in since the first pass.
+- **Film**: `volley-unreal/Saved/Films/milestone3-procedural.mp4` (20 s, ball
+  camera). Hit-stops don't show in films: frames are taken every two sim
+  ticks, and a freeze slows the ticks.
+
+What's left in milestone 3: motion matching with the Mixamo locomotion in
+`volley-assets`, the plan's key experiment.

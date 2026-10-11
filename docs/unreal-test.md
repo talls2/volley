@@ -542,3 +542,31 @@ Bevy client with its constants.
 
 Not ported, as it's HUD and camera (milestone 5): the off-screen ball marker
 and the camera shake.
+
+### 2026-10-11: the Bevy camera
+
+At the user's request, the camera is now the Bevy client's (camera.rs),
+ported with its constants. Before, it was a broadcast view beside the court.
+
+- 7 m behind the player, looking at a point 2.6 m above the feet. It
+  follows 35% of a jump.
+- Each rally starts facing the net.
+- **Ball cam**: it swings round toward the ball at 6/s and tips down for
+  high balls, ignoring a ball within 1.5 m. With a decoy flying, it looks
+  between the two balls.
+- It stays inside the side walls, coming in closer and rising for what it
+  loses, with 4 m of room behind the end walls.
+- The lens is Bevy's 0.82 rad vertical field of view (converted to
+  Unreal's horizontal), wider at a sprint and punched by hard hits.
+- feel.rs's camera shake is now in too: trauma from hits, stuff blocks,
+  catches, posterizers, splits, chains and hard landings, squared, on real
+  time.
+- It follows Red's first player, the one the user will control in
+  milestone 5; mouse and stick turning come then.
+- `VOLLEY_CAM=broadcast` brings back the old view.
+- **Film**: `volley-unreal/Saved/Films/milestone4-shoulder-camera.mp4`
+  (20 s, with sound).
+
+Seen in the film: when ball cam turns round for a ball behind a player at
+the net, the camera sits just across it and the net fills the view for a
+moment. Bevy's rig does the same, but its net is thinner and see-through.

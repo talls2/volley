@@ -42,6 +42,8 @@ On this PC now:
   `volley`; its README says how to build.
 
 ## Decisions
+- **Unreal it is** (2026-10-11): the Unreal client replaces the Bevy one;
+  Bevy stays as the reference the port follows.
 - **Test before porting.** Unreal replaces only the client. The Rust sim
   becomes a DLL (`crates/sim_ffi`, C interface) that a C++ Unreal plugin steps
   at 60 Hz. The rules, bots, tests and server stay Rust. Porting the sim to
@@ -72,12 +74,13 @@ On this PC now:
 ## Next steps
 1. **The user watches the milestone 2 films** (orbit and broadcast) and gives
    feedback on the look.
-2. **Milestones 0 to 5 are done** (see the plan's log). The user plays it
-   (`volley-unreal/Tools/Play.bat`) and says how it feels.
-3. **Milestone 6: the comparison.** Film the same kind of rally from the Bevy
-   build and this one, cut them side by side, and the user plays both and
-   decides. The Bevy build needs Rust and its own build on this PC (or the
-   MacBook).
+2. **Decided: Volley moves to Unreal** (milestone 6 skipped). The user plays
+   `volley-unreal/Tools/Play.bat` and says how it feels.
+3. The open questions from the plan's last log entry: where the rules live
+   (recommendation: keep them in Rust behind the DLL), how online play works,
+   what comes over next from the Bevy client (HUD, menus, hero select), and
+   updating `volley`'s README and CLAUDE.md, which still describe Bevy as
+   the game.
 
 ## Open questions
 - **Binary assets** for `volley-unreal` (maps, imported models) would need Git

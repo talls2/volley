@@ -3,6 +3,15 @@
 A time-boxed test of Unreal Engine as Volley's client, to decide whether the
 game moves to it or stays on Bevy. Written 2026-10-11, at commit 041f87f.
 
+## Decision (2026-10-11)
+
+**Volley moves to Unreal.** After milestones 0 to 5, the user decided to
+stick with Unreal and skip milestone 6 (the side-by-side comparison with the
+Bevy build). The Unreal client (`talls2/volley-unreal`) is now the game's
+client; the Bevy client (`crates/client`) stays as the reference the port
+follows, but new client work goes into Unreal. The questions this plan left
+for "Unreal wins" are below, under Next.
+
 ## Why
 
 The overnight animation pass (docs/animation/experiments.md, 12–19) made real
@@ -658,3 +667,25 @@ the Bevy hero select does.
 
 Not checked by Claude: how it feels to play. Only the user can judge that,
 by playing.
+
+### 2026-10-11: the decision, and what's next
+
+The user skipped milestone 6 and chose Unreal. Open, for the user to decide:
+
+1. **Where the rules live.** They now run in Rust behind the DLL
+   (`crates/sim_ffi`), with the 58 tests, the bots and the headless server.
+   This has worked through every milestone: deterministic, matching
+   checksums, and Unreal reads anything it needs from it. Keeping it is the
+   recommendation; porting to C++ only pays if the build or online play
+   needs it.
+2. **Online play.** Either Unreal's replication, or the planned renet server
+   running the same sim, with clients sending inputs. A deterministic sim
+   already in both suits the second, and lockstep or rollback suit an arena
+   game with this few players.
+3. **What carries over next** from the Bevy client: the HUD (score, aim
+   marker, off-screen ball pointer, callouts), the title, hero select and
+   match-over screens, and hero abilities' looks.
+4. **Repositories and docs.** The README and CLAUDE.md in `volley` still
+   describe the Bevy client as the game. Decide whether `volley-unreal`
+   stays separate or moves into `volley`, then update them. Binary assets
+   (once there are any not made by script) need Git LFS.

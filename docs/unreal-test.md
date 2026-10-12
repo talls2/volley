@@ -913,3 +913,52 @@ Over 90 s:
 
 What's left is mostly the body itself moving fast (a run plus the slide
 toward the contact), and Golazo's takeoff.
+
+### 2026-10-11: clearing the net, and reception physics
+
+Two rules changes in the sim, from the user's list.
+
+**Golazo hit the net.** His kicks meet the ball at about net height and fly
+flat like spikes. Between bots, 29 of 36 banana kicks (81%) went into the
+net.
+- Now any ball hit from below the net's top arcs over it. The flight
+  lengthens to the shortest time whose arc clears the net
+  (`clearing_seconds`): by 15 cm for a clean contact, down to 30 cm short of
+  clearing for the worst, so a sloppy touch at the net can still find it.
+  The arc is capped at 2 s.
+- Golazo's banana kicks now net 0 of 35, leaving at 23.7 m/s instead of
+  25.6.
+
+**Receptions** (`crates/sim/src/reception.rs`) go where the ball and the
+timing let them:
+- **Control** is timing (ticks from press to touch: within 4 is on time,
+  each earlier tick costs 1/16, down to 0.2, so holding pass is early) times
+  position (full stretch halves it). Digs top out at 0.7 control, foot saves
+  at 0.75 (0.95 with great feet).
+- **Difficulty** is the ball's speed (10 to 28 m/s), how steeply it drops,
+  and how sharply it has to be turned toward the aim. A hero's ability or
+  ultimate adds 0.35.
+- **Error** is difficulty × (1 − control). It widens the landing spread (up
+  to 3 m per unit). From 0.3 the ball starts to shank, fully by 0.7: it
+  carries on roughly along its path, deflected up to 80° at random, 2–10 m,
+  lower and faster.
+- **The bots now time their presses,** 1–4 ticks before the ball arrives,
+  varying from ball to ball, instead of arming 0.35 s early. Their passes
+  are mostly clean, and digs and foot saves are often wild.
+- **The HUD** says "Perfect pass" or "Shanked!" on your receptions, and the
+  help explains timing.
+
+**For the client:** bots now press so late that a pass swing started on the
+press had no time to wind up. Contact gaps went from 0.19 m to 0.53 m, and
+there were 27 hand frames over 40 m/s.
+- The look-ahead now gives each bot's next touch (ticks and spot), used as
+  `contact_ticks` until a move is armed.
+- The client starts a bot's pass or banana-kick swing from it. Passes are
+  back to 0.18 m, and frames over 40 m/s are down to 3.
+- Digs and foot saves, now common in longer rallies, meet the ball 0.9–1.4 m
+  off: their clips have no reach or timing yet.
+
+Over 10 minutes of bots: points per minute went from 5.6 to 3.9, and touches
+per point from 6.1 to 9.7. The new checksum at tick 1200 is
+`5823bc9c22db5ece`. `cargo run -p volley_sim_ffi --release --example stats`
+prints these numbers for any future rules change.

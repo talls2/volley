@@ -33,8 +33,13 @@ const PASS_HEIGHT: f32 = 1.2;
 const SPIKE_HEIGHT: f32 = 3.1;
 /// Only balls coming down this close to the net are worth spiking.
 const SPIKE_RANGE: f32 = 4.5;
-/// Bots arm a pass this long before the ball reaches them.
-const EARLY_PASS_SECONDS: f32 = 0.35;
+/// Bots press pass this many ticks before the ball comes into reach, plus
+/// up to `PRESS_LEAD_SPREAD - 1` more, looking this far ahead for it; and
+/// with this little time left and the ball close, regardless.
+const PRESS_LEAD_TICKS: u32 = 1;
+const PRESS_LEAD_SPREAD: u32 = 4;
+const PRESS_LOOKAHEAD_TICKS: u32 = 30;
+const LATE_PASS_SECONDS: f32 = 0.1;
 /// Where an attacker waits for the set.
 const APPROACH_DEPTH: f32 = 3.5;
 /// Defenders wait this far back (as a fraction of the half's length), spread
@@ -156,11 +161,17 @@ fn pass(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32)
     {
         return PlayerInput { kick: true, movement: direction, ..input };
     }
-    // Arm the pass a moment early and hold it, like a player who reads the
-    // ball: it waits for the ball, and the swing has time to line up.
-    let nearly_there = seconds_left < EARLY_PASS_SECONDS && to_ball.length() < 2.5;
-    if ball_close(sim, me, flight) || nearly_there {
-        input.pass = player.active_move(sim.tick) != Some(MoveId::Pass);
+    // Press just before the ball comes into reach, as a player times the
+    // platform (a reception's control depends on it), then hold so a ball
+    // that comes a little later is still taken. A bot's timing varies a
+    // little from ball to ball. Right on top of it with no reach in sight,
+    // press anyway.
+    let armed = player.active_move(sim.tick) == Some(MoveId::Pass);
+    let lead = PRESS_LEAD_TICKS + dice(flight.start_tick, me as u32 + 7) % PRESS_LEAD_SPREAD;
+    let on_time = ticks_to_reach(sim, me, flight, MoveId::Pass, PRESS_LOOKAHEAD_TICKS).is_some_and(|ticks| ticks <= lead);
+    let late = seconds_left < LATE_PASS_SECONDS && ball_close(sim, me, flight);
+    if armed || on_time || late {
+        input.pass = !armed;
         input.pass_held = true;
         input.aim = pass_aim(sim, me).map(Aim::Spot);
         input.movement = (to_ball / 0.5).clamp_length_max(1.0);
@@ -182,6 +193,16 @@ fn pass(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32)
     }
     input.movement = (to_ball / 0.5).clamp_length_max(1.0);
     input
+}
+
+/// Ticks until the ball comes into `id`'s reach, the body carried along at
+/// its current velocity, looking up to `horizon` ticks ahead.
+fn ticks_to_reach(sim: &Sim, me: usize, flight: &Flight, id: MoveId, horizon: u32) -> Option<u32> {
+    let mut body = sim.players[me];
+    (1..=horizon).find(|&ticks| {
+        body.position += Vec3::new(body.velocity.x, 0.0, body.velocity.y) * DT;
+        body.reaches(id, flight.position_at(sim.tick + ticks))
+    })
 }
 
 /// How far a dash now and running after it covers in `seconds`.

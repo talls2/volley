@@ -10,6 +10,7 @@ pub mod bot;
 pub mod court;
 pub mod moves;
 mod player;
+pub mod reception;
 
 pub use ball::{Ball, Flight};
 pub use glam::{Vec2, Vec3};
@@ -25,6 +26,12 @@ pub const DT: f32 = 1.0 / TICK_HZ as f32;
 pub(crate) const MAX_TOUCHES: u32 = 3;
 /// After a touch nobody can touch the ball for this long, so one swing never counts twice.
 const TOUCH_LOCKOUT_TICKS: u32 = 10;
+/// Over the net: a clean hit clears it by this much (m), the worst aims this
+/// much short of clearing, and no lob takes longer than this to land (s). See
+/// `clearing_seconds`.
+const NET_CLEARANCE: f32 = 0.15;
+const NET_RISK: f32 = 0.3;
+const MAX_LOFT_SECONDS: f32 = 2.0;
 const POINT_PAUSE_TICKS: u32 = 90;
 /// A serve is swung, not flicked: the ball leaves the hand this long after the
 /// press, as the swing reaches it.
@@ -247,6 +254,8 @@ struct Plan {
     curve: f32,
     /// A decoy ball flying alongside, landing here.
     decoy: Option<Vec3>,
+    /// Sent by a hero's ability or ultimate: harder to receive.
+    power: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -337,6 +346,8 @@ pub struct Sim {
     /// The kind of the latest hit, and who made it.
     last_hit: Option<HitKind>,
     last_hitter: Option<usize>,
+    /// Whether the latest hit was a hero's ability or ultimate.
+    last_power: bool,
     /// A decoy ball in flight beside the real one, until either is touched.
     decoy: Option<Flight>,
     /// A serve underway: the tick the ball leaves the server's hand, and the
@@ -374,6 +385,7 @@ impl Sim {
             touch_lockout_until: 0,
             last_hit: None,
             last_hitter: None,
+            last_power: false,
             decoy: None,
             serve_at: None,
             sides,
@@ -524,6 +536,7 @@ impl Sim {
         self.touch_lockout_until = 0;
         self.last_hit = None;
         self.last_hitter = None;
+        self.last_power = false;
         self.decoy = None;
         self.serve_at = None;
         if self.switch_pending {
@@ -612,7 +625,8 @@ impl Sim {
             };
             target.with_z(z.clamp(-(HALF_WIDTH - WALL_MARGIN), HALF_WIDTH - WALL_MARGIN))
         });
-        Plan { preview: HitPreview { kind, target, spread, quality }, seconds, curve, decoy }
+        let power = matches!(spec.touch, Touch::Carry { .. } | Touch::Dunk | Touch::Curve | Touch::Split);
+        Plan { preview: HitPreview { kind, target, spread, quality }, seconds, curve, decoy, power }
     }
 
     /// Launches a planned hit, landing somewhere within its spread.
@@ -621,7 +635,9 @@ impl Sim {
         let target = target + wobble(spread, self.tick, hitter);
         self.last_hit = Some(kind);
         self.last_hitter = Some(hitter);
-        self.ball = Ball::InFlight(Flight::curving_to_target(from, target, plan.seconds, plan.curve, self.tick));
+        self.last_power = plan.power;
+        let seconds = clearing_seconds(from, target, plan.seconds, quality);
+        self.ball = Ball::InFlight(Flight::curving_to_target(from, target, seconds, plan.curve, self.tick));
         self.decoy = plan.decoy.map(|spot| Flight::to_target(from, spot, plan.seconds, self.tick));
         self.touch_lockout_until = self.tick + TOUCH_LOCKOUT_TICKS;
         events.push(Event::Touched { player: hitter, kind, quality });
@@ -791,6 +807,13 @@ impl Sim {
     }
 
     fn touch(&mut self, hitter: usize, ball: Vec3, events: &mut Vec<Event>) {
+        // When the button was pressed, and how the ball came in, for judging
+        // a reception (read before the touch uses the move up).
+        let pressed = self.players[hitter].action.map_or(self.tick, |action| action.pressed_tick);
+        let incoming = match self.ball {
+            Ball::InFlight(flight) => flight.velocity_at_time(flight.elapsed(self.tick)),
+            _ => Vec3::ZERO,
+        };
         let Some(id) = self.players[hitter].spend(self.tick) else {
             return;
         };
@@ -830,6 +853,22 @@ impl Sim {
         }
         let mut plan = self.plan_hit(hitter, id, self.touches.count, ball);
         let player = &self.players[hitter];
+        if let Touch::Keep(kind) = id.spec().touch {
+            // Receptions go where the ball and the timing let them (see `reception`).
+            let aim = plan.preview.target;
+            let out = Vec2::new(aim.x - ball.x, aim.z - ball.z);
+            let judged = reception::judge(player, id, self.tick.saturating_sub(pressed), ball, incoming, out, self.last_power);
+            plan.preview.spread += judged.spread();
+            plan.preview.quality = (1.0 - judged.error()).clamp(0.0, 1.0);
+            let shank = judged.shank();
+            if shank > 0.0 {
+                let wild = reception::shank_target(ball, incoming, out, self.tick, hitter);
+                let target = aim.lerp(wild, shank);
+                plan.preview.target = target;
+                plan.seconds = (flight_seconds(kind, ball.with_y(0.0).distance(target.with_y(0.0))) + id.spec().hang)
+                    * (1.0 - reception::SHANK_SPEED * shank);
+            }
+        }
         if let Touch::Keep(HitKind::Pass) = id.spec().touch {
             let reach = Vec2::new(ball.x - player.position.x, ball.z - player.position.z).length();
             let clean = if self.touches.count <= 1 { CLEAN_RECEPTION } else { CLEAN_SET };
@@ -947,6 +986,32 @@ fn own_side_target(side: f32, spot: Option<Vec2>, depth: f32) -> Vec3 {
     let (min_x, max_x) = court::x_range(side, 0.8, HALF_LENGTH - WALL_MARGIN);
     let max_z = HALF_WIDTH - WALL_MARGIN;
     Vec3::new(spot.x.clamp(min_x, max_x), BALL_RADIUS, spot.y.clamp(-max_z, max_z))
+}
+
+/// A ball hit from below the top of the net has to go up and over it. The
+/// flight lengthens (a higher, slower arc) until it clears: by
+/// `NET_CLEARANCE` for a clean contact, down to `NET_RISK` short of clearing
+/// for the worst, so a sloppy touch at the net can still find it. Hit from
+/// right at the net, under its top, there's no arc that clears: at most
+/// `MAX_LOFT_SECONDS`. `seconds` stands if it already clears.
+fn clearing_seconds(from: Vec3, target: Vec3, seconds: f32, quality: f32) -> f32 {
+    let span = (from.x - target.x).abs();
+    if from.x * target.x >= 0.0 || span < 1e-3 {
+        return seconds;
+    }
+    // How far along the path the net is; the ball flies at an even pace in x.
+    let share = from.x.abs() / span;
+    let need = NET_HEIGHT + BALL_RADIUS - NET_RISK + (NET_CLEARANCE + NET_RISK) * quality.clamp(0.0, 1.0);
+    // The straight line from contact to landing, and how far a flight of t
+    // seconds arcs above it there: g t^2 share (1 - share) / 2.
+    let line = from.y + share * (target.y - from.y);
+    let lift = need - line;
+    if lift <= 0.0 {
+        return seconds;
+    }
+    let sag = court::BALL_GRAVITY * share * (1.0 - share) / 2.0;
+    let least = (lift / sag.max(1e-4)).sqrt();
+    seconds.max(least.min(MAX_LOFT_SECONDS))
 }
 
 /// An offset of up to `radius` meters for inaccurate touches, varying from hit

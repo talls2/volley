@@ -56,6 +56,9 @@ const FEET_HIGH: f32 = 1.5;
 pub struct Action {
     pub id: MoveId,
     pub start_tick: u32,
+    /// When the button was pressed. Holding pass keeps `start_tick` moving to
+    /// keep the pass armed; this stays, for judging a reception's timing.
+    pub pressed_tick: u32,
     /// World XZ direction of the move's lunge, unit length.
     pub direction: Vec2,
     /// Already touched the ball: the move plays out but can't touch it again.
@@ -259,17 +262,21 @@ impl Player {
     /// times as far as usual.
     pub fn reaches_scaled(&self, id: MoveId, ball: Vec3, scale: f32) -> bool {
         let spec = id.spec();
-        let (mut reach, mut high) = (spec.reach, spec.high);
-        // Great feet get a foot to balls well up the body, and farther out.
-        if id == MoveId::FootSave && self.kit.has(Passive::Feet) {
-            reach += FEET_REACH;
-            high = FEET_HIGH;
-        }
+        let reach = self.reach_of(id);
+        // Great feet get a foot to balls well up the body.
+        let high = if id == MoveId::FootSave && self.kit.has(Passive::Feet) { FEET_HIGH } else { spec.high };
         let horizontal = Vec2::new(ball.x - self.position.x, ball.z - self.position.z).length();
         let height = ball.y - self.position.y;
         // No reaching across the net into the other half.
         let on_our_side = self.side * ball.x > -court::BALL_RADIUS;
         horizontal <= reach * scale && (spec.low..=high).contains(&height) && on_our_side
+    }
+
+    /// How far from the body's center line move `id` reaches: great feet get
+    /// a foot farther out.
+    pub(crate) fn reach_of(&self, id: MoveId) -> f32 {
+        let spec = id.spec();
+        if id == MoveId::FootSave && self.kit.has(Passive::Feet) { spec.reach + FEET_REACH } else { spec.reach }
     }
 
     /// Whether the move underway could touch a ball at `ball` (a pass, if none is).
@@ -361,7 +368,7 @@ impl Player {
                 .find(|d| d.length() > 0.1)
                 .unwrap_or(Vec2::new(-self.side, 0.0))
                 .normalize();
-            self.action = Some(Action { id, start_tick: tick, direction, spent: false });
+            self.action = Some(Action { id, start_tick: tick, pressed_tick: tick, direction, spent: false });
             if !repressed {
                 started.move_id = Some(id);
                 let spec = id.spec();

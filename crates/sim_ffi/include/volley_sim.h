@@ -46,7 +46,7 @@ typedef struct VolleyPlayerState {
     uint32_t dash_start_tick;
     uint8_t has_dash, has_carry, must_not_touch, feet;
     float carry_vx, carry_vz;
-    int32_t contact_ticks;
+    int32_t contact_ticks;  /* the armed move's, or a bot's next touch from the look ahead; -1: none */
     float contact_x, contact_y, contact_z;
     uint32_t technique;
     uint8_t no_look;

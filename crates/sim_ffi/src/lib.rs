@@ -110,7 +110,8 @@ pub struct VolleyPlayerState {
     pub carry_vx: f32,
     pub carry_vz: f32,
     /// When the active move will meet the ball, within a second: ticks from
-    /// now (-1 if not) and where the ball will be.
+    /// now (-1 if not) and where the ball will be. With no move armed, a
+    /// bot's next touch from the look ahead.
     pub contact_ticks: i32,
     pub contact_x: f32,
     pub contact_y: f32,
@@ -149,6 +150,8 @@ pub struct Ahead {
     pub future: [Vec2; 3],
     /// The next hit move to start, and in how many ticks.
     pub next_move: Option<(MoveId, u32)>,
+    /// The next touch: in how many ticks, and where the ball is then.
+    pub touch: Option<(u32, Vec3)>,
 }
 
 /// How far ahead (ticks) `takeoff_ticks` looks, as the Bevy client's gather.
@@ -632,7 +635,10 @@ pub fn player_state(sim: &Sim, i: usize, ahead: Ahead) -> VolleyPlayerState {
         Some(MovePhase::Recovery) => MOVE_RECOVERY,
         None => MOVE_OVER,
     });
-    let contact = sim.predicted_contact(i, CONTACT_HORIZON);
+    // The armed move's contact; else, for a bot, the look ahead's next touch,
+    // so a swing can begin before its button is pressed (bots press just
+    // before the ball arrives, timing the reception).
+    let contact = sim.predicted_contact(i, CONTACT_HORIZON).or(ahead.touch);
     let ball = contact.map_or(sim.ball_position(), |(_, at)| at);
     let (technique, _) = attack::best_technique(player, ball);
     VolleyPlayerState {
@@ -685,7 +691,7 @@ pub fn player_state(sim: &Sim, i: usize, ahead: Ahead) -> VolleyPlayerState {
 pub fn look_ahead(sim: &Sim, human: Option<usize>) -> Vec<Ahead> {
     let here = |sim: &Sim, i: usize| Vec2::new(sim.players[i].position.x, sim.players[i].position.z);
     let mut ahead: Vec<Ahead> =
-        (0..sim.players.len()).map(|i| Ahead { takeoff: None, future: [here(sim, i); 3], next_move: None }).collect();
+        (0..sim.players.len()).map(|i| Ahead { takeoff: None, future: [here(sim, i); 3], next_move: None, touch: None }).collect();
     if sim.phase != Phase::Rally {
         return ahead;
     }
@@ -698,6 +704,12 @@ pub fn look_ahead(sim: &Sim, human: Option<usize>) -> Vec<Ahead> {
                 && ahead[player].next_move.is_none()
             {
                 ahead[player].next_move = Some((id, k));
+            }
+            // A touch launches the ball from where it was met.
+            if let Event::Touched { player, .. } = event
+                && ahead[player].touch.is_none()
+            {
+                ahead[player].touch = Some((k, future.ball_position()));
             }
         }
         for (i, player) in future.players.iter().enumerate() {

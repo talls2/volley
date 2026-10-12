@@ -614,7 +614,7 @@ fn ball_behind_the_head_gets_a_bicycle_kick() {
     // Rising with an attack armed, the ball hanging just behind.
     sim.players[player].position = Vec3::new(-4.0, 0.3, 0.0);
     sim.players[player].vertical_velocity = 5.0;
-    sim.players[player].action = Some(Action { id: MoveId::Spike, start_tick: tick, direction: Vec2::X, spent: false });
+    sim.players[player].action = Some(Action { id: MoveId::Spike, start_tick: tick, pressed_tick: tick, direction: Vec2::X, spent: false });
     sim.ball = Ball::InFlight(Flight { origin: Vec3::new(-4.9, 3.0, 0.2), velocity: Vec3::ZERO, start_tick: tick, curve: 0.0 });
     let events = run_bots_idle(&mut sim, TICK_HZ);
     assert!(events.iter().any(|e| matches!(e, Event::Touched { player: 0, kind: HitKind::Bicycle, .. })), "{events:?}");
@@ -1164,4 +1164,44 @@ fn predicted_contact_matches_the_real_touch() {
     }
     assert_eq!(touched, Some(due));
     assert!(at.distance(Vec3::new(-4.0, at.y, 0.0)) < 0.01);
+}
+
+#[test]
+fn a_kick_from_below_the_net_loops_over_it() {
+    // Golazo at the net, kicking a ball lower than its top: a flat attack
+    // would go into the net, so it arcs over instead.
+    let mut sim = Sim::new(MatchConfig::default());
+    let hitter = sim.player_index(1, 0);
+    sim.set_kit(hitter, moves::GOLAZO);
+    let side = sim.players[hitter].side;
+    let from = Vec3::new(side * 0.8, 2.2, 0.0);
+    sim.players[hitter].position = Vec3::new(side * 1.1, 0.8, 0.0);
+    sim.players[hitter].aim = Some(Aim::Spot(Vec2::new(-side * 12.0, 0.0)));
+    sim.ball = Ball::Dead { at: from };
+    let plan = sim.plan_hit(hitter, MoveId::Spike, 3, from);
+    let quality = plan.preview.quality;
+    sim.hit(hitter, plan, from, &mut Vec::new());
+    let Ball::InFlight(flight) = sim.ball else { panic!("not in flight") };
+    let crossing = flight.position_at_time(flight.net_crossing_time().unwrap());
+    assert!(crossing.y > NET_HEIGHT + BALL_RADIUS, "crossed at {} (quality {quality})", crossing.y);
+}
+
+#[test]
+fn hard_balls_met_badly_spray_and_soft_ones_dont() {
+    let body = Player::new(0, -1.0, Vec3::new(-6.0, 0.0, 0.0));
+    let ball = body.position + Vec3::new(0.4, 0.9, 0.0);
+    // A spike coming down hard toward the receiver, sent on toward the net.
+    let spike = Vec3::new(-22.0, -12.0, 0.0);
+    let to_net = Vec2::new(1.0, 0.0);
+    let on_time = reception::judge(&body, MoveId::Pass, 2, ball, spike, to_net, false);
+    let early = reception::judge(&body, MoveId::Pass, 40, ball, spike, to_net, false);
+    assert!(on_time.shank() == 0.0 && on_time.spread() < 1.0, "on time: {on_time:?}");
+    assert!(early.shank() > 0.5, "held long: {early:?}");
+    // A hero's power makes it harder still.
+    let power = reception::judge(&body, MoveId::Pass, 10, ball, spike, to_net, true);
+    let plain = reception::judge(&body, MoveId::Pass, 10, ball, spike, to_net, false);
+    assert!(power.error() > plain.error());
+    // A soft ball is fine however it's met.
+    let soft = reception::judge(&body, MoveId::Pass, 40, ball, Vec3::new(-4.0, -3.0, 0.0), to_net, false);
+    assert!(soft.shank() == 0.0 && soft.spread() < 0.3, "soft: {soft:?}");
 }

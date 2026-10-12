@@ -100,3 +100,8 @@ On this PC now:
   `Engine/Build/BatchFiles/Build.bat` instead (it works for `-projectfiles`
   too).
 - The user likes measured progress, films and infographics (unchanged).
+
+2026-10-12 continuation: rally changes clear foot-lock history; dead blending
+requires an existing pose before capturing a transition. Editor build passes.
+Next: measure ongoing locomotion sliding and hand pops against the newer
+dead-blending baseline, rather than the obsolete first bench numbers.

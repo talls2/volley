@@ -1051,3 +1051,16 @@ by bench mode and filmed; it stays only if it wins (experiments.md 20-21).
 - **Films:** `Saved/Films/dead-blending-*.mp4` show the same rally before
   and after, side by side, from the broadcast camera and close up at half
   speed.
+
+### 2026-10-12: animation state at resets
+
+Continued from the newer dead-blending and overlap work already in the
+checkout. Foot-lock history now resets when the rally changes, including
+planted positions, release targets and prior samples. Feet no longer reuse
+world positions from the previous rally. Dead blending also requires a
+previous pose before capturing a transition, avoiding an empty-history read
+on startup or after the bone set changes.
+
+Validation: Unreal editor target compiled successfully. No new animation
+bench was run; this change does not establish an improvement in ordinary
+running foot sliding or hand-speed measurements.

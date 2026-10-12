@@ -130,7 +130,11 @@ typedef struct VolleyHud {
      * full cooldown, and the dash's cooldown left and full (s). */
     uint32_t moves;
     float ability_cooldown_total, dash_cooldown, dash_cooldown_total;
+    /* What the pass button would do now (it also foot-saves and dives). */
+    uint32_t pass_action;
 } VolleyHud;
+
+enum { VOLLEY_PASS_ACTION_PASS = 0, VOLLEY_PASS_ACTION_FOOT_SAVE = 1, VOLLEY_PASS_ACTION_DIVE = 2 };
 
 VolleyMatch *volley_match_new(void);
 /* Red's first player (the one a person plays) as a VOLLEY_KIT_*. */

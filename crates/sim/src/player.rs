@@ -227,6 +227,11 @@ impl Player {
         (ready.saturating_sub(tick) as f32 * DT, DASH_COOLDOWN_TICKS as f32 * DT)
     }
 
+    /// The latest movement input, world XZ.
+    pub fn movement(&self) -> Vec2 {
+        self.movement
+    }
+
     pub fn grounded(&self) -> bool {
         self.position.y <= 0.0
     }

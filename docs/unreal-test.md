@@ -1000,3 +1000,25 @@ client only bent a leg or arms toward the ball where it was then.
   cooldown and the dash's cooldown (100 bytes).
 - **Replaces the ability text.** The full controls help now shows for a
   match's first 30 s, or while H (d-pad down) is held, clear of the bar.
+
+### 2026-10-11: one button for every touch
+
+The user found too many buttons to be fun. Pass now also foot-saves and
+dives, and the sim (`crates/sim/src/assist.rs`) picks which from the ball,
+for a person's input (bots press their saves themselves):
+
+- **Foot save:** the ball comes in below the pelvis (1 m; the chest, 1.5 m,
+  for great feet) and a foot save reaches it. This wins over a low pass.
+- **Pass:** a pass will meet the ball.
+- **Dive:** the ball lands before you could run there, you're steering
+  toward it (within 60°), and a dive gets there. Judging "out of reach" by
+  running time keeps an early press while sprinting from becoming a dive.
+- **Otherwise** a pass, armed and waiting. While it waits, it turns into a
+  foot save or dive the moment the ball needs one.
+- **Unchanged:** serves and blocks stay on pass, and dash stays on its own
+  button (it's movement, not a touch).
+- **Tests:** three new ones (kick a low ball in reach, dive for one out of
+  reach only when steering to it, pass a ball at chest height). All 63 pass.
+- **In the client:** the dive and foot-save buttons are gone. The skill
+  bar's pass slot shows what the button would do now (`VolleyHud.pass_action`,
+  104 bytes), and the save prompts and help say Q / RB.

@@ -4,6 +4,7 @@
 //! and the tests all run exactly the same rules. Advance it with [`Sim::step`]
 //! at [`TICK_HZ`]; the same state and inputs always produce the same result.
 
+pub mod assist;
 pub mod attack;
 mod ball;
 pub mod bot;

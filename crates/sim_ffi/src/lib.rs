@@ -5,7 +5,7 @@
 //! The sim's world is Y up, in meters, with the net along x = 0. Everything here
 //! keeps those units and axes; converting to an engine's is the client's job.
 
-use volley_sim::attack;
+use volley_sim::{assist, attack};
 use volley_sim::court::BALL_RADIUS;
 use volley_sim::moves::{ALL_ROUNDER, CROSS, GOLAZO};
 use volley_sim::moves::Button;
@@ -311,7 +311,14 @@ pub struct VolleyHud {
     pub ability_cooldown_total: f32,
     pub dash_cooldown: f32,
     pub dash_cooldown_total: f32,
+    /// What the pass button would do now: `PASS_ACTION_*`.
+    pub pass_action: u32,
 }
+
+/// What the pass button does: pass, foot save or dive, as the ball needs.
+pub const PASS_ACTION_PASS: u32 = 0;
+pub const PASS_ACTION_FOOT_SAVE: u32 = 1;
+pub const PASS_ACTION_DIVE: u32 = 2;
 
 pub const PROMPT_NONE: u8 = 0;
 pub const PROMPT_FOOT_SAVE: u8 = 1;
@@ -387,6 +394,11 @@ pub fn hud(sim: &Sim, me: usize) -> VolleyHud {
         ability_cooldown_total: ability.map_or(0.0, |id| id.spec().cooldown as f32 * DT),
         dash_cooldown: player.dash_cooldown(sim.tick).0,
         dash_cooldown_total: player.dash_cooldown(sim.tick).1,
+        pass_action: match assist::choose(sim, me, player.movement()) {
+            assist::Choice::Pass => PASS_ACTION_PASS,
+            assist::Choice::FootSave => PASS_ACTION_FOOT_SAVE,
+            assist::Choice::Dive => PASS_ACTION_DIVE,
+        },
     }
 }
 
@@ -477,8 +489,10 @@ pub fn new_match_as(kit: u32) -> Sim {
 /// One tick with bots playing everyone except `human` (if any), who plays
 /// `input`.
 pub fn step(sim: &mut Sim, human: Option<usize>, input: PlayerInput) -> Vec<Event> {
-    let inputs: Vec<_> =
-        (0..sim.players.len()).map(|i| if Some(i) == human { input } else { bot::input_for(sim, i) }).collect();
+    // A person's pass button also foot-saves and dives, as the ball needs (see `assist`).
+    let inputs: Vec<_> = (0..sim.players.len())
+        .map(|i| if Some(i) == human { assist::one_button(sim, i, input) } else { bot::input_for(sim, i) })
+        .collect();
     sim.step(&inputs)
 }
 
@@ -790,7 +804,7 @@ mod tests {
         assert_eq!(size_of::<VolleyPlayerState>(), 148);
         assert_eq!(size_of::<VolleyMatchState>(), 116);
         assert_eq!(size_of::<VolleyEvent>(), 44);
-        assert_eq!(size_of::<VolleyHud>(), 100);
+        assert_eq!(size_of::<VolleyHud>(), 104);
     }
 
     #[test]

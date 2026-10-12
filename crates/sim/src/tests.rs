@@ -1205,3 +1205,53 @@ fn hard_balls_met_badly_spray_and_soft_ones_dont() {
     let soft = reception::judge(&body, MoveId::Pass, 40, ball, Vec3::new(-4.0, -3.0, 0.0), to_net, false);
     assert!(soft.shank() == 0.0 && soft.spread() < 0.3, "soft: {soft:?}");
 }
+
+/// One press of pass, as a person makes it: the assist picks the touch.
+fn press_pass(sim: &mut Sim, player: usize, when: f32, movement: Vec2) -> Vec<Event> {
+    let mut events = Vec::new();
+    let mut pressed = false;
+    while let Ball::InFlight(flight) = sim.ball {
+        let mut inputs = idle(sim);
+        if flight.landing_time() - flight.elapsed(sim.tick) < when {
+            let press = PlayerInput { pass: !pressed, pass_held: true, movement, ..default() };
+            inputs[player] = assist::one_button(sim, player, press);
+            pressed = true;
+        }
+        events.extend(sim.step(&inputs));
+        if events.iter().any(|e| matches!(e, Event::Touched { .. } | Event::Landed { .. })) {
+            break;
+        }
+    }
+    events
+}
+
+#[test]
+fn one_button_kicks_a_low_ball_in_reach() {
+    let (mut sim, player) = low_ball_beside(1.6);
+    sim.set_kit(player, moves::ALL_ROUNDER);
+    let events = press_pass(&mut sim, player, 0.15, Vec2::ZERO);
+    assert!(events.contains(&Event::MoveStarted { player, id: MoveId::FootSave }), "{events:?}");
+    assert!(events.iter().any(|e| matches!(e, Event::Touched { player: p, kind: HitKind::Kick, .. } if *p == player)), "{events:?}");
+}
+
+#[test]
+fn one_button_dives_for_a_ball_out_of_reach_when_steering_to_it() {
+    // Landing 4 m away, too soon to run there.
+    let (mut sim, player) = low_ball_beside(4.0);
+    let toward = Vec2::new(0.0, 1.0);
+    let events = press_pass(&mut sim, player, 0.3, toward);
+    assert!(events.contains(&Event::MoveStarted { player, id: MoveId::Dive }), "{events:?}");
+
+    // Not steering to it: no dive, just a pass waiting.
+    let (mut sim, player) = low_ball_beside(4.0);
+    let events = press_pass(&mut sim, player, 0.3, Vec2::ZERO);
+    assert!(!events.contains(&Event::MoveStarted { player, id: MoveId::Dive }), "{events:?}");
+}
+
+#[test]
+fn one_button_passes_a_ball_at_chest_height() {
+    let (mut sim, player) = cross_under_ball(Vec3::new(-4.0, 4.0, 0.0), 0, None);
+    sim.set_kit(player, moves::ALL_ROUNDER);
+    let events = press_pass(&mut sim, player, 0.4, Vec2::ZERO);
+    assert!(events.iter().any(|e| matches!(e, Event::Touched { kind: HitKind::Pass, .. })), "{events:?}");
+}

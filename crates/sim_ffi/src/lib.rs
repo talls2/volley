@@ -305,6 +305,12 @@ pub struct VolleyHud {
     /// The moves' names, zero-terminated.
     pub ability_name: [u8; 24],
     pub ultimate_name: [u8; 24],
+    /// The skill bar: the hero's moves (bit `1 << MoveId::index`), the
+    /// ability's full cooldown, and the dash's cooldown left and full (s).
+    pub moves: u32,
+    pub ability_cooldown_total: f32,
+    pub dash_cooldown: f32,
+    pub dash_cooldown_total: f32,
 }
 
 pub const PROMPT_NONE: u8 = 0;
@@ -377,6 +383,10 @@ pub fn hud(sim: &Sim, me: usize) -> VolleyHud {
         points_to_win: sim.points_to_win_set(),
         ability_name: name_bytes(ability.map_or("", |id| id.spec().name)),
         ultimate_name: name_bytes(ultimate.map_or("", |id| id.spec().name)),
+        moves: player.kit.moves.iter().fold(0, |bits, id| bits | 1 << id.index()),
+        ability_cooldown_total: ability.map_or(0.0, |id| id.spec().cooldown as f32 * DT),
+        dash_cooldown: player.dash_cooldown(sim.tick).0,
+        dash_cooldown_total: player.dash_cooldown(sim.tick).1,
     }
 }
 
@@ -780,7 +790,7 @@ mod tests {
         assert_eq!(size_of::<VolleyPlayerState>(), 148);
         assert_eq!(size_of::<VolleyMatchState>(), 116);
         assert_eq!(size_of::<VolleyEvent>(), 44);
-        assert_eq!(size_of::<VolleyHud>(), 84);
+        assert_eq!(size_of::<VolleyHud>(), 100);
     }
 
     #[test]

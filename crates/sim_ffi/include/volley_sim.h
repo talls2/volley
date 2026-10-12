@@ -126,6 +126,10 @@ typedef struct VolleyHud {
     float ability_cooldown, charge;
     uint32_t points_to_win;
     char ability_name[24], ultimate_name[24];
+    /* The skill bar: the hero's moves (bit 1 << VOLLEY_* move), the ability's
+     * full cooldown, and the dash's cooldown left and full (s). */
+    uint32_t moves;
+    float ability_cooldown_total, dash_cooldown, dash_cooldown_total;
 } VolleyHud;
 
 VolleyMatch *volley_match_new(void);

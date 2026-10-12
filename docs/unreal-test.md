@@ -962,3 +962,41 @@ Over 10 minutes of bots: points per minute went from 5.6 to 3.9, and touches
 per point from 6.1 to 9.7. The new checksum at tick 1200 is
 `5823bc9c22db5ece`. `cargo run -p volley_sim_ffi --release --example stats`
 prints these numbers for any future rules change.
+
+### 2026-10-11: saves that reach, and the skill bar
+
+**Digs and foot saves reach for the ball.** The sim takes a foot save up to
+2.2 m from the body (2.6 m with great feet) and a dive up to 1.5 m. The
+client only bent a leg or arms toward the ball where it was then.
+- Now, over a save's last 0.3 s, the body slides (up to 1.6 m) so the
+  reaching hands or foot, measured in the drawn pose, meet the predicted
+  contact. The arms or leg aim there, and the slide holds after the touch.
+- Golazo meets a high save (above 0.8 m) with a high kick or a lunging
+  volley: a sweep or a slide along the floor can't reach a ball at the chest.
+- Foot saves are timed like swings, and a save with the ball nearly there
+  blends in by the touch.
+- **In the sim,** a foot save's leg now shoots out over 6 ticks (from half
+  its reach), so a ball at full stretch is met a moment after the press, not
+  on it. No animation could cover 2.4 m in one tick. Bots and contact
+  prediction use the same rule.
+- Over 5 minutes: foot saves 1.37 m → 0.49 m off the ball, digs
+  0.93 → 0.28 m, all touches 0.20 m.
+- Bench mode now also writes every touch (gap, nearest hand or toe, state)
+  to `<report>.touches.csv`.
+
+**The skill bar,** along the bottom like a MOBA's:
+- **The slots:** the hero's moves (pass, attack, dive, foot save if they
+  have it, dash), then the ability and ultimate.
+- **Icons:** drawn by `Tools/icons.py` from simple shapes, imported by the
+  asset script.
+- **Each slot shows:**
+  - its button underneath;
+  - a dark wedge that uncovers clockwise and counts down while it cools;
+  - the ultimate's charge filling, with a breathing gold border when ready;
+  - a warm fill while a hit is held to charge it;
+  - a bright border while the move is underway;
+  - dimmed when it can't be used now.
+- **`sim_ffi`'s HUD struct** adds the hero's moves, the ability's full
+  cooldown and the dash's cooldown (100 bytes).
+- **Replaces the ability text.** The full controls help now shows for a
+  match's first 30 s, or while H (d-pad down) is held, clear of the bar.

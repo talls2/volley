@@ -732,7 +732,7 @@ impl Sim {
                 let player = &self.players[i];
                 let reach = if rebounded && player.kit.has(Passive::WallPass) { WALL_PASS_REACH } else { 1.0 };
                 player.active_move(self.tick).is_some_and(|id| {
-                    player.reaches_scaled(id, ball, reach)
+                    player.reaches_scaled(id, ball, reach * player.extension_at(self.tick))
                         && (matches!(id.spec().touch, Touch::Keep(_) | Touch::Curve) || attack::hits_now(player, id, ball, next_ball))
                 })
             })
@@ -799,7 +799,7 @@ impl Sim {
                 continue;
             }
             let ball = flight.position_at(tick);
-            if body.reaches(id, ball) && (!attack || attack::hits_now(&body, id, ball, flight.position_at(tick + 1))) {
+            if body.reaches_scaled(id, ball, body.extension_at(tick)) && (!attack || attack::hits_now(&body, id, ball, flight.position_at(tick + 1))) {
                 return Some((ahead, ball));
             }
         }

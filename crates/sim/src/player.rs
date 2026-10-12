@@ -49,6 +49,10 @@ const BLOCK_LOW: f32 = 1.3;
 const BLOCK_HIGH: f32 = 2.4;
 /// With great feet, a foot save reaches this much farther, and this high.
 const FEET_REACH: f32 = 0.4;
+/// A foot save's leg shoots out over this many ticks, from this share of its
+/// reach: a ball at full stretch is met a moment after the press, not on it.
+const FOOT_SAVE_EXTEND_TICKS: u32 = 6;
+const FOOT_SAVE_EXTEND_FROM: f32 = 0.5;
 const FEET_HIGH: f32 = 1.5;
 
 /// A move in progress.
@@ -217,6 +221,12 @@ impl Player {
         rested && self.grounded() && !self.action.is_some_and(|action| action.committed())
     }
 
+    /// Seconds until a dash is rested at `tick`, and how long the rest is.
+    pub fn dash_cooldown(&self, tick: u32) -> (f32, f32) {
+        let ready = self.dash.map_or(0, |dash| dash.start_tick + DASH_COOLDOWN_TICKS);
+        (ready.saturating_sub(tick) as f32 * DT, DASH_COOLDOWN_TICKS as f32 * DT)
+    }
+
     pub fn grounded(&self) -> bool {
         self.position.y <= 0.0
     }
@@ -270,6 +280,21 @@ impl Player {
         // No reaching across the net into the other half.
         let on_our_side = self.side * ball.x > -court::BALL_RADIUS;
         horizontal <= reach * scale && (spec.low..=high).contains(&height) && on_our_side
+    }
+
+    /// The share of move `id`'s reach out `elapsed` ticks after it starts: a
+    /// foot save's leg shoots out over its first few ticks; everything else
+    /// reaches fully at once.
+    pub(crate) fn extension(id: MoveId, elapsed: u32) -> f32 {
+        if id != MoveId::FootSave {
+            return 1.0;
+        }
+        (FOOT_SAVE_EXTEND_FROM + (1.0 - FOOT_SAVE_EXTEND_FROM) * elapsed as f32 / FOOT_SAVE_EXTEND_TICKS as f32).min(1.0)
+    }
+
+    /// The share of the active move's reach out at `tick`.
+    pub(crate) fn extension_at(&self, tick: u32) -> f32 {
+        self.action.map_or(1.0, |action| Self::extension(action.id, tick.saturating_sub(action.start_tick)))
     }
 
     /// How far from the body's center line move `id` reaches: great feet get

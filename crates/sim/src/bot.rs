@@ -219,7 +219,7 @@ fn would_connect(sim: &Sim, me: usize, flight: &Flight, id: MoveId, direction: V
     let mut body = sim.players[me];
     (1..=spec.windup + spec.active).any(|tick| {
         body.position += Vec3::new(direction.x, 0.0, direction.y) * speed * DT;
-        tick > spec.windup && body.reaches(id, flight.position_at(sim.tick + tick))
+        tick > spec.windup && body.reaches_scaled(id, flight.position_at(sim.tick + tick), Player::extension(id, tick))
     })
 }
 

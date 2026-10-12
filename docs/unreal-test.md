@@ -887,3 +887,29 @@ Result over 90 s: the fastest hand went from 228 m/s to 54, frames over
 40 m/s from 37 to 26, and the 99.9th percentile is 26 m/s. Frames over
 30 m/s stayed about the same (124 → 122). Contact gaps (0.19 m) and timing
 (2 ms) held.
+
+### 2026-10-11: the swing starts on the approach
+
+Most remaining hand pops were spikes and sets starting late: the arm went
+from running to cocked in one 0.15 s blend.
+
+- **`sim_ffi`'s look-ahead now reports each player's next hit move** (pass,
+  spike or an ability) and the ticks until it starts, within 0.6 s. Player
+  state is 148 bytes.
+- **The upper body leans into that swing's wind-up over its last 0.5 s**
+  (up to 70%), as a spiker draws the arms back on the approach. When the
+  swing starts, the lean fades out as the swing fades in. This uses the
+  charge pose's layer: a person holding E gets the same lean from the
+  charge, since the look-ahead can't know a person's presses.
+- **Fixed on the way:** when the coming swing changed (a bump becoming a
+  set), the charge pose vanished in one frame. It now fades out, then
+  switches.
+
+Over 90 s:
+- Frames over 30 m/s fell from 122 to 45, and over 40 m/s from 26 to 0.
+- The fastest hand fell from 54 m/s to 39.
+- Contact gaps (0.20 m) and timing (2 ms) held, and the checksum is
+  unchanged.
+
+What's left is mostly the body itself moving fast (a run plus the slide
+toward the contact), and Golazo's takeoff.

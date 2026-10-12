@@ -129,6 +129,12 @@ pub struct VolleyPlayerState {
     pub future_z: [f32; 3],
     /// The ultimate's charge, 0 to 1 (ready).
     pub charge: f32,
+    /// The next hit move coming (pass, spike or an ability, as `MoveId`'s
+    /// index) and the ticks until it starts, -1 for none within the look
+    /// ahead: for the swing to begin on the approach. A human's moves can't be
+    /// known.
+    pub next_move: i32,
+    pub next_move_ticks: i32,
 }
 
 /// The ticks `future_x`/`future_z` look ahead: 0.2, 0.4 and 0.6 s.
@@ -141,6 +147,8 @@ pub struct Ahead {
     pub takeoff: Option<u32>,
     /// Where the feet are at `FUTURE_TICKS`.
     pub future: [Vec2; 3],
+    /// The next hit move to start, and in how many ticks.
+    pub next_move: Option<(MoveId, u32)>,
 }
 
 /// How far ahead (ticks) `takeoff_ticks` looks, as the Bevy client's gather.
@@ -665,6 +673,8 @@ pub fn player_state(sim: &Sim, i: usize, ahead: Ahead) -> VolleyPlayerState {
         future_x: ahead.future.map(|spot| spot.x),
         future_z: ahead.future.map(|spot| spot.y),
         charge: player.charge,
+        next_move: ahead.next_move.map_or(-1, |(id, _)| id.index() as i32),
+        next_move_ticks: ahead.next_move.map_or(-1, |(_, ticks)| ticks as i32),
     }
 }
 
@@ -675,14 +685,21 @@ pub fn player_state(sim: &Sim, i: usize, ahead: Ahead) -> VolleyPlayerState {
 pub fn look_ahead(sim: &Sim, human: Option<usize>) -> Vec<Ahead> {
     let here = |sim: &Sim, i: usize| Vec2::new(sim.players[i].position.x, sim.players[i].position.z);
     let mut ahead: Vec<Ahead> =
-        (0..sim.players.len()).map(|i| Ahead { takeoff: None, future: [here(sim, i); 3] }).collect();
+        (0..sim.players.len()).map(|i| Ahead { takeoff: None, future: [here(sim, i); 3], next_move: None }).collect();
     if sim.phase != Phase::Rally {
         return ahead;
     }
     let mut future = sim.clone();
     for k in 1..=FUTURE_TICKS[2] {
         let grounded: Vec<bool> = future.players.iter().map(|p| p.grounded()).collect();
-        step(&mut future, human, PlayerInput::default());
+        for event in step(&mut future, human, PlayerInput::default()) {
+            if let Event::MoveStarted { player, id } = event
+                && !matches!(id, MoveId::Dive | MoveId::FootSave)
+                && ahead[player].next_move.is_none()
+            {
+                ahead[player].next_move = Some((id, k));
+            }
+        }
         for (i, player) in future.players.iter().enumerate() {
             if k <= GATHER_TICKS && ahead[i].takeoff.is_none() && grounded[i] && !player.grounded() {
                 ahead[i].takeoff = Some(k);
@@ -748,7 +765,7 @@ mod tests {
     #[test]
     fn struct_sizes() {
         assert_eq!(size_of::<VolleyInput>(), 36);
-        assert_eq!(size_of::<VolleyPlayerState>(), 140);
+        assert_eq!(size_of::<VolleyPlayerState>(), 148);
         assert_eq!(size_of::<VolleyMatchState>(), 116);
         assert_eq!(size_of::<VolleyEvent>(), 44);
         assert_eq!(size_of::<VolleyHud>(), 84);

@@ -53,6 +53,10 @@ typedef struct VolleyPlayerState {
     int32_t takeoff_ticks;
     float future_x[3], future_z[3];  /* feet 0.2, 0.4 and 0.6 s ahead */
     float charge;     /* the ultimate's charge, 0 to 1 (ready) */
+    /* The next hit move coming (a VOLLEY_* move: pass, spike or an ability)
+     * and the ticks until it starts, -1 for none within 0.6 s; from the match
+     * stepped ahead with the bots' inputs, so never a person's. */
+    int32_t next_move, next_move_ticks;
 } VolleyPlayerState;
 
 enum { VOLLEY_BALL_DEAD = 0, VOLLEY_BALL_HELD = 1, VOLLEY_BALL_IN_FLIGHT = 2, VOLLEY_BALL_CARRIED = 3 };

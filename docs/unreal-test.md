@@ -851,3 +851,39 @@ Hand-pop counts vary about ±50 between identical runs.
 The audio's sounds and attenuation, and the HUD's font, were held only by raw
 pointers; they're properties now. A stress run with collection every 5 s
 passes.
+
+### 2026-10-11: hand pops
+
+Bench mode now writes each hand pop (a palm over 30 m/s) to
+`<report>.pops.csv`, with how fast the body and the pose moved and what was
+playing. That found four things:
+
+1. **The bench overcounted.** It divided the last frame's movement by this
+   frame's time, so a short frame after a long one inflated speeds. Bevy
+   measures in the same frame and didn't have this. Fixed, the 90 s run has
+   124 pops, not about 300.
+2. **Crossovers flipped the left arm, at 150–180 m/s.** A spike reaches for
+   the ball with the right arm only. When the crossover took over, the left
+   arm jumped straight to the right's reach weight. Each arm now blends on
+   its own weight, and a limb aimed at a goal almost behind it eases off
+   rather than spinning about an unstable axis.
+3. **Blends flipped arms half a turn in one frame, at 150–230 m/s.** This hit
+   a crossover handing to the spike's follow-through, and a serve starting
+   out of a celebration. The engine's blend takes the shorter way round each
+   frame, and for rotations nearly half a turn apart that choice flips
+   between frames. Clips, the legs layer and the charge pose now blend each
+   bone toward what it showed last frame, so the side can't flip.
+4. **What's left are spikes and sets starting late in their wind-up,**
+   35–55 m/s. The arm blends from running into the cocked swing over 0.15 s
+   while the body slides toward the contact point. These are fast but
+   continuous, not flips.
+   - Limiting the swing's catch-up to 2× changed nothing.
+   - A slower slide cut pops to 93 but moved passes from 0.19 m to 0.25 m off
+     the ball.
+   - An earlier slide changed nothing.
+   - None was kept.
+
+Result over 90 s: the fastest hand went from 228 m/s to 54, frames over
+40 m/s from 37 to 26, and the 99.9th percentile is 26 m/s. Frames over
+30 m/s stayed about the same (124 → 122). Contact gaps (0.19 m) and timing
+(2 ms) held.

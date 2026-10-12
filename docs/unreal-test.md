@@ -1022,3 +1022,32 @@ for a person's input (bots press their saves themselves):
 - **In the client:** the dive and foot-save buttons are gone. The skill
   bar's pass slot shows what the button would do now (`VolleyHud.pass_action`,
   104 bytes), and the save prompts and help say Q / RB.
+
+### 2026-10-11: smoother animation, round one (dead blending, overlap)
+
+The goal now is Knockout City's fluid feel. Each technique gets measured
+by bench mode and filmed; it stays only if it wins (experiments.md 20-21).
+
+- **New bench measure, `smoothness`:** how sharply the hands, head and hips
+  accelerate relative to the body, as the 99th and 99.9th percentiles
+  (m/s²). A jolt in the animation shows as a spike.
+- **Dead blending, now the default:** Unreal's method for cutting between
+  animations. On a cut, the old pose keeps moving the way it was going,
+  slowing down, while it fades into the new clip. Crossfading blended two
+  clips' poses instead.
+  - The engine's `FAnimNode_DeadBlending` needs an Animation Blueprint, so it
+    is ported into our proxy using the engine's own maths and defaults.
+  - Over two runs each, hand pops over 30 m/s fell from 45 to 29, and
+    hands, head and hips all move with 5-6% less jerk. Contact gap and foot
+    sliding stayed the same or got a little better.
+  - `VOLLEY_BLEND=crossfade` brings the old blending back.
+- **Overlap, on by default:** the chest and arms are on springs that the
+  hips' acceleration and turning push. The upper body trails the hips into
+  a run, pitches past them when they stop, and swings back; the arms trail
+  too. The arms swing less while they reach for the ball.
+  - The bench calls it neutral: pops and contact unchanged, hand jerk 1.5%
+    higher (the motion is deliberate).
+  - It's judged by eye. `VOLLEY_OVERLAP=0` turns it off.
+- **Films:** `Saved/Films/dead-blending-*.mp4` show the same rally before
+  and after, side by side, from the broadcast camera and close up at half
+  speed.

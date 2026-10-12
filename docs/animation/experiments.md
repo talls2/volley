@@ -612,3 +612,75 @@ a few hand snaps a match (18); the rest of the frames with a hand over
 40 m/s are mostly Cross in the air as a hit-stop ends around his crossover
 (probably several ticks caught up in one frame); and your own jumps have no anticipation (only bots' can be
 known ahead).
+
+# The Unreal client
+
+From here, experiments run in the Unreal client (`volley-unreal`), measured
+by its bench mode (`VOLLEY_BENCH`, 90 s of bots, runs alternating). It adds
+a `smoothness` measure: the 99th and 99.9th percentile of the hands', head's
+and hips' acceleration relative to the body (m/s²).
+
+## 20 · Dead blending
+
+**Idea.** A crossfade blends two clips' poses for a while. Mid-blend, the
+new clip's motion and the old one's add up, which gives jolts and hand pops.
+Dead blending (Holden 2023; Unreal 5.3+'s `FAnimNode_DeadBlending`) cuts to
+the new clip at once. Behind the cut, the last pose shown keeps moving with
+the velocity it had, decaying, and fades into the new clip on a Hermite
+curve. Each bone's motion decays slowly if it's heading toward the new pose
+and fast if it's heading away.
+
+**How.** The engine's node needs an Animation Blueprint's node data: run
+from code, it asserts at the first frame. So `FVolleyAnimProxy::DeadBlend`
+ports it, with the engine's defaults:
+- half-life 1 s, clamped 0.05-1 s per axis;
+- velocities capped at 500 cm/s and 360°/s;
+- each bone blends the same way round as last frame, so a far-off
+  extrapolation can't switch sides.
+
+The existing blend times are now the dead blends' durations. A loop that
+was cut away from stays in the list, unseen, for a second, so a return to
+it resumes in step.
+
+**Result.** Two runs each, alternating:
+
+| | Crossfade | Dead blending |
+|---|---|---|
+| Frames with a palm over 30 m/s | 47, 43 | 28, 30 |
+| Hand acceleration p99 / p99.9 | 1200 / 2390 | 1140 / 2220 |
+| Head / hips p99 | 726 / 348 | 685 / 327 |
+| Contact gap (m) | 0.216 | 0.213 |
+| Foot sliding share | 0.29 | 0.27 |
+
+**Decision: keep, as the default.** `VOLLEY_BLEND=crossfade` brings the
+old blending back; `VOLLEY_DEAD_HALFLIFE` tunes the half-life.
+
+## 21 · Overlap: the chest and arms on springs
+
+**Idea.** In hand-keyed animation the body doesn't move as one piece. The
+hips lead, and the chest, head and arms follow a beat behind, then swing
+past and settle (the principle of follow-through and overlapping action).
+Mocap clips cut together lose this at every cut.
+
+**How.** Two damped springs, stepped at 120 Hz on the game thread:
+- **The chest:** pitch, roll and yaw, 2.8 Hz, damping 0.45. The hips'
+  acceleration and turning push it: speeding up pitches it back, stopping
+  pitches it forward, a side-step rolls it out, a turn leaves it behind.
+  Limited to 0.22 rad and shared up the spine (0.35 / 0.4 / 0.25).
+- **The arms:** pitch at the shoulder, 2.2 Hz, damping 0.3. They swing
+  back as the body speeds up, and less while an arm reaches for the ball.
+
+In the air nothing pushes the springs, so they settle.
+
+**Result.** Two runs each:
+
+| | Off | On |
+|---|---|---|
+| Frames with a palm over 30 m/s | 30, 34 | 30, 30 |
+| Hand acceleration p99 | 1123 | 1142 |
+| Head p99 | 674 | 670 |
+| Contact gap (m) | 0.216 | 0.220 |
+
+The bench calls it neutral. The motion it adds is deliberate, so it's
+judged on film. **Decision: keep, pending the user's eye.**
+`VOLLEY_OVERLAP=0` turns it off.

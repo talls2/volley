@@ -733,3 +733,59 @@ at the very top is slightly higher, from the sharper strike. In the film
 the spiker's chest turns away and the arm draws back before the hit, then
 swings across the body after it. **Decision: keep.** The amounts are
 modest next to Knockout City and can be raised.
+
+## 23 · A stronger coil, and coils for kicks
+
+**Asked for** by the user after 22.
+
+**How.**
+- **The overhand coil, about 1.6× stronger:**
+  - chest turn 0.45 → 0.75 rad;
+  - arch 0.18 → 0.3 rad;
+  - arm cock 0.5 → 0.85 rad;
+  - swing past 0.4 → 0.55.
+- **A coil for kicks:** pass kicks, volleys and the kick serve, but not the
+  bicycle kick, which is upside down.
+  - The hips turn the kicking hip back 0.45 rad, and the standing thigh
+    turns back so its foot stays planted.
+  - The chest turns 70% of the way back to the front and leans back
+    0.15 rad.
+  - The kicking thigh draws back 0.7 rad and the knee folds 0.6 rad. The
+    knee folds only while winding up; past the ball the leg stays straight.
+- **The kick's leg reach works like the spike's arm now:** no leaning
+  toward the ball through the approach, just a snap onto the contact point
+  in the strike.
+
+**Seen first.** The stronger coil had a jolt at contact. It was released
+at 14 units/s but swung past at 19, so the hand's speed jumped right at
+contact, and frames over 40 m/s went from 2 to 6.
+
+**Fix.** The coil now leaves contact exactly as fast as it came in: the
+swing-past peak time is derived from the release. The release is also
+spread over 0.18 s instead of 0.14, and the follow-through window is
+0.8 s so the coil settles fully.
+
+**Result** (two runs each, alternating, after the fix):
+
+| | Off | On |
+|---|---|---|
+| Frames with a palm over 30 m/s | 30, 32 | 41, 42 |
+| Frames over 40 m/s | 3, 3 | 3, 3 |
+| Hand acceleration p99.9 | 2260 | 2390 |
+| Contact gap, spikes (m) | 0.208 | 0.222 |
+| Spike timing off (s) | 0.002 | 0.005 |
+
+- **Hand speed.** The extra frames over 30 m/s are all spike strikes
+  between 30 and 40 m/s: the stronger whip, as asked. Without snap, the
+  fast spike frames came in the wind-up, where the old arm reach pulled
+  the arm about. No frame goes over 40 m/s any more often.
+- **Kicks.** The bench's hand measures don't see legs. Golazo's kick
+  contact is unchanged.
+- **Curve volleys.** One curve volley (tick 338) is 27 cm further from the
+  ball (1.05 m against 0.78 m). His curve volleys aren't timed swings: the
+  clip starts when the ball is touched, so the foot never quite meets it
+  (0.35-0.45 m typically). Timing them would be its own job.
+
+In the film, the spiker winds up with the chest turned well away and the
+arm cocked behind the head, and Golazo draws the kicking leg back with
+the knee folded before whipping it through. **Decision: keep.**

@@ -1077,3 +1077,15 @@ running foot sliding or hand-speed measurements.
 - **Bench:** a fifth fewer hand pops; contact and timing unchanged.
   `VOLLEY_SNAP=0` turns it all off.
 - **Film:** `Saved/Films/snappy-spikes-quarter-speed.mp4`.
+
+### 2026-10-12: stronger coil, and kicks coil too (experiments.md 23)
+
+- **Stronger overhand coil:** about 1.6×. The chest turns 0.75 rad away and
+  the arm cocks 0.85 rad.
+- **Kicks wind up:** the kicking hip turns back, the leg draws back with the
+  knee folded, and the chest leans away; then it all whips through. The
+  kick's leg reach now snaps onto the contact point only in the strike.
+- **Contact smoothed:** the coil leaves contact as fast as it came in, so
+  there's no jolt in the hand there.
+- **Film camera:** following a player can now reach the near sideline.
+- **Film:** `Saved/Films/stronger-coil-and-kicks-quarter-speed.mp4`.

@@ -1064,3 +1064,16 @@ on startup or after the bone set changes.
 Validation: Unreal editor target compiled successfully. No new animation
 bench was run; this change does not establish an improvement in ordinary
 running foot sliding or hand-speed measurements.
+
+### 2026-10-12: snappier hits (experiments.md 22)
+
+- **Strike timing:** timed swings now settle into their loaded pose, hold
+  it a beat, and strike 30% faster, speeding up into the ball.
+- **Spike arm:** a spike's arm stops steering toward the ball on the way in
+  and only snaps onto the contact point in the strike, so it can draw back.
+- **The coil:** spikes and serves get a hand-keyed coil on top. The chest
+  turns away and arches, the arm cocks behind the head, it all releases
+  into contact, and it swings past after.
+- **Bench:** a fifth fewer hand pops; contact and timing unchanged.
+  `VOLLEY_SNAP=0` turns it all off.
+- **Film:** `Saved/Films/snappy-spikes-quarter-speed.mp4`.

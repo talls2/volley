@@ -684,3 +684,52 @@ In the air nothing pushes the springs, so they settle.
 The bench calls it neutral. The motion it adds is deliberate, so it's
 judged on film. **Decision: keep, pending the user's eye.**
 `VOLLEY_OVERLAP=0` turns it off.
+
+## 22 · Snappy timing and a coil for overhand hits
+
+**Idea.** Knockout City's hits are hand-keyed pose to pose. The body
+settles into a loaded pose, holds it a moment, strikes fast, and swings
+past. Our mocap does the opposite: the capture smooths out the whip
+(experiment 13 found the same thing).
+
+**How** (`VolleyCharacter.cpp`, on unless `VOLLEY_SNAP=0`):
+- **Strike timing.** Gameplay already sets a timed swing's playhead from
+  the time left to contact; `SwingTime` now shapes it. The wind-up slows
+  into the loaded pose (the swing's `WindUp` time) over its last 0.12 s.
+  The strike from there to contact takes 70% of its own time, speeding up
+  into the ball (power 1.4). Serves stay even, because their toss is the
+  simulation's.
+- **No more steering a spike's arm on the way in.** The right arm used to
+  lean toward the ball all through the approach, at up to 60% weight, so
+  it never drew back. Now it reaches only in the strike, rising with the
+  square of the time left, and aims at where the ball will be met. Filmed,
+  this mattered more than the timing: before, the arm pointed straight up
+  at the ball.
+- **The coil, hand-keyed on top.** Through a spike's or serve's last
+  0.25 s before the strike:
+  - the chest turns the hitting shoulder back (up to 0.45 rad) and arches
+    (0.18 rad);
+  - the arm cocks behind the head (0.5 rad).
+
+  The coil releases over the last 0.14 s, faster and faster into the ball,
+  then swings past to -0.4 at 0.08 s after contact and settles.
+- **Tried and dropped: a faster follow-through.** Playing the clip 1.6×
+  faster out of contact doubled up the clip's own whip, which the capture
+  put after its contact frame. Spiking hands hit 40-60 m/s, three times a
+  match.
+
+**Result.** Two runs each, alternating:
+
+| | Off | On |
+|---|---|---|
+| Frames with a palm over 30 m/s | 32, 31 | 25, 21 |
+| Frames over 40 m/s (one is a known dive) | 2, 2 | 3, 2 |
+| Hand acceleration p99.9 | 2365 | 2410 |
+| Contact gap, spikes (m) | 0.208 | 0.212 |
+| Spike timing off (s) | 0.002 | 0.005 |
+
+There are fewer hand pops, and contact and timing hold. Hand acceleration
+at the very top is slightly higher, from the sharper strike. In the film
+the spiker's chest turns away and the arm draws back before the hit, then
+swings across the body after it. **Decision: keep.** The amounts are
+modest next to Knockout City and can be raised.

@@ -914,3 +914,31 @@ hands high above the head, and from a run they get there in three frames.
 Then come the spike and the celebration. **Decision: keep 0.15 s.**
 Knockout City's snap-in blends depend on clips made for them, short and
 starting near the pose they're entered from.
+
+## 25 · Trimmed mocap
+
+**Idea.** Knockout City's actions are 10-22 frames at 30 fps; Volley's mocap
+runs 1-2 s (`knockout-city-study.md`). Trimming tests how much shortness
+alone buys before any new clips.
+
+**How** (on unless `VOLLEY_TRIM=0`):
+- **Front:** a swing starts at most 0.25 s of clip before its loaded pose.
+  Timing holds there until the strike's schedule catches up.
+- **Back:** 0.35 s of clip after contact, it hands back to locomotion,
+  standing still or not.
+
+**Result.** Two runs each, alternating:
+
+| | Full | Trimmed |
+|---|---|---|
+| Frames with a palm over 30 m/s | 43, 38 | 46, 48 |
+| Contact gap (m) | 0.180 | 0.181 |
+| Contact gap, spikes (m) | 0.216 | 0.208 |
+| Foot sliding share | 0.26 | 0.28 |
+
+Within the noise, and the films barely differ. Gameplay already sets a
+timed swing's playhead from the time to contact (experiment 22), so the
+long run-ups were rarely played. Actions already ended early when the
+player ran off. **Decision: keep** (neutral, and closer to Knockout City's
+exits). The gap to Knockout City is in the motion itself, not the clips'
+length: it needs new clips.

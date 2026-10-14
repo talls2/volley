@@ -1193,3 +1193,33 @@ The walls become a weapon, not only a hazard. 70 sim tests pass, two of them new
     few spurs, the same per panel. They replace the frosted tint, which the
     fresnel glass hid from the front.
 
+## 2026-10-14: directional knockdowns (`game-progress`, Unreal)
+
+Getting hit now reads from where the ball came. This uses the Knockout City
+clips (`VOLLEY_KC=1`, local only).
+
+- **Their hit clips are poses:** each `hit_d*_h*_i*` clip is a single held
+  frame of a body thrown through the air (8 directions, 3 heights, 3
+  strengths). The knockdown used to freeze on one of them.
+- **Directions:** measured from how the head is thrown, d0 is a ball from
+  the front, then clockwise seen from above, 45° apiece.
+- **Knockdown** (body hit with quality over 0.3, or posterized), in four
+  stages:
+  1. The impact pose for where the ball came from and how high it hit.
+  2. The body thrown up on a 55 cm arc for 0.22 s plus 0.18 s × quality.
+  3. Their knockback fall (`dash_knockback_transto_dazed_loop`), then dazed
+     on the ground (`dash_knockback_dazed_loop`) while the sim's stun lasts.
+  4. Getting up (`dash_knockback_end`) at 1.4× speed.
+  - Running cuts it short once the player is free.
+  - A floor guard keeps every bone (as last drawn) at least 6 cm above the
+    floor, since the flying poses dip below the feet.
+- **Flinches:** a light body hit or a shove flashes the impact pose on the
+  upper body (up in 0.05 s, gone by 0.4 s), over the charge pose.
+- **Without `VOLLEY_KC`:** nothing changes (the mocap knockdown plays).
+- **`VOLLEY_TEST_HITS=TICK`:** fakes hits on every player at that tick, for
+  filming. The first four are knocked down from four sides, the fifth
+  flinches, the sixth is shoved. Tick 30 has everyone standing for the
+  serve.
+- **Wall cracks:** a cracked panel now shows glowing crack lines (a star of
+  rays with spurs).
+

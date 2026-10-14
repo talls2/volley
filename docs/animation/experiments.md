@@ -942,3 +942,60 @@ long run-ups were rarely played. Actions already ended early when the
 player ran off. **Decision: keep** (neutral, and closer to Knockout City's
 exits). The gap to Knockout City is in the motion itself, not the clips'
 length: it needs new clips.
+
+## 26 · Knockout City's hand-keyed clips on Volley's characters
+
+**Idea.** Experiments 22-25 showed the gap to Knockout City is the clips
+themselves. With the creators' permission (via the user), their gameplay
+clips were decoded from an installed copy, retargeted onto Volley's
+skeleton, and swapped in.
+
+**How.**
+- **Decoding:** a local decoder outside this repository, with nothing of
+  theirs committed. The clips are Granny animation that their engine
+  re-serialised; every curve format decodes, and rotations check out
+  exactly (0.0003°).
+- **Retargeting:** 309 useful gameplay clips, through
+  `tools/blender/retarget_mocap.py --bvh-dir DIR --out FILE`.
+- **Importing:** `VOLLEY_EXTRA_ANIMATIONS` in the asset script brings them in
+  as `Knockout<name>`.
+- **In the game:** `VOLLEY_KC=1` swaps them into Volley's clip slots, with
+  swing timing measured on our skeleton (`--measure`):
+
+| Slot | Their clip | Contact | Palm at contact (right, forward, up) |
+|---|---|---|---|
+| Ready, Jog, Sprint | stand, run, sprint cycles | | |
+| Airborne, Land, Dash | jump loop, landing into a run, dash start | | |
+| Spike | overhand lob throw: cocked at 0.07 s, a one-frame whip | 0.10 s | -0.02, 0.78, 2.18 m |
+| Set | standing catch: both hands up above the head | 0.13 s | 0.03, 0.28, 1.72 m |
+| Bump | caught ball: crouched, hands together low in front | 0.13 s | 0.2, 0.52, 0.66 m |
+
+- **Kept from mocap:** the serve. The lob meets the ball 0.78 m ahead, but
+  the simulation tosses it to the right, so the body slid 78 cm to line up.
+- **Off for their clips:** the overhand coil, since their spike has its own
+  wind-up and whip. Motion matching is off too; their gaits play by speed.
+
+**Result.** Two runs each, alternating:
+
+| | Mocap | Knockout City |
+|---|---|---|
+| Contact gap (m) | 0.186 | 0.143 |
+| Contact gap, passes (m) | 0.145 | 0.09 |
+| Contact gap, spikes (m) | 0.215 | 0.119 |
+| Foot sliding share | 0.27 | 0.23 |
+| Frames with a palm over 30 m/s | 45 | 280 |
+| Hand acceleration p99 | 1160 | 1650 |
+
+- **Contact:** the hands meet the ball about twice as precisely. A one-frame
+  whip lands on its contact frame.
+- **Feet:** they slide less.
+- **Hand speed:** fast hands are their style: the sprint's arm pumps, the
+  dash, the whip. The jolts are the set's wind-up, which lifts the hands
+  0.8 m in about 0.1 s while the arm reach pulls toward the ball. Reaching
+  only in the strike cut those only a little (to 245) and cost contact
+  (passes at 0.141 m), so the reach stays.
+- **Films:** their poses read like the reference (a leaping, stretched
+  spike; crouched catches into bumps).
+
+**Decision: keep behind `VOLLEY_KC=1`.** It stays a switch while digs, the
+other heroes' moves, and shipping permission are worked out.

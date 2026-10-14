@@ -842,3 +842,50 @@ next two pairs ran at 5 ms frames:
   timing is unchanged.
 
 **Decision: keep.**
+
+## 25 · Banana kicks predicted on the right tick
+
+**Asked for** by the user after 24, whose two worst curve volleys (ticks
+338 and 3992) were still 0.37 m from the ball.
+
+**Why.** At those two touches the high volley's playhead was at 0.16 s, short
+of its 0.18 s contact frame. The swing was a tick late. Once the kick was
+armed, the sim's `predicted_contact` put the touch one tick after the real
+one, and 10 cm lower. The touch meets a banana kick wherever the ball is in
+reach (`Touch::Curve` skips `attack::hits_now`), but the prediction counted
+it as an attack and waited for `hits_now`. On the other five kicks both
+checks pass on the same tick, so they lined up.
+
+**How** (`crates/sim/src/lib.rs`): `predicted_contact` exempts curves from
+`hits_now`, as the touch does. Only clients call it, so the match is
+unchanged: the checksums are identical. A new test,
+`predicted_contact_matches_a_banana_kick`, plays the game's lineup with bots
+and checks that every prediction made while a banana kick is armed lands on
+its touch. Before the fix it failed at tick 338 (predicted 339). The Bevy
+client reads the same prediction, so it gets the fix too.
+
+**Result** (Unreal, with 24's client; old and new sim DLL alternating, after
+a warm-up run, all at 5 ms frames):
+
+| | Old | New |
+|---|---|---|
+| Contact gap, curve volleys (m) | 0.230, 0.226 | 0.150, 0.145 |
+| Curve volleys, p90 (m) | 0.460, 0.450 | 0.158, 0.158 |
+| Tick 338 (m) | 0.460, 0.450 | 0.135, 0.158 |
+| Tick 3992 (m) | 0.476, 0.461 | 0.174, 0.184 |
+| High-volley timing off (s) | 0.020, 0.020 | 0.008, 0.006 |
+| Contact gap, spikes (m) | 0.213, 0.204 | 0.222, 0.237 |
+| Frames with a palm over 30 m/s | 32, 27 | 27, 33 |
+| Frames over 40 m/s | 1, 2 | 2, 2 |
+| Spike timing off (s) | 0.005, 0.007 | 0.009, 0.005 |
+
+- **Curve volleys.** All seven now land within 0.13-0.18 m of the ball.
+  The two late ones measured 0.45-0.48 m in this session's old runs,
+  against 0.36-0.41 m in 24's. Same build, so that's noise between
+  sessions; the late tick was the cause either way.
+- **Everything else.** The prediction for spikes and every other move is
+  untouched, so their differences are run-to-run noise. Spike gaps in
+  24's runs ranged 0.216-0.224 on one build. Hand pops are still spikes,
+  dives, crossovers and sets by other players.
+
+**Decision: keep.**

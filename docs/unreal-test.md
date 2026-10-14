@@ -1102,3 +1102,17 @@ running foot sliding or hand-speed measurements.
 - **Bench** (alternating, two warm runs each): curve-volley contact gap
   0.58 m to 0.21 m, worst touch 1.06 m to 0.37 m. Spike gap, hand pops and
   swing timing are unchanged.
+
+### 2026-10-13: banana kicks predicted on the right tick (experiments.md 25)
+
+- **The last two late curve volleys** (ticks 338 and 3992) came from the sim
+  predicting the touch a tick late. The touch meets a banana kick wherever
+  the ball is in reach, but `predicted_contact` waited for the attack check
+  as well. It doesn't now, and a test pins every armed banana kick's
+  prediction to its touch. The match itself is unchanged (same checksums).
+- **Bench** (sim DLL alternating, two warm runs each): curve-volley gap
+  0.23 m to 0.15 m, p90 0.45 m to 0.16 m; the two late touches 0.46 m to
+  0.16 m. High-volley timing off 0.020 s to 0.007 s. Spikes, hand pops and
+  other swings are unchanged.
+- Unreal picks it up from `volley_sim_ffi.dll`; rebuild it with
+  `cargo build -p volley_sim_ffi --release` before building the editor.

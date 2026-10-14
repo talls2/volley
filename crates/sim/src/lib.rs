@@ -784,7 +784,8 @@ impl Sim {
         let Ball::InFlight(flight) = self.ball else { return None };
         let mut body = self.players[player];
         let id = body.active_move(self.tick)?;
-        let attack = !matches!(id.spec().touch, Touch::Keep(_));
+        // As the touch judges it: a banana kick is met wherever it reaches.
+        let attack = !matches!(id.spec().touch, Touch::Keep(_) | Touch::Curve);
         let landing = flight.landing_time();
         for ahead in 1..=horizon {
             let tick = self.tick + ahead;

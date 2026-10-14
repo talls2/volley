@@ -1167,6 +1167,39 @@ fn predicted_contact_matches_the_real_touch() {
 }
 
 #[test]
+fn predicted_contact_matches_a_banana_kick() {
+    // A banana kick is met without the attack's hits_now check, so its
+    // prediction mustn't wait for it: every prediction made while the kick
+    // is armed lands on the real touch. Played with the game's lineup (Blue
+    // a Cross, a Golazo and an All-rounder), whose kicks found it.
+    let mut sim = Sim::new(MatchConfig::default());
+    sim.set_kit(sim.player_index(1, 0), moves::CROSS);
+    sim.set_kit(sim.player_index(1, 1), moves::GOLAZO);
+    let mut due: Vec<Vec<u32>> = vec![Vec::new(); sim.players.len()];
+    let mut kicks = 0;
+    for _ in 0..120 * TICK_HZ {
+        for (i, predictions) in due.iter_mut().enumerate() {
+            if sim.players[i].active_move(sim.tick) == Some(MoveId::BananaKick)
+                && let Some((ahead, _)) = sim.predicted_contact(i, TICK_HZ)
+            {
+                predictions.push(sim.tick + ahead);
+            } else {
+                predictions.clear();
+            }
+        }
+        let inputs = bot_inputs(&sim);
+        for event in sim.step(&inputs) {
+            if let Event::Touched { player, kind: HitKind::Curve, .. } = event {
+                assert!(!due[player].is_empty(), "no prediction before the kick at {}", sim.tick);
+                assert!(due[player].iter().all(|&tick| tick == sim.tick), "kicked at {}, predicted {:?}", sim.tick, due[player]);
+                kicks += 1;
+            }
+        }
+    }
+    assert!(kicks > 0, "no banana kicks");
+}
+
+#[test]
 fn a_kick_from_below_the_net_loops_over_it() {
     // Golazo at the net, kicking a ball lower than its top: a flat attack
     // would go into the net, so it arcs over instead.

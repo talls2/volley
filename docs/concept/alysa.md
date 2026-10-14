@@ -1,7 +1,8 @@
 # Alysa, the ice skater
 
-A planned hero; nothing is built yet. Her concept art is still to be
-generated, from the prompt below.
+A planned hero; nothing is built yet. Her concept sheet, generated from
+the prompt below, is [`alysa.webp`](alysa.webp). Her dialogue portraits are in
+`volley-unreal/Tools/portrait-art/`.
 
 ## Who she is
 

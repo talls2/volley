@@ -212,3 +212,17 @@ recordings are CC BY 4.0 and need their credit kept when the game ships.
 2. Hero characters, each with their own powers, strengths and weaknesses.
 3. 3v3, rotations.
 4. Networking (renet): the server runs the sim; clients send inputs.
+
+## Ideas
+
+Not decided or scheduled yet; to weigh when the animation work settles.
+
+- **Walls that break.** A wall panel cracks the first time the ball hits it
+  and shatters on the second. Past a shattered panel the court is open, so
+  normal volleyball rules apply there: a ball landing beyond it is out.
+  Banking off the walls to score becomes a limited resource, and choosing
+  when and where to spend each wall becomes part of the game plan.
+  - **To work out:** panel size (one panel per stretch of wall, or whole
+    sides); whether walls come back between sets; what Golazo's Wall Pass
+    and wall jumps do next to a cracked or shattered panel; how bots weigh
+    using up a wall.

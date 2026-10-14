@@ -2,7 +2,7 @@
 //! heroes themselves, their kits, live in `volley_sim::moves`.
 
 use bevy::prelude::*;
-use volley_sim::moves::{ALL_ROUNDER, CROSS, GOLAZO, HEROES};
+use volley_sim::moves::{ALL_ROUNDER, ALYSA, CROSS, GOLAZO, HEROES};
 use volley_sim::{MatchConfig, Sim};
 
 use crate::input::{ActiveDevice, LOCAL_TEAM};
@@ -48,6 +48,17 @@ pub const INFO: [HeroInfo; HEROES.len()] = [
         ],
         color: Color::srgb(0.2, 0.85, 0.45),
     },
+    HeroInfo {
+        title: "Figure-skating champion",
+        blurb: "The fastest on the sand, gliding on blades of ice. Can't stop dead, jumps lowest, and has no dive.",
+        lines: &[
+            "Passive, Glide: accelerate fastest and carve wide turns, but stops and reversals slide",
+            "Flash Freeze {ability}: in the air, the ball you hit freezes as it crosses the net, then drops on its way",
+            "Ultimate, Triple Axel {ultimate}: a spinning leap into an ice spike that smashes through blocks and leaves a ring of ice",
+            "Weakness: no dive",
+        ],
+        color: Color::srgb(0.45, 0.9, 1.0),
+    },
 ];
 
 /// A hero's lines with the buttons filled in.
@@ -65,10 +76,10 @@ pub fn buttons(device: ActiveDevice) -> (&'static str, &'static str) {
 }
 
 /// A new match with you as `choice` and two All-rounder teammates, against a
-/// Cross, a Golazo and an All-rounder, so there's always every hero to face.
+/// Cross, an Alysa and a Golazo, so there's always every hero to face.
 pub fn new_match(choice: usize) -> Sim {
     let mut sim = Sim::new(MatchConfig::default());
-    let lineup = [[HEROES[choice], ALL_ROUNDER, ALL_ROUNDER], [CROSS, GOLAZO, ALL_ROUNDER]];
+    let lineup = [[HEROES[choice], ALL_ROUNDER, ALL_ROUNDER], [CROSS, ALYSA, GOLAZO]];
     for (team, kits) in lineup.into_iter().enumerate() {
         let team = if team == 0 { LOCAL_TEAM } else { 1 - LOCAL_TEAM };
         for (slot, kit) in kits.into_iter().enumerate() {

@@ -242,6 +242,9 @@ fn spike(sim: &Sim, me: usize, flight: &Flight, to_ball: Vec2, seconds_left: f32
         {
             input.ability = true;
             input.movement = Vec2::new(0.0, (player.position.z - blocker.z).signum());
+        } else if armed == Some(MoveId::Spike) && player.kit.has_move(MoveId::FlashFreeze) && player.ready(MoveId::FlashFreeze, sim.tick) {
+            // Freeze it whenever it's ready: it always throws the receivers.
+            input.ability = true;
         }
         input.spike = armed.is_none();
         input.aim = Some(Aim::Spot(spike_aim(sim, player.team, ball)));

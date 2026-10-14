@@ -23,13 +23,14 @@ typedef struct VolleyInput {
     uint8_t jump, jump_released, pass, pass_held, spike, dive, kick, dash, ability, ultimate;
 } VolleyInput;
 
-enum { VOLLEY_KIT_ALL_ROUNDER = 0, VOLLEY_KIT_CROSS = 1, VOLLEY_KIT_GOLAZO = 2 };
+enum { VOLLEY_KIT_ALL_ROUNDER = 0, VOLLEY_KIT_CROSS = 1, VOLLEY_KIT_GOLAZO = 2, VOLLEY_KIT_ALYSA = 3 };
 enum { VOLLEY_MOVE_WINDUP = 0, VOLLEY_MOVE_ACTIVE = 1, VOLLEY_MOVE_RECOVERY = 2, VOLLEY_MOVE_OVER = 3 };
 
 /* Moves, in the sim's MoveId order. */
 enum {
     VOLLEY_PASS = 0, VOLLEY_SPIKE = 1, VOLLEY_DIVE = 2, VOLLEY_FOOT_SAVE = 3,
     VOLLEY_CROSSOVER = 4, VOLLEY_POSTERIZER = 5, VOLLEY_BANANA_KICK = 6, VOLLEY_CHILENA = 7,
+    VOLLEY_FLASH_FREEZE = 8, VOLLEY_TRIPLE_AXEL = 9,
 };
 
 typedef struct VolleyPlayerState {
@@ -116,6 +117,13 @@ enum {
     VOLLEY_EVENT_SHOVED = 22,
     /* An attack straight off a wall jump: harder and faster. */
     VOLLEY_EVENT_WALL_SHOT = 23,
+    /* x, y, z: where a Flash Freeze ball stopped in mid-air... */
+    VOLLEY_EVENT_BALL_FROZEN = 24,
+    /* ...and where it goes on its way again. */
+    VOLLEY_EVENT_BALL_THAWED = 25,
+    /* x, y, z: where an ice ball burst; a ring of ice on the floor below,
+     * 1.5 m around (radius), for two seconds. */
+    VOLLEY_EVENT_ICE_BURST = 26,
 };
 
 /* Touched's detail, in the sim's HitKind order. */

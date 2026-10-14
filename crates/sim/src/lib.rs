@@ -66,6 +66,14 @@ const SHOVE_SPEED: (f32, f32) = (2.5, 6.0);
 const WALL_SHOT_SECONDS: f32 = 0.8;
 const WALL_SHOT_QUALITY: f32 = 0.25;
 const WALL_SHOT_SPEED: f32 = 0.15;
+/// Flash Freeze: the ball hangs where it crossed the net this long (ticks).
+const FREEZE_TICKS: u32 = TICK_HZ / 2;
+/// Triple Axel's ice ball flies this much faster than a spike, and where it's
+/// first received (or lands) it bursts into a ring of ice this wide (radius,
+/// m) that lasts this long (ticks): everyone inside glides.
+const ICE_SPEED: f32 = 0.15;
+const ICE_RING_RADIUS: f32 = 1.5;
+const ICE_TICKS: u32 = 2 * TICK_HZ;
 /// Ultimate charge from each touch, and for each point the team wins.
 const CHARGE_PER_TOUCH: f32 = 0.05;
 /// How hard a banana kick bends, sideways (m/s²).
@@ -290,6 +298,10 @@ struct Plan {
     /// Banked off the side wall nearest its target: the flight aims at the
     /// target's mirror image beyond that wall, and folds back onto it.
     bank: bool,
+    /// Freezes as it crosses the net (Flash Freeze).
+    freeze: bool,
+    /// An ice ball (Triple Axel).
+    ice: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -344,6 +356,12 @@ pub enum Event {
     Shoved { player: usize, strength: f32 },
     /// An attack straight off a wall jump: harder and faster.
     WallShot { player: usize },
+    /// A Flash Freeze ball stopped in mid-air as it crossed the net...
+    BallFrozen { at: Vec3 },
+    /// ...and goes on its way again.
+    BallThawed { at: Vec3 },
+    /// An ice ball burst into a ring of ice here (on the floor below).
+    IceBurst { at: Vec3 },
     Point { team: usize, reason: PointReason },
     /// The teams will switch sides before the next rally.
     SidesSwitched,
@@ -408,6 +426,14 @@ pub struct Sim {
     switch_pending: bool,
     /// Each wall panel: 0 whole, 1 cracked, 2 broken. Whole again each set.
     pub walls: [u8; PANELS],
+    /// The ball in flight freezes when it next crosses the net.
+    freeze_pending: bool,
+    /// Ticks the ball stays frozen in mid-air.
+    frozen_left: u32,
+    /// The ball in flight is an ice ball, not yet burst.
+    ice_ball: bool,
+    /// The latest ring of ice: its center on the floor and the tick it melts.
+    pub ice: Option<(Vec3, u32)>,
 }
 
 impl Sim {
@@ -442,6 +468,10 @@ impl Sim {
             sides,
             switch_pending: false,
             walls: [0; PANELS],
+            freeze_pending: false,
+            frozen_left: 0,
+            ice_ball: false,
+            ice: None,
         };
         sim.start_rally();
         sim
@@ -462,6 +492,16 @@ impl Sim {
             self.start_rally();
         }
 
+        // Anyone in a ring of ice glides while it lasts.
+        if let Some((center, until)) = self.ice
+            && self.tick < until
+        {
+            for player in &mut self.players {
+                if Vec2::new(player.position.x - center.x, player.position.z - center.z).length() <= ICE_RING_RADIUS {
+                    player.ice_until = self.tick + 1;
+                }
+            }
+        }
         let ball = self.ball_position();
         for (i, input) in inputs.iter().enumerate() {
             let serving = self.ball == Ball::Held { by: i };
@@ -479,6 +519,7 @@ impl Sim {
 
         match self.ball {
             Ball::Held { by } => self.update_serve(by, &mut events),
+            Ball::InFlight(flight) if self.frozen_left > 0 => self.update_frozen(flight, &mut events),
             Ball::InFlight(flight) => self.update_flight(flight, &mut events),
             Ball::Carried { by, release_tick } => self.update_carry(by, release_tick, &mut events),
             Ball::Dead { .. } => {}
@@ -591,6 +632,10 @@ impl Sim {
         self.last_power = false;
         self.decoy = None;
         self.serve_at = None;
+        self.freeze_pending = false;
+        self.frozen_left = 0;
+        self.ice_ball = false;
+        self.ice = None;
         if self.switch_pending {
             self.switch_pending = false;
             self.sides = [self.sides[1], self.sides[0]];
@@ -650,6 +695,9 @@ impl Sim {
             (HitKind::Curve, over(HitKind::Curve, SPIKE_DEPTH), 1.0)
         } else if spec.touch == Touch::Split {
             (HitKind::Bicycle, over(HitKind::Bicycle, SPIKE_DEPTH), 1.0)
+        } else if spec.touch == Touch::Ice {
+            // Out of the spin at the top of the leap: a clean spike.
+            (HitKind::Spike, over(HitKind::Spike, SPIKE_DEPTH), 1.0)
         } else {
             let (kind, quality) = attack::best_technique(player, from);
             (kind, over(kind, SPIKE_DEPTH), quality)
@@ -683,11 +731,13 @@ impl Sim {
             };
             target.with_z(z.clamp(-(HALF_WIDTH - WALL_MARGIN), HALF_WIDTH - WALL_MARGIN))
         });
-        let power = matches!(spec.touch, Touch::Carry { .. } | Touch::Dunk | Touch::Curve | Touch::Split);
+        let power = matches!(spec.touch, Touch::Carry { .. } | Touch::Dunk | Touch::Curve | Touch::Split | Touch::Freeze | Touch::Ice);
         // A curve already bends; it doesn't bank as well.
         let bank = bank && curve == 0.0 && decoy.is_none();
         let seconds = if bank { seconds * bank_stretch(from, target) } else { seconds };
-        Plan { preview: HitPreview { kind, target, spread, quality }, seconds, curve, decoy, power, bank }
+        let (freeze, ice) = (spec.touch == Touch::Freeze, spec.touch == Touch::Ice);
+        let seconds = if ice { seconds * (1.0 - ICE_SPEED) } else { seconds };
+        Plan { preview: HitPreview { kind, target, spread, quality }, seconds, curve, decoy, power, bank, freeze, ice }
     }
 
     /// Launches a planned hit, landing somewhere within its spread.
@@ -701,6 +751,9 @@ impl Sim {
         let seconds = clearing_seconds(from, target, plan.seconds, quality);
         self.ball = Ball::InFlight(Flight::curving_to_target(from, target, seconds, plan.curve, self.tick));
         self.decoy = plan.decoy.map(|spot| Flight::to_target(from, spot, plan.seconds, self.tick));
+        self.freeze_pending = plan.freeze;
+        self.frozen_left = 0;
+        self.ice_ball = plan.ice;
         self.touch_lockout_until = self.tick + TOUCH_LOCKOUT_TICKS;
         events.push(Event::Touched { player: hitter, kind, quality });
         if self.decoy.is_some() {
@@ -769,7 +822,9 @@ impl Sim {
             let v = flight.velocity_at_time(crossing);
             // Just clear of the net on the side the ball came from.
             let back = -v.x.signum() * (BALL_RADIUS + 0.01);
-            if self.last_hit == Some(HitKind::Dunk) {
+            // Only the first crossing freezes, and not a ball blocked there.
+            let freeze = std::mem::take(&mut self.freeze_pending);
+            if self.last_hit == Some(HitKind::Dunk) || self.ice_ball {
                 // Straight through the block, flattening whoever tried.
                 for blocker in self.blockers_in_the_way(at, v) {
                     let player = &mut self.players[blocker];
@@ -799,12 +854,18 @@ impl Sim {
                 events.push(Event::HitNet { at });
                 return;
             }
+            if freeze {
+                self.frozen_left = FREEZE_TICKS;
+                events.push(Event::BallFrozen { at: flight.position_at_time(now) });
+                return;
+            }
         }
 
         if now >= landing {
             // Walls keep everything in: wherever it lands, that side loses the point.
             let at = flight.landing_point();
             events.push(Event::Landed { at, velocity: flight.velocity_at_time(landing) });
+            self.ice_burst(at, events);
             self.award_point(1 - self.team_on(at.x), PointReason::LandedIn, at, events);
             return;
         }
@@ -830,10 +891,32 @@ impl Sim {
                 da.total_cmp(&db)
             });
         if let Some(hitter) = hitter {
+            self.ice_burst(ball, events);
             self.touch(hitter, ball, events);
         } else if let Some(player) = self.body_in_the_way(ball, flight.velocity_at_time(now)) {
+            self.ice_burst(ball, events);
             self.body_hit(player, ball, flight.velocity_at_time(now), events);
         }
+    }
+
+    /// A frozen ball: it hangs where it is (its flight starts a tick later
+    /// each tick), out of everyone's reach, then goes on exactly as it was.
+    fn update_frozen(&mut self, flight: Flight, events: &mut Vec<Event>) {
+        self.ball = Ball::InFlight(Flight { start_tick: flight.start_tick + 1, ..flight });
+        self.frozen_left -= 1;
+        if self.frozen_left == 0 {
+            events.push(Event::BallThawed { at: self.ball_position() });
+        }
+    }
+
+    /// An ice ball meeting a player or the floor at `at` bursts into a ring
+    /// of ice there: everyone inside it glides while it lasts (see `step`).
+    fn ice_burst(&mut self, at: Vec3, events: &mut Vec<Event>) {
+        if !std::mem::take(&mut self.ice_ball) {
+            return;
+        }
+        self.ice = Some((at.with_y(0.0), self.tick + ICE_TICKS));
+        events.push(Event::IceBurst { at });
     }
 
     /// Who a ball at `ball`, moving at `velocity`, hits: a player not stunned

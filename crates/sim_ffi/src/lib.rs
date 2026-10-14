@@ -7,7 +7,7 @@
 
 use volley_sim::{assist, attack};
 use volley_sim::court::BALL_RADIUS;
-use volley_sim::moves::{ALL_ROUNDER, CROSS, GOLAZO};
+use volley_sim::moves::{ALL_ROUNDER, ALYSA, CROSS, GOLAZO};
 use volley_sim::moves::Button;
 use volley_sim::{Aim, Ball, DT, Event, HitKind, MatchConfig, MoveId, MovePhase, Passive, Phase, PlayerInput, Sim, Vec2, Vec3, bot};
 
@@ -160,6 +160,7 @@ pub const GATHER_TICKS: u32 = 8;
 pub const KIT_ALL_ROUNDER: u32 = 0;
 pub const KIT_CROSS: u32 = 1;
 pub const KIT_GOLAZO: u32 = 2;
+pub const KIT_ALYSA: u32 = 3;
 
 pub const MOVE_WINDUP: u32 = 0;
 pub const MOVE_ACTIVE: u32 = 1;
@@ -256,6 +257,13 @@ pub const EVENT_BODY_HIT: u32 = 21;
 pub const EVENT_SHOVED: u32 = 22;
 /// An attack straight off a wall jump.
 pub const EVENT_WALL_SHOT: u32 = 23;
+/// A Flash Freeze ball stopped in mid-air (x, y, z: where).
+pub const EVENT_BALL_FROZEN: u32 = 24;
+/// It goes on its way again.
+pub const EVENT_BALL_THAWED: u32 = 25;
+/// An ice ball burst into a ring of ice (x, y, z: where; the ring is on the
+/// floor below, 1.5 m around, for two seconds).
+pub const EVENT_ICE_BURST: u32 = 26;
 
 /// One event, flattened. Fields an event doesn't use are 0 (`player` and
 /// `team` are -1).
@@ -484,28 +492,32 @@ impl From<&Event> for VolleyEvent {
             },
             Event::Shoved { player, strength } => VolleyEvent { quality: strength, ..VolleyEvent::by(EVENT_SHOVED, player) },
             Event::WallShot { player } => VolleyEvent::by(EVENT_WALL_SHOT, player),
+            Event::BallFrozen { at } => VolleyEvent::at(EVENT_BALL_FROZEN, at),
+            Event::BallThawed { at } => VolleyEvent::at(EVENT_BALL_THAWED, at),
+            Event::IceBurst { at } => VolleyEvent::at(EVENT_ICE_BURST, at),
         }
     }
 }
 
 /// The game's lineup, as in the client's `heroes::new_match` with an
-/// All-rounder for the player: Red is three All-rounders, Blue a Cross, a
-/// Golazo and an All-rounder.
+/// All-rounder for the player: Red is three All-rounders, Blue a Cross, an
+/// Alysa (in the attacking slot, where she gets to use her kit) and a Golazo.
 pub fn new_match() -> Sim {
     new_match_as(KIT_ALL_ROUNDER)
 }
 
 /// The lineup with Red's first player (the one a person plays) as `kit`
-/// (`KIT_*`), two All-rounder teammates, against a Cross, a Golazo and an
-/// All-rounder: the client's `heroes::new_match(choice)`.
+/// (`KIT_*`), two All-rounder teammates, against a Cross, an Alysa and a
+/// Golazo: the client's `heroes::new_match(choice)`.
 pub fn new_match_as(kit: u32) -> Sim {
     let mut sim = Sim::new(MatchConfig::default());
     let hero = match kit {
         KIT_CROSS => CROSS,
         KIT_GOLAZO => GOLAZO,
+        KIT_ALYSA => ALYSA,
         _ => ALL_ROUNDER,
     };
-    let lineup = [[hero, ALL_ROUNDER, ALL_ROUNDER], [CROSS, GOLAZO, ALL_ROUNDER]];
+    let lineup = [[hero, ALL_ROUNDER, ALL_ROUNDER], [CROSS, ALYSA, GOLAZO]];
     for (team, kits) in lineup.into_iter().enumerate() {
         for (slot, kit) in kits.into_iter().enumerate() {
             sim.set_kit(sim.player_index(team, slot), kit);
@@ -679,6 +691,7 @@ pub fn player_state(sim: &Sim, i: usize, ahead: Ahead) -> VolleyPlayerState {
     let kit = match player.kit.name {
         name if name == CROSS.name => KIT_CROSS,
         name if name == GOLAZO.name => KIT_GOLAZO,
+        name if name == ALYSA.name => KIT_ALYSA,
         _ => KIT_ALL_ROUNDER,
     };
     let action = player.action;

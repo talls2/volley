@@ -160,7 +160,13 @@ fn play_game_sounds(
                 play(&mut commands, &sounds.roar, 0.6, None);
             }
             Event::BodyHit { at, .. } => play(&mut commands, next(&sounds.block, &mut turn), 0.9, Some(at)),
-            Event::Out { .. } | Event::Shoved { .. } | Event::WallShot { .. } | Event::SidesSwitched => {}
+            Event::Out { .. }
+            | Event::Shoved { .. }
+            | Event::WallShot { .. }
+            | Event::BallFrozen { .. }
+            | Event::BallThawed { .. }
+            | Event::IceBurst { .. }
+            | Event::SidesSwitched => {}
         }
     }
 }

@@ -1223,3 +1223,57 @@ clips (`VOLLEY_KC=1`, local only).
 - **Wall cracks:** a cracked panel now shows glowing crack lines (a star of
   rays with spurs).
 
+## 2026-10-14: Alysa is playable (`game-progress`)
+
+The ice skater is the fourth hero. 73 sim tests pass, three of them new.
+
+- **Sim** (`moves::ALYSA`):
+  - **Stats:** run 9.6 m/s, jump 6.8 m/s, dash 18 m/s; moves Pass, Spike,
+    Foot save, Flash Freeze and Triple Axel. She has no dive.
+  - **Glide** (`Passive::Glide`, also anyone with `ice_until` on them):
+    - Speeding up, and turns within about 45° of the way she's moving, take
+      1.2× the usual acceleration.
+    - Braking and hard turns take 30 m/s².
+    - A stop from a full run slides 1.3-1.9 m; the All-rounder stops in
+      under 0.7 m.
+  - **Flash Freeze** (`Touch::Freeze`, 8 s cooldown):
+    - The ball freezes at its first net crossing for `FREEZE_TICKS` (0.5 s),
+      by starting its flight a tick later each tick.
+    - Its path afterwards is exactly the same, half a second late. Bots'
+      reaction timing slips with it.
+    - Not while it's blocked.
+    - Events `BallFrozen` and `BallThawed`.
+  - **Triple Axel** (`Touch::Ice`, ultimate):
+    - A 1.15× leap at half gravity, steering 6 m.
+    - The spike is clean, 15% faster, and goes through blocks like a dunk
+      (`Posterized`).
+    - Its first touch, body hit or landing bursts it (`IceBurst`) into a ring
+      of ice, 1.5 m in radius, for 2 s. Anyone inside glides
+      (`Sim::ice`, `Player::ice_until`).
+- **Lineup:** both clients' bot match is now Red: three All-rounders, Blue:
+  Cross, Alysa, Golazo. Alysa takes the attacking slot.
+  - In 8 minutes of bot play she attacks 22 times (every one a freeze while
+    it's ready) and takes 2 Triple Axels.
+  - With her in the back slot instead, she barely touched the ball.
+  - The cost: Golazo's banana kicks mostly leave bot play, since he's no
+    longer the attacker.
+  - Tick references in older entries are for the old lineup.
+- **FFI:**
+  - `VOLLEY_KIT_ALYSA` = 3.
+  - Moves `VOLLEY_FLASH_FREEZE` = 8 and `VOLLEY_TRIPLE_AXEL` = 9.
+  - Events 24 BALL_FROZEN, 25 BALL_THAWED, 26 ICE_BURST.
+- **Unreal:**
+  - **Look:** with no model yet, she's the athlete with the high bun,
+    platinum blonde, in the team kit, with glacier-cyan trims that glow
+    through her moves.
+  - **Effects:** a frost burst where the ball freezes; the ball glows cyan
+    until the next touch; a spray of ice when it thaws. The Triple Axel's
+    takeoff throws ice and a shockwave. The ice ball's burst leaves a
+    shimmering ring of ice on the floor that fades out.
+  - **HUD:** a hero card on the four-card select screen
+    (`VOLLEY_HERO=alysa`); skill icons (a snowflake, and a spin into a
+    downward arrow); callouts "Flash Freeze!" and "The ice ball shatters!";
+    the name "Alysa" over her.
+- **Bevy client:** her hero card, lineup, clips (Flash Freeze and Triple
+  Axel play the spike) and event arms.
+

@@ -1,6 +1,8 @@
 # Alysa, the ice skater
 
-A planned hero; nothing is built yet. Her concept sheet, generated from
+In the game since 2026-10-14 (`game-progress`): her stats, Glide, Flash
+Freeze, Triple Axel and no dive are rules in the sim, and both clients play
+her. Wall Skate and Ice Trail are still to come. Her concept sheet, generated from
 the prompt below, is [`alysa.webp`](alysa.webp). Her dialogue portraits are in
 `volley-unreal/Tools/portrait-art/`.
 

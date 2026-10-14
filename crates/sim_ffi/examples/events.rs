@@ -1,7 +1,8 @@
 //! Plays the bot match that the C interface starts and prints when the heroes'
 //! moments happen (ability moves, crossovers, posterizers, splits, decoys,
-//! dribbles, chain spikes, banana kicks and dunks, and glass cracking, body
-//! hits, shoves and wall shots), to find them for filming:
+//! dribbles, chain spikes, banana kicks and dunks, Alysa's freezes and ice
+//! balls, and glass cracking, body hits, shoves and wall shots), to find them
+//! for filming:
 //!
 //!     cargo run -p volley_sim_ffi --release --example events [TICKS]
 
@@ -15,7 +16,10 @@ fn main() {
         for event in step(&mut sim, None, PlayerInput::default()) {
             let what = match event {
                 Event::MoveStarted { player, id }
-                    if matches!(id, MoveId::Crossover | MoveId::Posterizer | MoveId::BananaKick | MoveId::Chilena) =>
+                    if matches!(
+                        id,
+                        MoveId::Crossover | MoveId::Posterizer | MoveId::BananaKick | MoveId::Chilena | MoveId::FlashFreeze | MoveId::TripleAxel
+                    ) =>
                 {
                     format!("player {player} starts {id:?}")
                 }
@@ -29,7 +33,12 @@ fn main() {
                 | Event::WallShot { player }
                 | Event::Shoved { player, .. }
                 | Event::BodyHit { player, .. } => format!("{event:?} (player {player})"),
-                Event::WallCracked { .. } | Event::WallBroken { .. } | Event::Out { .. } => format!("{event:?}"),
+                Event::WallCracked { .. }
+                | Event::WallBroken { .. }
+                | Event::Out { .. }
+                | Event::BallFrozen { .. }
+                | Event::BallThawed { .. }
+                | Event::IceBurst { .. } => format!("{event:?}"),
                 _ => continue,
             };
             println!("tick {:6}  {what}", sim.tick);

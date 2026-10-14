@@ -145,7 +145,12 @@ ultimate is ready.
   - *Banana Kick* (ability, 6 s): a kick with spin, standing or in the air, that heads out wide and bends back onto its spot, around the block.
   - *Chilena* (ultimate): a leap into an overhead bicycle kick that splits the ball in two. One is a decoy, drawn exactly like the real ball (shadow and landing rings too); whoever plays it just watches it vanish, and only the real one scores.
   - *No Block* (weakness): at the net, pass is just a pass.
-- **Alysa**, figure-skating champion with ice powers (planned, not built yet): fastest on the ground and gliding on her own ice, rides along the walls on her skates, freezes a hit ball in mid-air (*Flash Freeze*), and spikes an ice ball from a *Triple Axel*; no dive. Kit, look and the concept art prompt in [`docs/concept/alysa.md`](docs/concept/alysa.md).
+- **Alysa**, figure-skating champion with ice powers: the fastest on the ground (run 9.6 m/s, dash 18) and the lowest jumper (6.8). Concept and art prompts in [`docs/concept/alysa.md`](docs/concept/alysa.md).
+  - *Glide* (passive): she accelerates fastest and carves wide turns, but brakes slowly. A stop from a full run slides about a meter and a half.
+  - *Flash Freeze* (ability, 8 s): armed in the air like an attack. The ball she hits freezes as it crosses the net, hangs there frosted for half a second, then goes on exactly as it was. It's out of reach while frozen, and it lands half a second late, which throws the receivers' timing.
+  - *Triple Axel* (ultimate): a spinning leap, higher and floatier than her jump, into a spike that turns the ball to ice. The ice ball flies 15% faster, smashes through blocks (knocking blockers down like a Posterizer), and bursts into a ring of ice (1.5 m around, for 2 s) where it's first received or lands. Anyone in the ring glides like she does.
+  - *Brittle* (weakness): no dive. A ball out of reach needs a foot save.
+  - Not built yet: *Wall Skate* (riding along a wall) and *Ice Trail* (a dash that leaves ice).
 
 ## Moves and kits
 

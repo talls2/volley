@@ -383,7 +383,7 @@ fn hit_clip(sim: &Sim, player: usize, id: MoveId) -> Clip {
     match id {
         MoveId::Spike => Clip::attack(attack::best_technique(me, ball).0),
         // Cocked to spike, until the ball is caught.
-        MoveId::Crossover => Clip::Spike,
+        MoveId::Crossover | MoveId::FlashFreeze | MoveId::TripleAxel => Clip::Spike,
         MoveId::Posterizer => Clip::Dunk,
         MoveId::BananaKick if me.grounded() => Clip::KickPassLow,
         MoveId::BananaKick => Clip::VolleyKick,
@@ -926,7 +926,14 @@ fn react_to_events(
                         // A pressed hit winds up and waits for the ball. Serves
                         // are already wound up, and swing to meet the ball as
                         // it leaves the hand (`predicted_contact`).
-                        MoveId::Pass | MoveId::Spike | MoveId::Crossover | MoveId::Posterizer | MoveId::BananaKick | MoveId::Chilena => {
+                        MoveId::Pass
+                        | MoveId::Spike
+                        | MoveId::Crossover
+                        | MoveId::Posterizer
+                        | MoveId::BananaKick
+                        | MoveId::Chilena
+                        | MoveId::FlashFreeze
+                        | MoveId::TripleAxel => {
                             let serving = game.current.ball == Ball::Held { by: me };
                             if !serving && !character.action.is_some_and(Clip::is_game_action) {
                                 let clip = character.style(hit_clip(&game.current, me, id));

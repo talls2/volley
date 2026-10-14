@@ -43,6 +43,13 @@ pub enum Touch {
     /// A bicycle kick over the net that sends a decoy ball flying too: until
     /// one of them is touched, the defense has to guess which is real.
     Split,
+    /// An attack whose ball freezes in mid-air as it crosses the net, then
+    /// carries on its way: the receivers' timing is thrown.
+    Freeze,
+    /// A spike that turns the ball to ice: heavy like a dunk (through blocks,
+    /// knocking blockers down), and bursting into a ring of ice where it's
+    /// first received or lands, slippery for everyone inside.
+    Ice,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -92,10 +99,12 @@ pub enum MoveId {
     Posterizer,
     BananaKick,
     Chilena,
+    FlashFreeze,
+    TripleAxel,
 }
 
 impl MoveId {
-    pub const ALL: [MoveId; 8] = [
+    pub const ALL: [MoveId; 10] = [
         MoveId::Pass,
         MoveId::Spike,
         MoveId::Dive,
@@ -104,6 +113,8 @@ impl MoveId {
         MoveId::Posterizer,
         MoveId::BananaKick,
         MoveId::Chilena,
+        MoveId::FlashFreeze,
+        MoveId::TripleAxel,
     ];
 
     pub fn spec(self) -> &'static Move {
@@ -116,6 +127,8 @@ impl MoveId {
             MoveId::Posterizer => &POSTERIZER,
             MoveId::BananaKick => &BANANA_KICK,
             MoveId::Chilena => &CHILENA,
+            MoveId::FlashFreeze => &FLASH_FREEZE,
+            MoveId::TripleAxel => &TRIPLE_AXEL,
         }
     }
 
@@ -271,6 +284,33 @@ const CHILENA: Move = Move {
     ..SPIKE
 };
 
+/// Alysa's ability. Armed in the air like an attack; the ball she hits
+/// freezes as it crosses the net, hangs there frosted for half a second, then
+/// drops on its way.
+const FLASH_FREEZE: Move = Move {
+    name: "Flash Freeze",
+    button: Button::Ability,
+    touch: Touch::Freeze,
+    cooldown: 8 * crate::TICK_HZ,
+    ..SPIKE
+};
+
+/// Alysa's ultimate: a spinning leap, higher and floatier than her jump, into
+/// a spike that turns the ball to ice.
+const TRIPLE_AXEL: Move = Move {
+    name: "Triple Axel",
+    button: Button::Ultimate,
+    stance: Stance::Ground,
+    reach: 1.8,
+    high: 3.0,
+    touch: Touch::Ice,
+    ultimate: true,
+    leap: Some(1.15),
+    gravity: 0.5,
+    steer: Some(6.0),
+    ..SPIKE
+};
+
 /// Traits a hero always has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Passive {
@@ -285,6 +325,9 @@ pub enum Passive {
     WallPass,
     /// Can't block: at the net, pass is just a pass.
     NoBlock,
+    /// Skates: accelerates fastest and carves wide turns, but can't stop
+    /// dead; a hard stop or reversal slides.
+    Glide,
 }
 
 /// A hero: moves, passives and physical stats.
@@ -358,5 +401,17 @@ pub const GOLAZO: Kit = Kit {
     passives: &[Passive::Feet, Passive::WallPass, Passive::NoBlock],
 };
 
+/// A figure-skating champion with ice powers: the fastest on the ground and
+/// the lowest jumper, gliding instead of stopping, and with no dive (her
+/// skates can't throw her flat out).
+pub const ALYSA: Kit = Kit {
+    name: "Alysa",
+    run_speed: 9.6,
+    jump_speed: 6.8,
+    dash_speed: 18.0,
+    moves: &[MoveId::Pass, MoveId::Spike, MoveId::FootSave, MoveId::FlashFreeze, MoveId::TripleAxel],
+    passives: &[Passive::Glide],
+};
+
 /// Every hero, in the order the hero select shows them.
-pub const HEROES: [Kit; 3] = [ALL_ROUNDER, CROSS, GOLAZO];
+pub const HEROES: [Kit; 4] = [ALL_ROUNDER, CROSS, GOLAZO, ALYSA];

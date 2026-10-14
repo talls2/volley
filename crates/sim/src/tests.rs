@@ -1498,3 +1498,105 @@ fn an_attack_off_a_wall_jump_is_a_wall_shot() {
     assert!(events.iter().any(|e| matches!(e, Event::WallShot { .. })), "{events:?}");
     assert!(shot.landing_time() < plain.landing_time(), "not faster: {} vs {}", shot.landing_time(), plain.landing_time());
 }
+
+/// How far `kit`'s player slides to a stop from a full run straight along z.
+fn stopping_distance(kit: Kit) -> f32 {
+    let mut sim = Sim::new(MatchConfig::default());
+    clear_the_court(&mut sim);
+    let player = sim.player_index(0, 1);
+    sim.set_kit(player, kit);
+    sim.players[player].position = Vec3::new(-12.0, 0.0, -4.0);
+    sim.players[player].velocity = Vec2::new(0.0, kit.run_speed);
+    let start = sim.players[player].position;
+    for _ in 0..TICK_HZ {
+        sim.step(&idle(&sim));
+    }
+    sim.players[player].position.distance(start)
+}
+
+#[test]
+fn alysa_glides_to_a_stop() {
+    let skater = stopping_distance(moves::ALYSA);
+    let runner = stopping_distance(moves::ALL_ROUNDER);
+    assert!(skater > 1.3 && skater < 1.9, "Alysa slid {skater} m");
+    assert!(runner < 0.7, "the All-rounder slid {runner} m");
+}
+
+/// Alysa in the air by the net, hitting with `id` toward the far court's
+/// middle; the rest of the court clear.
+fn alysa_hits(id: MoveId) -> (Sim, usize) {
+    let mut sim = Sim::new(MatchConfig::default());
+    clear_the_court(&mut sim);
+    let alysa = sim.player_index(0, 0);
+    sim.set_kit(alysa, moves::ALYSA);
+    let from = Vec3::new(-2.0, 3.0, 0.0);
+    sim.ball = Ball::Dead { at: from };
+    sim.players[alysa].position = Vec3::new(-2.3, 0.9, 0.0);
+    sim.players[alysa].aim = Some(Aim::Spot(Vec2::new(7.0, 0.0)));
+    sim.touches = Touches { count: 2, last: Some(sim.player_index(0, 1)), ..Touches::new(0) };
+    let plan = sim.plan_hit(alysa, id, 3, from);
+    sim.hit(alysa, plan, from, &mut Vec::new());
+    (sim, alysa)
+}
+
+#[test]
+fn flash_freeze_holds_the_ball_over_the_net() {
+    let (mut sim, _) = alysa_hits(MoveId::FlashFreeze);
+    let Ball::InFlight(flight) = sim.ball else { panic!("no flight") };
+    let plain_landing = flight.start_tick as f32 * DT + flight.landing_time();
+    let mut frozen_at = None;
+    let mut held = Vec::new();
+    for _ in 0..2 * TICK_HZ {
+        let events = sim.step(&idle(&sim));
+        if let Some(Event::BallFrozen { at }) = events.iter().find(|e| matches!(e, Event::BallFrozen { .. })) {
+            frozen_at = Some((*at, sim.tick));
+        }
+        if frozen_at.is_some() {
+            held.push(sim.ball_position());
+        }
+        if events.iter().any(|e| matches!(e, Event::BallThawed { .. })) {
+            break;
+        }
+    }
+    let (at, tick) = frozen_at.expect("never froze");
+    assert!(at.x.abs() < 0.5, "froze at {at}, not over the net");
+    assert_eq!(sim.tick - tick, FREEZE_TICKS, "held {} ticks", sim.tick - tick);
+    assert!(held.iter().all(|p| p.distance(held[0]) < 1e-4), "the ball moved while frozen");
+    // Then on its way, landing half a second later than it would have.
+    let Ball::InFlight(flight) = sim.ball else { panic!("no flight") };
+    let landing = flight.start_tick as f32 * DT + flight.landing_time();
+    assert!((landing - plain_landing - FREEZE_TICKS as f32 * DT).abs() < 1e-3);
+}
+
+#[test]
+fn the_ice_ball_smashes_the_block_and_leaves_a_ring_of_ice() {
+    let (mut sim, _) = alysa_hits(MoveId::TripleAxel);
+    let blocker = sim.player_index(1, 0);
+    let digger = sim.player_index(1, 1);
+    let mut events = Vec::new();
+    for _ in 0..2 * TICK_HZ {
+        // Hands up at the net, lined up with the ball.
+        let b = &mut sim.players[blocker];
+        b.position = Vec3::new(0.6, 1.1, 0.0);
+        b.vertical_velocity = 0.0;
+        b.hands_up = true;
+        let step = sim.step(&idle(&sim));
+        let landed = step.iter().any(|e| matches!(e, Event::Landed { .. }));
+        events.extend(step);
+        if landed {
+            break;
+        }
+    }
+    assert!(events.iter().any(|e| matches!(e, Event::Posterized { player } if *player == blocker)), "{events:?}");
+    let Some(&Event::IceBurst { at }) = events.iter().find(|e| matches!(e, Event::IceBurst { .. })) else {
+        panic!("no burst: {events:?}");
+    };
+    // Someone standing in the ring glides; the ring melts away.
+    sim.players[digger].position = Vec3::new(at.x + 0.5, 0.0, at.z);
+    sim.step(&idle(&sim));
+    assert!(sim.players[digger].gliding(sim.tick));
+    for _ in 0..ICE_TICKS {
+        sim.step(&idle(&sim));
+    }
+    assert!(!sim.players[digger].gliding(sim.tick));
+}

@@ -30,6 +30,14 @@ const DASH_COOLDOWN_TICKS: u32 = 40;
 const SKID_SPEED: f32 = 3.0;
 const SKID_TICKS: u32 = 9;
 const SKID_ACCELERATION: f32 = 18.0;
+/// Gliding (Alysa, or anyone on ice): speeding up and gentle turns take this
+/// times the usual acceleration; slowing down or turning hard only this much
+/// (m/s^2), so a stop from a full run slides a meter and a half.
+const GLIDE_BOOST: f32 = 1.2;
+const GLIDE_BRAKE: f32 = 30.0;
+/// A turn counts as gentle while the wanted direction is within this cosine
+/// of the way the body moves.
+const GLIDE_CARVE: f32 = 0.7;
 /// Stronger than real gravity so jumps feel snappy. Apex ≈ 1.2 m.
 pub(crate) const PLAYER_GRAVITY: f32 = 20.0;
 /// Jumping in the air within this far of a wall kicks off it: a second jump,
@@ -134,6 +142,8 @@ pub struct Player {
     pub carry: Option<Carry>,
     /// Knocked down (by a dunk through the block) until this tick.
     pub stunned_until: u32,
+    /// On ice (an ice ball's burst) until this tick: gliding, like Alysa.
+    pub ice_until: u32,
     /// The latest movement input, world XZ.
     pub(crate) movement: Vec2,
 }
@@ -184,6 +194,7 @@ impl Player {
             charge: 0.0,
             carry: None,
             stunned_until: 0,
+            ice_until: 0,
             movement: Vec2::ZERO,
         }
     }
@@ -440,6 +451,7 @@ impl Player {
                 let (wanted, acceleration) = match self.steering(tick, ball) {
                     Some(to_spot) => ((to_spot / STEER_SECONDS).clamp_length_max(self.kit.run_speed), STEER_ACCELERATION),
                     None if !self.grounded() => (running, AIR_ACCELERATION),
+                    None if self.gliding(tick) => (running, glide_acceleration(self.velocity, running)),
                     None if tick < self.skid_until => (running, SKID_ACCELERATION),
                     None => (running, ACCELERATION),
                 };
@@ -523,6 +535,11 @@ impl Player {
         started
     }
 
+    /// Gliding on the ground: Alysa always, anyone else while on ice.
+    pub fn gliding(&self, tick: u32) -> bool {
+        self.grounded() && (self.kit.has(Passive::Glide) || tick < self.ice_until)
+    }
+
     /// While an armed attack is in the air near the ball on our side, the
     /// horizontal offset to where the body should be to hit it.
     fn steering(&self, tick: u32, ball: Vec3) -> Option<Vec2> {
@@ -531,6 +548,14 @@ impl Player {
         let near = Vec2::new(ball.x - self.position.x, ball.z - self.position.z).length() < range;
         (near && self.side * ball.x > 0.0).then_some(to_spot)
     }
+}
+
+/// How fast a gliding body at `velocity` changes toward `wanted`: quickly
+/// to speed up or carve, slowly to brake or turn hard.
+fn glide_acceleration(velocity: Vec2, wanted: Vec2) -> f32 {
+    let speed = velocity.length();
+    let carving = wanted.length() >= speed - 0.1 && (speed < 0.5 || wanted.normalize_or_zero().dot(velocity / speed) >= GLIDE_CARVE);
+    if carving { ACCELERATION * GLIDE_BOOST } else { GLIDE_BRAKE }
 }
 
 /// `from` moved toward `to` by at most `step`.

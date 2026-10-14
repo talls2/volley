@@ -889,3 +889,28 @@ a warm-up run, all at 5 ms frames):
   dives, crossovers and sets by other players.
 
 **Decision: keep.**
+
+## 24 · Knockout City's 0.05 s blend into actions, with dead blending
+
+**Idea.** Knockout City blends into every throw, pass and catch over
+0.05 s (`knockout-city-study.md`). Experiment 20's dead blending exists to
+make cuts like that smooth. Under crossfading the same change had tripled
+hand pops (`unreal-test.md`, 2026-10-11).
+
+**How.** `VOLLEY_ACTION_IN` and `VOLLEY_ACTION_OUT` now set the blends into
+and out of actions for benching. The defaults stay 0.15 s.
+
+**Result.** Two runs each, alternating:
+
+| | 0.15 s | 0.05 s |
+|---|---|---|
+| Frames with a palm over 30 m/s | 41, 40 | 613, 598 |
+| Over 40 m/s | 6, 3 | 285, 281 |
+| Hand acceleration p99 | 1150 | 1420 |
+| Contact gap (m) | 0.180 | 0.175 |
+
+Most of the pops (426 of 613) are in the set: its clip starts with the
+hands high above the head, and from a run they get there in three frames.
+Then come the spike and the celebration. **Decision: keep 0.15 s.**
+Knockout City's snap-in blends depend on clips made for them, short and
+starting near the pose they're entered from.

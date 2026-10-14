@@ -1116,3 +1116,20 @@ running foot sliding or hand-speed measurements.
   other swings are unchanged.
 - Unreal picks it up from `volley_sim_ffi.dll`; rebuild it with
   `cargo build -p volley_sim_ffi --release` before building the editor.
+
+### 2026-10-13: a deeper study of Knockout City's animation
+
+`docs/animation/knockout-city-study.md` covers it. The analysis package now
+includes every animation resource, and the 489 gameplay clips' lengths were
+read from an installed copy of the game.
+- **Short actions:** keyed at 30 fps, whole actions are 10-22 frames.
+- **Blends:** into actions in 0.05 s; out only after a delay.
+- **Directions:** a variant of almost every action for each direction
+  relative to facing.
+- **Transitions:** dedicated clips for pivots, stops and landings into
+  running.
+- **Hits:** reactions on a grid of 8 directions × 3 heights × 3 strengths.
+
+Their 0.05 s blends, tried with our clips even with dead blending, multiply
+hand pops 15-fold (experiments.md 24): the look comes from clips made for
+it. The study ends with the options for Volley's clips.

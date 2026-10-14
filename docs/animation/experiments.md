@@ -789,3 +789,56 @@ spread over 0.18 s instead of 0.14, and the follow-through window is
 In the film, the spiker winds up with the chest turned well away and the
 arm cocked behind the head, and Golazo draws the kicking leg back with
 the knee folded before whipping it through. **Decision: keep.**
+
+## 24 · Curve volleys wind up
+
+**Asked for** by the user after 23, which found Golazo's curve volleys
+weren't timed swings.
+
+**Why they weren't.** The bot's look ahead did wind up a banana kick, but
+as the low pass kick, because Golazo is on the ground when it starts. The
+touch, though, comes in the air. After pressing the kick, the bot sees it
+on cooldown, takes the spike routine and jumps; he leaves the ground on
+the next tick and meets the ball 5-7 ticks later, 0.6 m up. The touch then
+picked the high volley, found it wasn't the clip winding up, and started it
+from its contact frame. The wind-up was dropped and the foot was never at
+the ball.
+
+**How** (`VolleyCharacter.cpp`):
+- **The wind-up picks the clip for the feet at contact:** the pass kick if
+  he'll still be standing, else the high volley (`Style` of the volley
+  kick). He won't be standing if the look ahead has him taking off before
+  the touch (`takeoff_ticks` no later than `contact_ticks`). The takeoff
+  is within the look ahead's 8 ticks when the swing starts, 11-13 ticks
+  before contact.
+- **The touch keeps the swing winding up**, whichever of the two curve
+  kicks it is, and releases it into the ball, as passes already did.
+  Otherwise it picks by the feet as before.
+
+The swing then gets the snappy timing (22) and the kick coil (23).
+
+**Result.** Old and new builds alternating, three runs each. The first
+pair ran with cold caches at 14-25 ms frames and isn't compared. The
+next two pairs ran at 5 ms frames:
+
+| | Old | New |
+|---|---|---|
+| Contact gap, curve volleys (m) | 0.590, 0.577 | 0.204, 0.208 |
+| Curve volleys, p90 (m) | 1.041, 1.056 | 0.361, 0.365 |
+| Contact gap, spikes (m) | 0.224, 0.216 | 0.223, 0.223 |
+| Contact gap, passes (m) | 0.139, 0.138 | 0.141, 0.140 |
+| Frames with a palm over 30 m/s | 37, 33 | 31, 33 |
+| Frames over 40 m/s | 3, 2 | 4, 3 |
+| Hand acceleration p99.9 | 2134, 2185 | 2076, 2114 |
+| Spike timing off (s) | 0.005, 0.004 | 0.005, 0.005 |
+| Set timing off (s) | 0.006, 0.005 | 0.006, 0.005 |
+
+- **Curve volleys.** Every one is now a timed swing released into the ball.
+  High-volley timing is off by 0.017-0.018 s on average and needs 0.13 m of
+  body warp. Typical touches went from 0.35-0.47 m to 0.13-0.15 m. The two
+  worst (ticks 338 and 3992) went from about 1.05 m to 0.36-0.41 m.
+- **Everything else holds.** Hand pops are all spikes, dives, crossovers
+  and sets by other players, as before; Golazo has none. The other swings'
+  timing is unchanged.
+
+**Decision: keep.**

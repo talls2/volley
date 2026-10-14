@@ -1089,3 +1089,16 @@ running foot sliding or hand-speed measurements.
   there's no jolt in the hand there.
 - **Film camera:** following a player can now reach the near sideline.
 - **Film:** `Saved/Films/stronger-coil-and-kicks-quarter-speed.mp4`.
+
+### 2026-10-13: curve volleys wind up (experiments.md 24)
+
+- **Golazo's banana kicks are timed swings now.** The bot jumps right after
+  pressing the kick, so it's met in the air, but the wind-up had picked the
+  ground kick and the touch threw it away for the high volley's
+  follow-through. The wind-up now picks by whether he'll still be standing
+  at contact (the look ahead's takeoff), and the touch releases whichever
+  curve kick is winding up. That brings the snappy strike and the kick
+  coil.
+- **Bench** (alternating, two warm runs each): curve-volley contact gap
+  0.58 m to 0.21 m, worst touch 1.06 m to 0.37 m. Spike gap, hand pops and
+  swing timing are unchanged.

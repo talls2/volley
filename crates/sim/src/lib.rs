@@ -61,6 +61,11 @@ const SHOVE_DIFFICULTY: f32 = 0.55;
 const SHOVE_ERROR: f32 = 0.3;
 const SHOVE_STUN: (f32, f32) = (0.25, 0.7);
 const SHOVE_SPEED: (f32, f32) = (2.5, 6.0);
+/// An attack this soon after kicking off a wall (s) is a wall shot: cleaner,
+/// faster, and as hard to receive as a hero's power.
+const WALL_SHOT_SECONDS: f32 = 0.8;
+const WALL_SHOT_QUALITY: f32 = 0.25;
+const WALL_SHOT_SPEED: f32 = 0.15;
 /// Ultimate charge from each touch, and for each point the team wins.
 const CHARGE_PER_TOUCH: f32 = 0.05;
 /// How hard a banana kick bends, sideways (m/s²).
@@ -282,6 +287,9 @@ struct Plan {
     decoy: Option<Vec3>,
     /// Sent by a hero's ability or ultimate: harder to receive.
     power: bool,
+    /// Banked off the side wall nearest its target: the flight aims at the
+    /// target's mirror image beyond that wall, and folds back onto it.
+    bank: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -334,6 +342,8 @@ pub enum Event {
     BodyHit { player: usize, at: Vec3, strength: f32 },
     /// A hard ball received badly pushed the receiver back, stunned.
     Shoved { player: usize, strength: f32 },
+    /// An attack straight off a wall jump: harder and faster.
+    WallShot { player: usize },
     Point { team: usize, reason: PointReason },
     /// The teams will switch sides before the next rally.
     SidesSwitched,
@@ -613,7 +623,13 @@ impl Sim {
         let player = &self.players[hitter];
         let side = player.side;
         let spec = id.spec();
-        let over = |kind: HitKind, depth: f32| over_net_target(side, aim_spot(player.aim, kind, from, side, true), depth);
+        // Aimed past a side wall, a shot over the net banks off it (see `bank_off_wall`).
+        let mut bank = false;
+        let mut over = |kind: HitKind, depth: f32| {
+            let (spot, banked) = bank_off_wall(aim_spot(player.aim, kind, from, side, true));
+            bank = banked;
+            over_net_target(side, spot, depth)
+        };
         let (kind, target, quality) = if self.ball == (Ball::Held { by: hitter }) {
             (HitKind::Serve, over(HitKind::Serve, OVER_DEPTH), 1.0)
         } else if let Touch::Keep(kind) = spec.touch {
@@ -668,13 +684,17 @@ impl Sim {
             target.with_z(z.clamp(-(HALF_WIDTH - WALL_MARGIN), HALF_WIDTH - WALL_MARGIN))
         });
         let power = matches!(spec.touch, Touch::Carry { .. } | Touch::Dunk | Touch::Curve | Touch::Split);
-        Plan { preview: HitPreview { kind, target, spread, quality }, seconds, curve, decoy, power }
+        // A curve already bends; it doesn't bank as well.
+        let bank = bank && curve == 0.0 && decoy.is_none();
+        let seconds = if bank { seconds * bank_stretch(from, target) } else { seconds };
+        Plan { preview: HitPreview { kind, target, spread, quality }, seconds, curve, decoy, power, bank }
     }
 
     /// Launches a planned hit, landing somewhere within its spread.
     fn hit(&mut self, hitter: usize, plan: Plan, from: Vec3, events: &mut Vec<Event>) {
         let HitPreview { kind, target, spread, quality } = plan.preview;
         let target = target + wobble(spread, self.tick, hitter);
+        let target = if plan.bank { mirrored_beyond_wall(target) } else { target };
         self.last_hit = Some(kind);
         self.last_hitter = Some(hitter);
         self.last_power = plan.power;
@@ -1015,7 +1035,16 @@ impl Sim {
             let reach = Vec2::new(ball.x - position.x, ball.z - position.z).length();
             let clean = if self.touches.count <= 1 { CLEAN_RECEPTION } else { CLEAN_SET };
             self.touches.clean = if reach <= clean { self.touches.clean + 1 } else { 0 };
-        } else if plan.preview.kind.is_attack() && self.touches.clean >= CHAINED_TOUCHES {
+        }
+        let wall_jump = self.players[hitter].wall_jump_tick;
+        if plan.preview.kind.is_attack() && wall_jump > 0 && (self.tick - wall_jump) as f32 * DT <= WALL_SHOT_SECONDS {
+            plan.preview.quality = (plan.preview.quality + WALL_SHOT_QUALITY).min(1.0);
+            plan.seconds *= 1.0 - WALL_SHOT_SPEED;
+            plan.power = true;
+            events.push(Event::WallShot { player: hitter });
+        }
+        let passing = matches!(id.spec().touch, Touch::Keep(HitKind::Pass));
+        if !passing && plan.preview.kind.is_attack() && self.touches.clean >= CHAINED_TOUCHES {
             plan.preview.quality = (plan.preview.quality + CHAIN_QUALITY).min(1.0);
             plan.seconds *= 1.0 - CHAIN_SPEED;
             events.push(Event::Chained { player: hitter });
@@ -1111,6 +1140,34 @@ fn held_ball_position(player: &Player) -> Vec3 {
 /// Palmed high overhead, just in front: where a carried ball rides.
 fn carried_ball_position(player: &Player) -> Vec3 {
     player.position + Vec3::new(-player.side * 0.3, 2.0, 0.0)
+}
+
+/// A spot past a side wall (`|z|` beyond it) asks for a bank shot off that
+/// wall: it lands at the spot's mirror image back inside, by way of the wall.
+/// Returns the landing spot and whether it banks.
+pub(crate) fn bank_off_wall(spot: Option<Vec2>) -> (Option<Vec2>, bool) {
+    match spot {
+        Some(spot) if spot.y.abs() > HALF_WIDTH => {
+            let inside = (2.0 * HALF_WIDTH - spot.y.abs()).max(WALL_MARGIN - HALF_WIDTH);
+            (Some(Vec2::new(spot.x, spot.y.signum() * inside)), true)
+        }
+        other => (other, false),
+    }
+}
+
+/// Where a ball aimed at `target` by way of the nearer side wall really heads:
+/// the target mirrored beyond that wall (where the ball's center meets it).
+pub(crate) fn mirrored_beyond_wall(target: Vec3) -> Vec3 {
+    let wall = target.z.signum() * (HALF_WIDTH - BALL_RADIUS);
+    target.with_z(2.0 * wall - target.z)
+}
+
+/// How much longer a banked shot takes than a straight one: by how much
+/// farther its path is.
+fn bank_stretch(from: Vec3, target: Vec3) -> f32 {
+    let straight = from.with_y(0.0).distance(target.with_y(0.0)).max(1.0);
+    let banked = from.with_y(0.0).distance(mirrored_beyond_wall(target).with_y(0.0));
+    (banked / straight).sqrt().max(1.0)
 }
 
 /// Where a shot over the net from the half at `side` lands: the aimed spot, kept

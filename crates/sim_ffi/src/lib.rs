@@ -254,6 +254,8 @@ pub const EVENT_OUT: u32 = 20;
 pub const EVENT_BODY_HIT: u32 = 21;
 /// quality: how hard the receiver was pushed back, 0 to 1.
 pub const EVENT_SHOVED: u32 = 22;
+/// An attack straight off a wall jump.
+pub const EVENT_WALL_SHOT: u32 = 23;
 
 /// One event, flattened. Fields an event doesn't use are 0 (`player` and
 /// `team` are -1).
@@ -481,6 +483,7 @@ impl From<&Event> for VolleyEvent {
                 ..VolleyEvent::at(EVENT_BODY_HIT, at)
             },
             Event::Shoved { player, strength } => VolleyEvent { quality: strength, ..VolleyEvent::by(EVENT_SHOVED, player) },
+            Event::WallShot { player } => VolleyEvent::by(EVENT_WALL_SHOT, player),
         }
     }
 }

@@ -1165,3 +1165,31 @@ sim tests pass, four of them new.
 - **In bot play (10 minutes):** 17 shoves, 2 body hits (both knockdowns),
   2 cracked panels. Bots aim 1 m clear of the walls, so the walls are mostly
   in play for people's bank shots.
+
+## 2026-10-14: bank shots and wall shots (`game-progress`)
+
+The walls become a weapon, not only a hazard. 70 sim tests pass, two of them new.
+
+- **Bank shots:** a shot over the net aimed past a side wall banks off it.
+  - The flight aims at the target mirrored beyond the wall
+    (`mirrored_beyond_wall`), so it folds back onto the spot.
+  - It takes longer by the square root of how much farther the path is
+    (`bank_stretch`).
+  - Curves and decoys don't bank.
+  - Bots weigh two bank landings per wall (at half and three-quarter depth,
+    0.6 of the way to the wall) with a surprise bonus, but only when the
+    panel it would hit is whole.
+  - About 12% of bot attacks bank (12 of 103 in 10 minutes), and the bot
+    match cracks 8 panels and breaks 1.
+- **Wall shots:** an attack within 0.8 s of a wall jump (`wall_jump_tick`)
+  gets +0.25 quality and is 15% faster, and it counts as a power ball for
+  the receiver (`Event::WallShot`, FFI event 23).
+  - Bots don't wall-jump into attacks yet, so in bot play it's a player's
+    move.
+- **Unreal:**
+  - "Wall shot!" callout with a flash and sparks off the hand.
+  - Callouts: "The glass shatters!", "Knocked down!", "Overpowered!".
+  - A cracked panel now shows glowing crack lines: a star of rays with a
+    few spurs, the same per panel. They replace the frosted tint, which the
+    fresnel glass hid from the front.
+

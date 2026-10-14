@@ -1418,4 +1418,83 @@ fn mechanics_census() {
         n(&|e| matches!(e, Event::WallCracked { .. })), n(&|e| matches!(e, Event::WallBroken { .. })),
         n(&|e| matches!(e, Event::BodyHit { .. })), n(&|e| matches!(e, Event::BodyHit { strength, .. } if *strength > 0.0)),
         n(&|e| matches!(e, Event::Shoved { .. })), n(&|e| matches!(e, Event::WallBounce { .. })));
+    println!("wall shots {}", n(&|e| matches!(e, Event::WallShot { .. })));
+}
+
+#[test]
+#[ignore]
+fn bank_census() {
+    let mut sim = Sim::new(MatchConfig::default());
+    let (mut attacks, mut banked) = (0, 0);
+    for _ in 0..600 * TICK_HZ {
+        let inputs = bot_inputs(&sim);
+        let events = sim.step(&inputs);
+        if events.iter().any(|e| matches!(e, Event::Touched { kind, .. } if kind.is_attack()))
+            && let Ball::InFlight(flight) = sim.ball
+        {
+            attacks += 1;
+            if flight.wall_bounces(flight.landing_time()) > 0 {
+                banked += 1;
+            }
+        }
+    }
+    println!("attacks {attacks}, off a wall {banked}");
+}
+
+#[test]
+fn an_aim_past_the_side_wall_banks_off_it() {
+    let mut sim = Sim::new(MatchConfig::default());
+    let hitter = sim.player_index(0, 0);
+    let from = Vec3::new(-2.0, 3.0, 0.0);
+    sim.ball = Ball::Dead { at: from };
+    sim.players[hitter].position = Vec3::new(-2.3, 0.9, 0.0);
+    // 2 m past the +z wall: it lands 2 m inside it, off the wall.
+    sim.players[hitter].aim = Some(Aim::Spot(Vec2::new(7.0, HALF_WIDTH + 2.0)));
+    let plan = sim.plan_hit(hitter, MoveId::Spike, 3, from);
+    sim.hit(hitter, plan, from, &mut Vec::new());
+    let Ball::InFlight(flight) = sim.ball else { panic!("no flight") };
+    assert!(flight.wall_bounces(flight.landing_time()) > 0, "didn't touch the wall");
+    assert!(landing(&sim).distance(Vec2::new(7.0, HALF_WIDTH - 2.0)) < 1e-3, "landed at {}", landing(&sim));
+}
+
+/// An armed spike meeting a set at the top of the jump; `wall_jumped` makes
+/// the jump a kick off a wall just before. Returns the events and the flight.
+fn spike_off_the_jump(wall_jumped: bool) -> (Vec<Event>, Flight) {
+    let mut sim = Sim::new(MatchConfig::default());
+    let player = sim.player_index(0, 0);
+    sim.players[player].position = Vec3::new(-2.0, 0.0, 0.0);
+    sim.touches = Touches { count: 2, last: Some(1), ..Touches::new(0) };
+    let apex = Vec3::new(-1.7, 1.225 + 2.1, 0.0);
+    let rise = sim.players[player].kit.jump_speed / player::PLAYER_GRAVITY;
+    let velocity = Vec3::new(-0.5, -3.0, 0.0);
+    let origin = apex - velocity * rise + Vec3::Y * 0.5 * court::BALL_GRAVITY * rise * rise;
+    sim.ball = Ball::InFlight(Flight { origin, velocity, start_tick: sim.tick, curve: 0.0 });
+    if wall_jumped {
+        sim.players[player].wall_jump_tick = sim.tick + 1;
+    }
+    let mut inputs = idle(&sim);
+    inputs[player].jump = true;
+    inputs[player].spike = true;
+    let mut events = Vec::new();
+    for _ in 0..TICK_HZ {
+        let step = sim.step(&inputs);
+        inputs = idle(&sim);
+        inputs[player].spike = sim.players[player].active_move(sim.tick).is_none() && !sim.players[player].grounded();
+        let touched = step.iter().any(|e| matches!(e, Event::Touched { .. }));
+        events.extend(step);
+        if touched {
+            let Ball::InFlight(flight) = sim.ball else { panic!("no flight") };
+            return (events, flight);
+        }
+    }
+    panic!("no contact: {events:?}");
+}
+
+#[test]
+fn an_attack_off_a_wall_jump_is_a_wall_shot() {
+    let (plain_events, plain) = spike_off_the_jump(false);
+    let (events, shot) = spike_off_the_jump(true);
+    assert!(!plain_events.iter().any(|e| matches!(e, Event::WallShot { .. })));
+    assert!(events.iter().any(|e| matches!(e, Event::WallShot { .. })), "{events:?}");
+    assert!(shot.landing_time() < plain.landing_time(), "not faster: {} vs {}", shot.landing_time(), plain.landing_time());
 }

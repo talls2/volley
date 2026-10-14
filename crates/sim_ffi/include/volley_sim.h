@@ -114,6 +114,8 @@ enum {
     VOLLEY_EVENT_BODY_HIT = 21,
     /* quality: how hard a bad reception pushed the receiver back. */
     VOLLEY_EVENT_SHOVED = 22,
+    /* An attack straight off a wall jump: harder and faster. */
+    VOLLEY_EVENT_WALL_SHOT = 23,
 };
 
 /* Touched's detail, in the sim's HitKind order. */

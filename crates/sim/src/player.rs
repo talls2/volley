@@ -122,6 +122,8 @@ pub struct Player {
     rising: bool,
     /// Kicked off a wall since last on the ground.
     wall_jumped: bool,
+    /// The tick of the latest kick off a wall (0: none yet), for wall shots.
+    pub wall_jump_tick: u32,
     /// Skidding on landing until this tick.
     skid_until: u32,
     /// When each move (by [`MoveId::index`]) can start again.
@@ -176,6 +178,7 @@ impl Player {
             dash: None,
             rising: false,
             wall_jumped: false,
+            wall_jump_tick: 0,
             skid_until: 0,
             ready_at: [0; MoveId::ALL.len()],
             charge: 0.0,
@@ -462,6 +465,7 @@ impl Player {
                     self.vertical_velocity = self.kit.jump_speed;
                     self.rising = true;
                     self.wall_jumped = true;
+                    self.wall_jump_tick = tick;
                     started.wall_jump = Some(away);
                 }
             }

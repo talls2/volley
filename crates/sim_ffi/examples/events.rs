@@ -1,6 +1,7 @@
 //! Plays the bot match that the C interface starts and prints when the heroes'
 //! moments happen (ability moves, crossovers, posterizers, splits, decoys,
-//! dribbles, chain spikes, banana kicks and dunks), to find them for filming:
+//! dribbles, chain spikes, banana kicks and dunks, and glass cracking, body
+//! hits, shoves and wall shots), to find them for filming:
 //!
 //!     cargo run -p volley_sim_ffi --release --example events [TICKS]
 
@@ -24,7 +25,11 @@ fn main() {
                 | Event::Split { player }
                 | Event::DecoyPopped { player }
                 | Event::Dribbled { player }
-                | Event::Chained { player } => format!("{event:?} (player {player})"),
+                | Event::Chained { player }
+                | Event::WallShot { player }
+                | Event::Shoved { player, .. }
+                | Event::BodyHit { player, .. } => format!("{event:?} (player {player})"),
+                Event::WallCracked { .. } | Event::WallBroken { .. } | Event::Out { .. } => format!("{event:?}"),
                 _ => continue,
             };
             println!("tick {:6}  {what}", sim.tick);

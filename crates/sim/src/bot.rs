@@ -10,8 +10,8 @@ fn default<T: Default>() -> T {
 
 use crate::moves::{Button, MoveId};
 use crate::player::{BLOCK_DISTANCE, DASH_TICKS, PLAYER_GRAVITY, Player};
-use crate::court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT};
-use crate::{Aim, Ball, DT, Flight, HitKind, MAX_TOUCHES, OVER_DEPTH, Passive, PlayerInput, SET_DEPTH, Sim, TICK_HZ, dice, flight_seconds};
+use crate::court::{self, BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT};
+use crate::{Aim, Ball, DT, Flight, HitKind, MAX_TOUCHES, OVER_DEPTH, Passive, PlayerInput, SET_DEPTH, Sim, TICK_HZ, bank_off_wall, dice, flight_seconds, mirrored_beyond_wall};
 
 /// How long a bot waits before serving.
 const SERVE_DELAY_TICKS: u32 = TICK_HZ;
@@ -391,7 +391,17 @@ fn pass_aim(sim: &Sim, me: usize) -> Option<Vec2> {
 /// half by distance from the nearest defender, ruling out shots that would hit
 /// the net or cross it through a blocker's hands, and pick one of the best three. Always picking
 /// the very best would make every spike unreturnable.
+/// How much more open a bank shot off a side wall counts (m): the block and
+/// the defense read it late.
+const BANK_SURPRISE: f32 = 3.0;
+
 fn spike_aim(sim: &Sim, team: usize, from: Vec3) -> Vec2 {
+    let options = spike_options(sim, team, from);
+    options[dice(sim.tick, sim.rally) as usize % 3].0
+}
+
+/// Every spot an attack could go, scored by how open it is, best first.
+pub(crate) fn spike_options(sim: &Sim, team: usize, from: Vec3) -> Vec<(Vec2, f32)> {
     let defenders: Vec<Vec3> = (0..sim.config.players_per_team)
         .map(|slot| sim.players[sim.player_index(1 - team, slot)].position)
         .collect();
@@ -410,7 +420,12 @@ fn spike_aim(sim: &Sim, team: usize, from: Vec3) -> Vec2 {
         flight.net_crossing_time().is_some_and(|t| flight.position_at_time(t).y > NET_HEIGHT + BALL_RADIUS + 0.1)
     };
     let openness = |spot: Vec2| {
-        let open = defenders.iter().map(|d| Vec2::new(d.x, d.z).distance(spot)).fold(f32::MAX, f32::min);
+        // A bank shot lands back inside, mirrored off the wall.
+        let (landing, banked) = bank_off_wall(Some(spot));
+        let landing = landing.unwrap_or(spot);
+        // Defenders read a bank late: it counts as this much more open (m).
+        let surprise = if banked { BANK_SURPRISE } else { 0.0 };
+        let open = defenders.iter().map(|d| Vec2::new(d.x, d.z).distance(landing)).fold(f32::MAX, f32::min) + surprise;
         match (clears_net(spot), blocked(spot)) {
             (false, _) => open - 1000.0,
             (true, true) => open - 100.0,
@@ -422,8 +437,23 @@ fn spike_aim(sim: &Sim, team: usize, from: Vec3) -> Vec2 {
         .into_iter()
         .flat_map(|depth| [-0.7, 0.0, 0.7].map(|z| Vec2::new(-side * depth * HALF_LENGTH, z * HALF_WIDTH)))
         .collect();
-    aims.sort_by(|&a, &b| openness(b).total_cmp(&openness(a)));
-    aims[dice(sim.tick, sim.rally) as usize % 3]
+    // Bank shots off a side wall, but only off glass that's whole: a cracked
+    // panel would break, and the ball would go out.
+    for depth in [0.5, 0.75] {
+        for wall in [-1.0f32, 1.0] {
+            let landing = Vec2::new(-side * depth * HALF_LENGTH, wall * 0.6 * HALF_WIDTH);
+            let free = mirrored_beyond_wall(Vec3::new(landing.x, BALL_RADIUS, landing.y));
+            // Where the straight path toward the mirror image meets the wall.
+            let share = (wall * (HALF_WIDTH - BALL_RADIUS) - from.z) / (free.z - from.z);
+            let hit = Vec3::new(from.x + (free.x - from.x) * share, 2.0, wall * HALF_WIDTH);
+            if (0.0..=1.0).contains(&share) && sim.walls[court::wall_panel(hit, false)] == 0 {
+                aims.push(Vec2::new(landing.x, wall * (2.0 * HALF_WIDTH - 0.6 * HALF_WIDTH)));
+            }
+        }
+    }
+    let mut scored: Vec<(Vec2, f32)> = aims.into_iter().map(|spot| (spot, openness(spot))).collect();
+    scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+    scored
 }
 
 /// The teammate who plays the ball at a spot: the nearest one allowed to touch

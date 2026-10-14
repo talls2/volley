@@ -153,7 +153,14 @@ fn play_game_sounds(
             }
             Event::SetWon { .. } => play(&mut commands, &sounds.roar, 0.6, None),
             Event::MatchWon { .. } => play(&mut commands, &sounds.roar, 0.9, None),
-            Event::SidesSwitched => {}
+            // Glass: a crack, or a break and the crowd.
+            Event::WallCracked { at, .. } => play(&mut commands, next(&sounds.block, &mut turn), 0.8, Some(at)),
+            Event::WallBroken { at, .. } => {
+                play(&mut commands, next(&sounds.block, &mut turn), 1.0, Some(at));
+                play(&mut commands, &sounds.roar, 0.6, None);
+            }
+            Event::BodyHit { at, .. } => play(&mut commands, next(&sounds.block, &mut turn), 0.9, Some(at)),
+            Event::Out { .. } | Event::Shoved { .. } | Event::SidesSwitched => {}
         }
     }
 }

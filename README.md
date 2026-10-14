@@ -107,6 +107,8 @@ It only ends when it hits the floor, and that side loses the point.
 - **Attack:** jump and press attack any time in the air: it stays armed until you land, steers you toward the ball, and hits it at the best moment it's in reach, with whatever reaches it. A ball overhead in front gets a **spike**, a low one a **volley kick**, and one behind your head a **bicycle kick**. The farther the ball is from that technique's sweet spot (a jump timed early or late, a ball out to the side), the weaker and wilder the hit: it flies slower and can land well off your aim, shown by a wider outer ring around the aim marker. A callout rates each attack, from "perfect!" to "scrambled".
 - **Shot speed follows distance:** short shots are quick and flat, long ones take longer. A ball hit from below the top of the net arcs up and over it, a slower roll shot, rather than going in; a sloppy contact right at the net can still find it.
 - **Receiving:** timing counts. Pressed just as the ball arrives, a pass, dig or foot save goes where you aim. Pressed early (or held for the boost), or met at full stretch, a hard ball sprays wide; a fast, steep attack or a hero's ability met badly shanks off in a (kinda) random direction, as in real volleyball. Soft balls are forgiving. The screen says "Perfect pass" or "Shanked!".
+- **Walls that break:** the glass walls are 6 m panels. A ball that hits a panel cracks it; the next ball to hit it breaks through and is out, and so is any ball through the gap after. Out goes the volleyball way: the team that didn't touch it last scores. The walls are whole again each set, so bank shots are a resource to spend.
+- **Getting hit:** a ball that hits a player who isn't playing it bounces off them. It pops up higher the higher it hits (off the head it goes high), heads back the way it came, scattered a little, and counts as their team's touch. A fast one knocks them down for a moment, longer the harder it was. And a hero's power or a very hard ball received with bad timing shoves the receiver back, stunned for a beat, as the ball shanks away.
 - **Block:** at the net, while the ball is on the other side, pass means block: you jump with your hands up (or raise them if already in the air). Your hands stay up for that jump, so timing is everything: go up as the attacker hits. Squarely blocked spikes are stuffed back down on the attackers; edge-of-the-hands blocks pop up softly on your side. A block isn't one of your three touches, and serves can't be blocked.
 - **Ball trail:** the streak behind the ball shows the last hit: orange for spikes, red for volley kicks, violet for bicycle kicks, gold for serves, blue for passes and digs, green for lobs, purple off a block.
 - **Low balls:** you can't bump a ball below your knees. A **foot save** keeps you on your feet: it shoots a leg out in a tenth of a second (a ball at full stretch is met a moment after the press), reaches farther than a pass (but only low balls), and kicks the ball up high so a teammate has time to get there; it's rougher and you stumble for a moment. A **dive** reaches farthest but leaves you on the ground. When a save is the right move, a prompt says so ("Foot save! [F]", "Dive! [Shift]").
@@ -216,28 +218,5 @@ recordings are CC BY 4.0 and need their credit kept when the game ships.
 
 ## Ideas
 
-Not decided or scheduled yet; to weigh when the animation work settles.
-
-- **Walls that break.** A wall panel cracks the first time the ball hits it
-  and shatters on the second. Past a shattered panel the court is open, so
-  normal volleyball rules apply there: a ball landing beyond it is out.
-  Banking off the walls to score becomes a limited resource, and choosing
-  when and where to spend each wall becomes part of the game plan.
-  - **To work out:** panel size (one panel per stretch of wall, or whole
-    sides); whether walls come back between sets; what Golazo's Wall Pass
-    and wall jumps do next to a cracked or shattered panel; how bots weigh
-    using up a wall.
-- **Getting hit.** A ball that hits a player who pressed nothing in time
-  bounces off them, and up.
-  - **Where it goes:** a semi-random direction, from the way the ball came
-    and where on the body it struck. Off the head it pops high and short;
-    off the chest it rebounds forward; off a shoulder or leg it glances away
-    to that side.
-  - **The player:** thrown back, knocked down and stunned for a moment,
-    with a hit reaction by direction, height and strength (Knockout City has
-    a grid of these: `docs/animation/knockout-city-study.md`).
-  - **Bad receptions too:** a badly timed reception of a hero's power or a
-    very fast, hard ball also throws the receiver back, with a shorter
-    stun, as the ball shanks off (`reception.rs`).
-  - **To work out:** how long the stuns last; whether a ball off a stunned
-    player still counts as that team's touch; how bots avoid it or bait it.
+Not decided or scheduled yet. (Walls that break and getting hit started
+here and are rules now.)

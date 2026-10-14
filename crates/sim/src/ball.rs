@@ -95,8 +95,14 @@ impl Flight {
 
     /// How many times the ball has bounced off the walls by `t`.
     pub fn wall_bounces(&self, t: f32) -> u32 {
+        let (x, z) = self.axis_bounces(t);
+        x + z
+    }
+
+    /// Bounces off the end walls (x) and off the side walls (z) by `t`.
+    pub fn axis_bounces(&self, t: f32) -> (u32, u32) {
         let free = self.free(t);
-        bounces(free.x, REACH_X) + bounces(free.z, REACH_Z)
+        (bounces(free.x, REACH_X), bounces(free.z, REACH_Z))
     }
 
     /// When the ball, on its way down, passes through `height` (ball center).

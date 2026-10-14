@@ -1288,3 +1288,134 @@ fn one_button_passes_a_ball_at_chest_height() {
     let events = press_pass(&mut sim, player, 0.4, Vec2::ZERO);
     assert!(events.iter().any(|e| matches!(e, Event::Touched { kind: HitKind::Pass, .. })), "{events:?}");
 }
+
+/// Moves everyone to the far corners of their half, out of the way.
+fn clear_the_court(sim: &mut Sim) {
+    for i in 0..sim.players.len() {
+        let side = sim.players[i].side;
+        sim.players[i].position = Vec3::new(side * 20.0, 0.0, if i % 2 == 0 { -10.0 } else { 10.0 });
+    }
+}
+
+/// A ball flung high into the +x end wall, at z = 3.
+fn into_the_end_wall(sim: &mut Sim) {
+    let origin = Vec3::new(18.0, 4.0, 3.0);
+    sim.ball = Ball::InFlight(Flight { origin, velocity: Vec3::new(14.0, 2.0, 0.0), start_tick: sim.tick, curve: 0.0 });
+}
+
+#[test]
+fn wall_panels_crack_then_break_and_the_ball_goes_out() {
+    let mut sim = Sim::new(MatchConfig::default());
+    clear_the_court(&mut sim);
+    let panel = court::wall_panel(Vec3::new(HALF_LENGTH, 4.0, 3.0), true);
+    let hitter = sim.player_index(0, 0);
+    sim.last_hitter = Some(hitter);
+
+    // First hit: it cracks and the ball comes back.
+    into_the_end_wall(&mut sim);
+    let events = run_until_point(&mut sim);
+    assert!(events.contains(&Event::WallCracked { panel, at: events.iter().find_map(|e| match e {
+        Event::WallCracked { at, .. } => Some(*at),
+        _ => None,
+    }).unwrap() }), "{events:?}");
+    assert!(!events.iter().any(|e| matches!(e, Event::Out { .. })), "{events:?}");
+    assert_eq!(sim.walls[panel], 1);
+
+    // Second hit: it breaks, the ball is out, and the other team scores.
+    while sim.phase != Phase::Rally || !matches!(sim.ball, Ball::Held { .. }) {
+        sim.step(&idle(&sim));
+    }
+    clear_the_court(&mut sim);
+    sim.last_hitter = Some(hitter);
+    into_the_end_wall(&mut sim);
+    let events = run_until_point(&mut sim);
+    assert!(events.iter().any(|e| matches!(e, Event::WallBroken { panel: p, .. } if *p == panel)), "{events:?}");
+    assert!(events.iter().any(|e| matches!(e, Event::Out { .. })), "{events:?}");
+    assert!(events.contains(&Event::Point { team: 1, reason: PointReason::Out }), "{events:?}");
+    assert_eq!(sim.walls[panel], 2);
+}
+
+#[test]
+fn walls_stay_whole_when_not_breakable() {
+    let mut sim = Sim::new(MatchConfig { breakable_walls: false, ..MatchConfig::default() });
+    clear_the_court(&mut sim);
+    into_the_end_wall(&mut sim);
+    let events = run_until_point(&mut sim);
+    assert!(events.iter().any(|e| matches!(e, Event::WallBounce { .. })), "{events:?}");
+    assert!(sim.walls.iter().all(|&w| w == 0));
+}
+
+#[test]
+fn a_fast_ball_knocks_down_a_player_who_doesnt_play_it() {
+    let mut sim = Sim::new(MatchConfig::default());
+    clear_the_court(&mut sim);
+    let target = sim.player_index(0, 1);
+    let side = sim.players[target].side;
+    sim.players[target].position = Vec3::new(side * 6.0, 0.0, 0.0);
+    // Straight at the chest, hard, from the other side.
+    let origin = Vec3::new(side * 2.0, 1.3, 0.0);
+    sim.ball = Ball::InFlight(Flight { origin, velocity: Vec3::new(side * 18.0, 0.5, 0.0), start_tick: sim.tick, curve: 0.0 });
+    sim.last_hitter = Some(sim.player_index(1, 0));
+    let mut events = Vec::new();
+    for _ in 0..30 {
+        events.extend(sim.step(&idle(&sim)));
+        if events.iter().any(|e| matches!(e, Event::BodyHit { .. })) {
+            break;
+        }
+    }
+    let Some(&Event::BodyHit { player, strength, .. }) = events.iter().find(|e| matches!(e, Event::BodyHit { .. })) else {
+        panic!("no body hit: {events:?}");
+    };
+    assert_eq!(player, target);
+    assert!(strength > 0.5, "{strength}");
+    assert!(sim.players[target].stunned(sim.tick));
+    assert_eq!(sim.team_touches(sim.players[target].team), 1);
+    let Ball::InFlight(flight) = sim.ball else { panic!("the ball bounced off") };
+    let v = flight.velocity_at_time(flight.elapsed(sim.tick));
+    assert!(v.x * side < 0.0 && v.y > 0.0, "back the way it came, and up: {v}");
+}
+
+#[test]
+fn a_hard_ball_met_early_shoves_the_receiver_back() {
+    let mut sim = Sim::new(MatchConfig::default());
+    clear_the_court(&mut sim);
+    let receiver = sim.player_index(0, 1);
+    let side = sim.players[receiver].side;
+    sim.players[receiver].position = Vec3::new(side * 8.0, 0.0, 0.0);
+    // A steep, fast ball down to just in front of them.
+    let flight = Flight::to_target(Vec3::new(-side * 1.0, 3.5, 0.0), Vec3::new(side * 7.6, 0.2, 0.0), 0.36, sim.tick);
+    sim.ball = Ball::InFlight(flight);
+    sim.last_hitter = Some(sim.player_index(1, 0));
+    sim.last_power = true;
+    // Pass pressed right away and held: far too early for this ball.
+    let mut events = Vec::new();
+    for tick in 0..40 {
+        let mut inputs = idle(&sim);
+        inputs[receiver].pass = tick == 0;
+        inputs[receiver].pass_held = true;
+        events.extend(sim.step(&inputs));
+        if events.iter().any(|e| matches!(e, Event::Touched { .. } | Event::Landed { .. })) {
+            break;
+        }
+    }
+    assert!(events.iter().any(|e| matches!(e, Event::Touched { player, .. } if *player == receiver)), "{events:?}");
+    assert!(events.iter().any(|e| matches!(e, Event::Shoved { player, .. } if *player == receiver)), "{events:?}");
+    assert!(sim.players[receiver].stunned(sim.tick));
+}
+
+/// How often the newer events come up in bot play (`cargo test -p volley_sim
+/// mechanics_census -- --ignored --nocapture`).
+#[test]
+#[ignore]
+fn mechanics_census() {
+    let mut sim = Sim::new(MatchConfig::default());
+    sim.set_kit(sim.player_index(0, 0), moves::CROSS);
+    sim.set_kit(sim.player_index(1, 1), moves::GOLAZO);
+    let events = run_bots(&mut sim, 600 * TICK_HZ);
+    let n = |f: &dyn Fn(&Event) -> bool| count(&events, f);
+    println!("10 minutes: points {}, out {}, cracked {}, broken {}, body hits {} (knockdowns {}), shoved {}, wall bounces {}",
+        n(&|e| matches!(e, Event::Point { .. })), n(&|e| matches!(e, Event::Out { .. })),
+        n(&|e| matches!(e, Event::WallCracked { .. })), n(&|e| matches!(e, Event::WallBroken { .. })),
+        n(&|e| matches!(e, Event::BodyHit { .. })), n(&|e| matches!(e, Event::BodyHit { strength, .. } if *strength > 0.0)),
+        n(&|e| matches!(e, Event::Shoved { .. })), n(&|e| matches!(e, Event::WallBounce { .. })));
+}

@@ -1133,3 +1133,35 @@ read from an installed copy of the game.
 Their 0.05 s blends, tried with our clips even with dead blending, multiply
 hand pops 15-fold (experiments.md 24): the look comes from clips made for
 it. The study ends with the options for Volley's clips.
+
+### 2026-10-14: walls that break, getting hit, power receptions
+
+Three rules in the simulation (`crates/sim`), drawn by both clients. All 68
+sim tests pass, four of them new.
+
+- **Walls that break:** the walls are 24 glass panels, 6 m each.
+  - A ball hitting a whole panel cracks it (`WallCracked`). The next one
+    breaks through and is out (`WallBroken`, `Out`), as is any ball through
+    the gap after. The team that didn't touch it last scores
+    (`PointReason::Out`).
+  - Panels reset each set. `MatchConfig::breakable_walls` turns it off.
+  - The FFI's match state carries every panel's state (140 bytes now).
+  - **Unreal:** builds the walls as panels; a cracked one goes frosted and
+    bright, a broken one disappears, with a flash and a burst of sparks.
+- **Getting hit:** a ball that hits a player not playing it (inside the
+  body, 0.1-1.85 m up, coming at them) bounces off them.
+  - **Where it goes:** back the way it came at 45% of its speed, popping up
+    2-6.5 m/s higher the higher it hit, scattered up to 35° (seeded, so
+    deterministic).
+  - **It's a touch:** it counts as their team's touch.
+  - **Fast balls (8 m/s and up):** stun the player for up to 1.3 s and push
+    them back (`BodyHit`, with strength).
+  - **Unreal:** they go down (with `VOLLEY_KC=1`, Knockout City's strong
+    front-on hit) or flinch, with a flash and sand where they fall.
+- **Power receptions:** a reception of difficulty 0.55 or more, met with an
+  error of 0.3 or more (a hard or powered ball pressed badly), shoves the
+  receiver back 2.5-6 m/s with a 0.25-0.7 s stun (`Shoved`), on top of the
+  shank. In Unreal the hips recoil harder.
+- **In bot play (10 minutes):** 17 shoves, 2 body hits (both knockdowns),
+  2 cracked panels. Bots aim 1 m clear of the walls, so the walls are mostly
+  in play for people's bank shots.

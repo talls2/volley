@@ -187,6 +187,7 @@ fn announce_points(
                     PointReason::LandedIn => "ball landed in",
                     PointReason::TooManyTouches => "four touches",
                     PointReason::DoubleTouch => "double touch",
+                    PointReason::Out => "ball out through a broken wall",
                 };
                 text.0 = format!("Point {}: {why}", TEAM_NAMES[team]);
                 color.0 = TEAM_COLORS[team];

@@ -62,6 +62,9 @@ typedef struct VolleyPlayerState {
 enum { VOLLEY_BALL_DEAD = 0, VOLLEY_BALL_HELD = 1, VOLLEY_BALL_IN_FLIGHT = 2, VOLLEY_BALL_CARRIED = 3 };
 enum { VOLLEY_PHASE_RALLY = 0, VOLLEY_PHASE_POINT_SCORED = 1, VOLLEY_PHASE_MATCH_OVER = 2 };
 
+/* Wall panels: 4 across each end wall, 8 along each side wall, 6 m each. */
+enum { VOLLEY_WALL_PANEL_METERS = 6, VOLLEY_END_PANELS = 4, VOLLEY_SIDE_PANELS = 8, VOLLEY_WALL_PANELS = 24 };
+
 typedef struct VolleyMatchState {
     uint32_t tick, rally, phase;
     uint32_t score[2], sets[2], set;
@@ -77,6 +80,10 @@ typedef struct VolleyMatchState {
     /* Where the decoy lands, and how long until each ball does (s). */
     float decoy_landing_x, decoy_landing_z;
     float landing_seconds, decoy_landing_seconds;
+    /* Each wall panel: 0 whole, 1 cracked, 2 broken. Numbered: the -x end
+     * wall, the +x end wall (across z from -z), the -z side wall, the +z
+     * side wall (along x from -x). */
+    uint8_t walls[VOLLEY_WALL_PANELS];
 } VolleyMatchState;
 
 enum {
@@ -98,6 +105,15 @@ enum {
     VOLLEY_EVENT_SIDES_SWITCHED = 15,
     VOLLEY_EVENT_SET_WON = 16,
     VOLLEY_EVENT_MATCH_WON = 17,
+    /* detail: the panel; x, y, z: where. */
+    VOLLEY_EVENT_WALL_CRACKED = 18,
+    VOLLEY_EVENT_WALL_BROKEN = 19,
+    /* x, y, z: where the ball went out (Point's detail 3). */
+    VOLLEY_EVENT_OUT = 20,
+    /* quality: 0 a tap to 1 knocked down; x, y, z: where it hit. */
+    VOLLEY_EVENT_BODY_HIT = 21,
+    /* quality: how hard a bad reception pushed the receiver back. */
+    VOLLEY_EVENT_SHOVED = 22,
 };
 
 /* Touched's detail, in the sim's HitKind order. */

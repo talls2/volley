@@ -217,7 +217,14 @@ pub struct VolleyMatchState {
     pub decoy_landing_z: f32,
     pub landing_seconds: f32,
     pub decoy_landing_seconds: f32,
+    /// Each wall panel (`volley_sim::court::wall_panel`): 0 whole, 1 cracked,
+    /// 2 broken. Numbered: the -x end wall, the +x end wall (across z from
+    /// -z), the -z side wall, the +z side wall (along x from -x).
+    pub walls: [u8; WALL_PANELS],
 }
+
+/// Wall panels, and how they're laid out (see `VolleyMatchState::walls`).
+pub const WALL_PANELS: usize = volley_sim::court::PANELS;
 
 /// What `VolleyEvent::kind` can be, one per [`Event`] variant.
 pub const EVENT_MOVE_STARTED: u32 = 0;
@@ -238,6 +245,15 @@ pub const EVENT_POINT: u32 = 14;
 pub const EVENT_SIDES_SWITCHED: u32 = 15;
 pub const EVENT_SET_WON: u32 = 16;
 pub const EVENT_MATCH_WON: u32 = 17;
+/// detail: the panel; x, y, z: where.
+pub const EVENT_WALL_CRACKED: u32 = 18;
+pub const EVENT_WALL_BROKEN: u32 = 19;
+/// x, y, z: where the ball went out.
+pub const EVENT_OUT: u32 = 20;
+/// quality: how hard, 0 (a tap) to 1 (knocked down); x, y, z: where.
+pub const EVENT_BODY_HIT: u32 = 21;
+/// quality: how hard the receiver was pushed back, 0 to 1.
+pub const EVENT_SHOVED: u32 = 22;
 
 /// One event, flattened. Fields an event doesn't use are 0 (`player` and
 /// `team` are -1).
@@ -456,6 +472,15 @@ impl From<&Event> for VolleyEvent {
             Event::SidesSwitched => VolleyEvent::new(EVENT_SIDES_SWITCHED),
             Event::SetWon { team } => VolleyEvent { team: team as i32, ..VolleyEvent::new(EVENT_SET_WON) },
             Event::MatchWon { team } => VolleyEvent { team: team as i32, ..VolleyEvent::new(EVENT_MATCH_WON) },
+            Event::WallCracked { panel, at } => VolleyEvent { detail: panel as u32, ..VolleyEvent::at(EVENT_WALL_CRACKED, at) },
+            Event::WallBroken { panel, at } => VolleyEvent { detail: panel as u32, ..VolleyEvent::at(EVENT_WALL_BROKEN, at) },
+            Event::Out { at } => VolleyEvent::at(EVENT_OUT, at),
+            Event::BodyHit { player, at, strength } => VolleyEvent {
+                player: player as i32,
+                quality: strength,
+                ..VolleyEvent::at(EVENT_BODY_HIT, at)
+            },
+            Event::Shoved { player, strength } => VolleyEvent { quality: strength, ..VolleyEvent::by(EVENT_SHOVED, player) },
         }
     }
 }
@@ -633,6 +658,7 @@ pub unsafe extern "C" fn volley_match_state(
             decoy_landing_z: decoy_landing.map_or(0.0, |(p, _)| p.z),
             landing_seconds,
             decoy_landing_seconds: decoy_landing.map_or(0.0, |(_, t)| t),
+            walls: sim.walls,
         })
     };
     let count = sim.players.len().min(max_players as usize);
@@ -802,7 +828,7 @@ mod tests {
     fn struct_sizes() {
         assert_eq!(size_of::<VolleyInput>(), 36);
         assert_eq!(size_of::<VolleyPlayerState>(), 148);
-        assert_eq!(size_of::<VolleyMatchState>(), 116);
+        assert_eq!(size_of::<VolleyMatchState>(), 140);
         assert_eq!(size_of::<VolleyEvent>(), 44);
         assert_eq!(size_of::<VolleyHud>(), 104);
     }

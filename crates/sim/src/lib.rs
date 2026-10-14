@@ -19,7 +19,7 @@ pub use moves::{Kit, Move, MoveId, Passive};
 pub use player::{Action, Carry, Dash, MovePhase, Player};
 
 use moves::Touch;
-use court::{BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT, NET_HALF_WIDTH};
+use court::{BALL_RADIUS, BODY_BOTTOM, BODY_RADIUS, BODY_TOP, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT, NET_HALF_WIDTH, PANELS};
 
 pub const TICK_HZ: u32 = 60;
 pub const DT: f32 = 1.0 / TICK_HZ as f32;
@@ -39,6 +39,28 @@ const POINT_PAUSE_TICKS: u32 = 90;
 pub const SERVE_SWING_TICKS: u32 = 15;
 /// How long a player knocked down by a dunk stays down.
 const KNOCKDOWN_TICKS: u32 = 60;
+/// A ball that hits a player who isn't playing it bounces off them, losing
+/// this share of its speed into them, and pops up more the higher it hit
+/// (m/s, at the feet and at the head). Its way off swings up to this far
+/// from the mirror bounce, as a body is no flat wall.
+const BODY_RESTITUTION: f32 = 0.45;
+const BODY_POP_LOW: f32 = 2.0;
+const BODY_POP_HIGH: f32 = 6.5;
+const BODY_SCATTER: f32 = 35.0 * std::f32::consts::PI / 180.0;
+const BODY_MAX_SPEED: f32 = 9.0;
+/// Balls from this fast (m/s) knock the player back, stunned, longer the
+/// faster (s per m/s, up to a cap), and send them sliding back.
+const BODY_KNOCK_SPEED: f32 = 8.0;
+const BODY_STUN_PER_SPEED: f32 = 0.045;
+const BODY_MAX_STUN: f32 = 1.3;
+const BODY_SHOVE: f32 = 0.3;
+const BODY_MAX_SHOVE: f32 = 7.0;
+/// A reception this hard (difficulty) gone this wrong (error) shoves the
+/// receiver back with a short stun (s, at the threshold and at the worst).
+const SHOVE_DIFFICULTY: f32 = 0.55;
+const SHOVE_ERROR: f32 = 0.3;
+const SHOVE_STUN: (f32, f32) = (0.25, 0.7);
+const SHOVE_SPEED: (f32, f32) = (2.5, 6.0);
 /// Ultimate charge from each touch, and for each point the team wins.
 const CHARGE_PER_TOUCH: f32 = 0.05;
 /// How hard a banana kick bends, sideways (m/s²).
@@ -177,6 +199,8 @@ pub struct MatchConfig {
     /// Teams switch sides every this many points, and more often in the deciding set.
     pub switch_every: u32,
     pub deciding_switch_every: u32,
+    /// Wall panels crack on a hit and break on the next, letting balls out.
+    pub breakable_walls: bool,
 }
 
 impl Default for MatchConfig {
@@ -188,6 +212,7 @@ impl Default for MatchConfig {
             sets_to_win: 2,
             switch_every: 7,
             deciding_switch_every: 5,
+            breakable_walls: true,
         }
     }
 }
@@ -264,6 +289,8 @@ pub enum PointReason {
     LandedIn,
     TooManyTouches,
     DoubleTouch,
+    /// Out through a broken wall panel: the team that didn't touch it last scores.
+    Out,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -296,6 +323,17 @@ pub enum Event {
     /// Kicked off a wall in the air: a second jump. `away` is the way off the
     /// wall (world XZ).
     WallJumped { player: usize, away: Vec2 },
+    /// The ball cracked a wall panel (`court::wall_panel`).
+    WallCracked { panel: usize, at: Vec3 },
+    /// The ball broke through a cracked panel, out.
+    WallBroken { panel: usize, at: Vec3 },
+    /// The ball went out through a broken panel.
+    Out { at: Vec3 },
+    /// The ball hit a player who wasn't playing it, and bounced off.
+    /// `strength`: 0 for a tap, 1 for a ball that knocked them down.
+    BodyHit { player: usize, at: Vec3, strength: f32 },
+    /// A hard ball received badly pushed the receiver back, stunned.
+    Shoved { player: usize, strength: f32 },
     Point { team: usize, reason: PointReason },
     /// The teams will switch sides before the next rally.
     SidesSwitched,
@@ -358,6 +396,8 @@ pub struct Sim {
     sides: [f32; 2],
     /// Switch sides when the next rally starts.
     switch_pending: bool,
+    /// Each wall panel: 0 whole, 1 cracked, 2 broken. Whole again each set.
+    pub walls: [u8; PANELS],
 }
 
 impl Sim {
@@ -391,6 +431,7 @@ impl Sim {
             serve_at: None,
             sides,
             switch_pending: false,
+            walls: [0; PANELS],
         };
         sim.start_rally();
         sim
@@ -670,8 +711,34 @@ impl Sim {
         let now = flight.elapsed(self.tick);
         let landing = flight.landing_time();
 
-        if flight.wall_bounces(now) > flight.wall_bounces(before) && now < landing {
-            events.push(Event::WallBounce { at: flight.position_at_time(now) });
+        let (x_before, z_before) = flight.axis_bounces(before);
+        let (x_now, z_now) = flight.axis_bounces(now);
+        if (x_now > x_before || z_now > z_before) && now < landing {
+            let at = flight.position_at_time(now);
+            if self.config.breakable_walls {
+                let panel = court::wall_panel(at, x_now > x_before);
+                match self.walls[panel] {
+                    0 => {
+                        self.walls[panel] = 1;
+                        events.push(Event::WallCracked { panel, at });
+                    }
+                    state => {
+                        // Through the glass (or the gap it left): out.
+                        if state == 1 {
+                            self.walls[panel] = 2;
+                            events.push(Event::WallBroken { panel, at });
+                        }
+                        events.push(Event::Out { at });
+                        let team = match self.last_hitter {
+                            Some(hitter) => 1 - self.players[hitter].team,
+                            None => 1 - self.team_on(at.x),
+                        };
+                        self.award_point(team, PointReason::Out, at, events);
+                        return;
+                    }
+                }
+            }
+            events.push(Event::WallBounce { at });
         }
         self.update_decoy(events);
         if let Some(crossing) = flight.next_net_crossing(before)
@@ -744,6 +811,69 @@ impl Sim {
             });
         if let Some(hitter) = hitter {
             self.touch(hitter, ball, events);
+        } else if let Some(player) = self.body_in_the_way(ball, flight.velocity_at_time(now)) {
+            self.body_hit(player, ball, flight.velocity_at_time(now), events);
+        }
+    }
+
+    /// Who a ball at `ball`, moving at `velocity`, hits: a player not stunned
+    /// whose body it's inside and coming at.
+    fn body_in_the_way(&self, ball: Vec3, velocity: Vec3) -> Option<usize> {
+        (0..self.players.len()).find(|&i| {
+            let player = &self.players[i];
+            let rise = ball.y - player.position.y;
+            let away = Vec2::new(ball.x - player.position.x, ball.z - player.position.z);
+            !player.stunned(self.tick)
+                && (BODY_BOTTOM..=BODY_TOP).contains(&rise)
+                && away.length() < BODY_RADIUS + BALL_RADIUS
+                && away.dot(Vec2::new(velocity.x, velocity.z)) < 0.0
+        })
+    }
+
+    /// A ball hitting `player`'s body: it bounces off, scattered, popping up
+    /// more the higher it hit, and counts as their team's touch. A fast one
+    /// knocks them back, stunned.
+    fn body_hit(&mut self, player: usize, ball: Vec3, velocity: Vec3, events: &mut Vec<Event>) {
+        let body = self.players[player];
+        let rise = ((ball.y - body.position.y - BODY_BOTTOM) / (BODY_TOP - BODY_BOTTOM)).clamp(0.0, 1.0);
+        let center = Vec3::new(body.position.x, ball.y, body.position.z);
+        let normal = (ball - center).with_y(0.0).try_normalize().unwrap_or(-velocity.with_y(0.0).normalize_or(Vec3::X));
+        let speed = velocity.length();
+        let into = velocity.dot(normal).min(0.0);
+        let mut out = (velocity - (1.0 + BODY_RESTITUTION) * into * normal) * BODY_RESTITUTION;
+        let roll = dice(self.tick, (player as u32).wrapping_add(0xB0D1));
+        let swing = ((roll & 0xFFFF) as f32 / 65535.0 * 2.0 - 1.0) * BODY_SCATTER;
+        let across = Vec2::from_angle(swing).rotate(Vec2::new(out.x, out.z)).clamp_length_max(BODY_MAX_SPEED);
+        out = Vec3::new(across.x, out.y.max(0.0) + BODY_POP_LOW + (BODY_POP_HIGH - BODY_POP_LOW) * rise, across.y);
+        let origin = ball + normal * 0.05;
+        self.ball = Ball::InFlight(Flight { origin, velocity: out, start_tick: self.tick, curve: 0.0 });
+        self.decoy = None;
+        self.touch_lockout_until = self.tick + TOUCH_LOCKOUT_TICKS;
+        self.last_hitter = Some(player);
+        self.last_power = false;
+
+        let strength = ((speed - BODY_KNOCK_SPEED) / BODY_KNOCK_SPEED).clamp(0.0, 1.0);
+        events.push(Event::BodyHit { player, at: ball, strength });
+        if speed >= BODY_KNOCK_SPEED {
+            let p = &mut self.players[player];
+            let seconds = (speed * BODY_STUN_PER_SPEED).min(BODY_MAX_STUN);
+            p.stunned_until = self.tick + (seconds * TICK_HZ as f32) as u32;
+            p.action = None;
+            p.hands_up = false;
+            let back = Vec2::new(-normal.x, -normal.z) * (speed * BODY_SHOVE).min(BODY_MAX_SHOVE);
+            p.velocity = back;
+        }
+
+        // A touch by their team, like any other.
+        let team = body.team;
+        if self.touches.team != team {
+            self.touches = Touches::new(team);
+        }
+        self.touches.count += 1;
+        self.touches.last = Some(player);
+        self.touches.clean = 0;
+        if self.touches.count > MAX_TOUCHES {
+            self.award_point(1 - team, PointReason::TooManyTouches, ball, events);
         }
     }
 
@@ -854,12 +984,22 @@ impl Sim {
             return;
         }
         let mut plan = self.plan_hit(hitter, id, self.touches.count, ball);
-        let player = &self.players[hitter];
+        let position = self.players[hitter].position;
         if let Touch::Keep(kind) = id.spec().touch {
             // Receptions go where the ball and the timing let them (see `reception`).
             let aim = plan.preview.target;
             let out = Vec2::new(aim.x - ball.x, aim.z - ball.z);
-            let judged = reception::judge(player, id, self.tick.saturating_sub(pressed), ball, incoming, out, self.last_power);
+            let judged = reception::judge(&self.players[hitter], id, self.tick.saturating_sub(pressed), ball, incoming, out, self.last_power);
+            if judged.difficulty >= SHOVE_DIFFICULTY && judged.error() >= SHOVE_ERROR {
+                // Too much ball, too badly met: it pushes the receiver back.
+                let strength = ((judged.error() - SHOVE_ERROR) / (1.0 - SHOVE_ERROR)).clamp(0.0, 1.0);
+                let lerp = |(a, b): (f32, f32)| a + (b - a) * strength;
+                let push = Vec2::new(incoming.x, incoming.z).normalize_or_zero() * lerp(SHOVE_SPEED);
+                let receiver = &mut self.players[hitter];
+                receiver.stunned_until = self.tick + (lerp(SHOVE_STUN) * TICK_HZ as f32) as u32;
+                receiver.velocity = push;
+                events.push(Event::Shoved { player: hitter, strength });
+            }
             plan.preview.spread += judged.spread();
             plan.preview.quality = (1.0 - judged.error()).clamp(0.0, 1.0);
             let shank = judged.shank();
@@ -872,7 +1012,7 @@ impl Sim {
             }
         }
         if let Touch::Keep(HitKind::Pass) = id.spec().touch {
-            let reach = Vec2::new(ball.x - player.position.x, ball.z - player.position.z).length();
+            let reach = Vec2::new(ball.x - position.x, ball.z - position.z).length();
             let clean = if self.touches.count <= 1 { CLEAN_RECEPTION } else { CLEAN_SET };
             self.touches.clean = if reach <= clean { self.touches.clean + 1 } else { 0 };
         } else if plan.preview.kind.is_attack() && self.touches.clean >= CHAINED_TOUCHES {
@@ -944,6 +1084,7 @@ impl Sim {
             }
             self.set += 1;
             self.score = [0, 0];
+            self.walls = [0; PANELS];
             // The team that lost the set serves first in the next.
             self.serving_team = other;
             pause = SET_PAUSE_TICKS;

@@ -51,6 +51,7 @@ fn main() {
                         PointReason::LandedIn => "landed in",
                         PointReason::TooManyTouches => "four touches",
                         PointReason::DoubleTouch => "double touch",
+                        PointReason::Out => "out",
                     };
                     *reasons.entry(reason.to_string()).or_default() += 1;
                 }

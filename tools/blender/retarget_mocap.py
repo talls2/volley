@@ -262,6 +262,19 @@ def deepmotion_bones():
     return bones
 
 
+def ue_bones():
+    """Skeletons named like Unreal's (pelvis, spine_01, clavicle_l, ...): ours but the neck and head."""
+    bones = {"pelvis": "pelvis", "spine_01": "spine_01", "spine_02": "spine_02", "spine_03": "spine_03",
+             "neck": "neck_01", "neck_01": "neck_01", "head": "Head"}
+    for side in ("l", "r"):
+        for part in ("clavicle", "upperarm", "lowerarm", "hand", "thigh", "calf", "foot", "ball"):
+            bones[f"{part}_{side}"] = f"{part}_{side}"
+        for finger in ("thumb", "index", "middle", "ring", "pinky"):
+            for joint in (1, 2, 3):
+                bones[f"{finger}_0{joint}_{side}"] = f"{finger}_0{joint}_{side}"
+    return bones
+
+
 def plain(name):
     """A bone name without a rig prefix, like Mixamo's "mixamorig:"."""
     return name.split(":")[-1]
@@ -280,6 +293,8 @@ def load(path):
         bones = {"cmu": cmu_bones, "deepmotion": deepmotion_bones}.get(path.parent.name, style_bones)()
     new = [ob for ob in bpy.data.objects if ob not in before]
     armature = next(ob for ob in new if ob.type == "ARMATURE")
+    if {"spine_01", "upperarm_l", "thigh_l"} <= {plain(b.name) for b in armature.data.bones}:
+        bones = ue_bones()
     action = armature.animation_data.action if armature.animation_data else None
     return armature, action, new, bones
 
@@ -627,6 +642,12 @@ def main():
     jobs.update({f"{hero}_{name}": spec for hero, clips in HERO_CLIPS.items() for name, spec in clips.items()})
     if locomotion:
         jobs = dict(LOCOMOTION)
+    # --bvh-dir DIR --out FILE: every BVH in DIR, as is, written to FILE (kept
+    # outside this repository when the source isn't ours to publish).
+    bvh_dir = Path(args[args.index("--bvh-dir") + 1]) if "--bvh-dir" in args else None
+    if bvh_dir:
+        jobs = {path.stem: clip(path) for path in sorted(bvh_dir.glob("*.bvh"))}
+        locomotion = Path(args[args.index("--out") + 1])
     if trying:
         pool = {**jobs, **CANDIDATES}
         jobs = CANDIDATES if trying == ["all"] else {name: pool[name] for name in trying}

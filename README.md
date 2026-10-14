@@ -141,6 +141,7 @@ ultimate is ready.
   - *Banana Kick* (ability, 6 s): a kick with spin, standing or in the air, that heads out wide and bends back onto its spot, around the block.
   - *Chilena* (ultimate): a leap into an overhead bicycle kick that splits the ball in two. One is a decoy, drawn exactly like the real ball (shadow and landing rings too); whoever plays it just watches it vanish, and only the real one scores.
   - *No Block* (weakness): at the net, pass is just a pass.
+- **Alysa**, figure-skating champion with ice powers (planned, not built yet): fastest on the ground and gliding on her own ice, rides along the walls on her skates, freezes a hit ball in mid-air (*Flash Freeze*), and spikes an ice ball from a *Triple Axel*; no dive. Kit, look and the concept art prompt in [`docs/concept/alysa.md`](docs/concept/alysa.md).
 
 ## Moves and kits
 
@@ -226,3 +227,17 @@ Not decided or scheduled yet; to weigh when the animation work settles.
     sides); whether walls come back between sets; what Golazo's Wall Pass
     and wall jumps do next to a cracked or shattered panel; how bots weigh
     using up a wall.
+- **Getting hit.** A ball that hits a player who pressed nothing in time
+  bounces off them, and up.
+  - **Where it goes:** a semi-random direction, from the way the ball came
+    and where on the body it struck. Off the head it pops high and short;
+    off the chest it rebounds forward; off a shoulder or leg it glances away
+    to that side.
+  - **The player:** thrown back, knocked down and stunned for a moment,
+    with a hit reaction by direction, height and strength (Knockout City has
+    a grid of these: `docs/animation/knockout-city-study.md`).
+  - **Bad receptions too:** a badly timed reception of a hero's power or a
+    very fast, hard ball also throws the receiver back, with a shorter
+    stun, as the ball shanks off (`reception.rs`).
+  - **To work out:** how long the stuns last; whether a ball off a stunned
+    player still counts as that team's touch; how bots avoid it or bait it.

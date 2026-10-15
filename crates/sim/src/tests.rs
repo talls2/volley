@@ -1600,3 +1600,132 @@ fn the_ice_ball_smashes_the_block_and_leaves_a_ring_of_ice() {
     }
     assert!(!sim.players[digger].gliding(sim.tick));
 }
+
+/// Alysa skating at the +z side wall from (x, 0, 10) at 9 m/s, mostly along
+/// +x, steering along it. Steps until she's on the wall; returns her index and
+/// the events so far.
+fn alysa_skates_into_the_wall(sim: &mut Sim, x: f32) -> (usize, Vec<Event>) {
+    clear_the_court(sim);
+    let alysa = sim.player_index(0, 1);
+    sim.set_kit(alysa, moves::ALYSA);
+    sim.players[alysa].position = Vec3::new(x, 0.0, 10.0);
+    sim.players[alysa].velocity = Vec2::new(6.0, 7.0);
+    let mut events = Vec::new();
+    for _ in 0..TICK_HZ {
+        let mut inputs = idle(sim);
+        inputs[alysa].movement = Vec2::new(0.8, 0.6);
+        events.extend(sim.step(&inputs));
+        if sim.players[alysa].wall_skate.is_some() {
+            break;
+        }
+    }
+    (alysa, events)
+}
+
+#[test]
+fn alysa_rides_along_the_wall_then_drops() {
+    let mut sim = Sim::new(MatchConfig::default());
+    let (alysa, events) = alysa_skates_into_the_wall(&mut sim, -20.0);
+    assert!(events.iter().any(|e| matches!(e, Event::WallSkated { player, .. } if *player == alysa)), "{events:?}");
+    // Her run turns along the wall, keeping its speed, up off the sand.
+    let speed = sim.players[alysa].velocity.length();
+    assert!(speed > 8.5, "slowed to {speed}");
+    let mut longest = 0;
+    let mut riding = 0;
+    for _ in 0..3 * TICK_HZ {
+        let mut inputs = idle(&sim);
+        inputs[alysa].movement = Vec2::new(1.0, 0.0);
+        sim.step(&inputs);
+        if sim.players[alysa].wall_skate.is_some() {
+            riding += 1;
+            longest = longest.max(riding);
+            assert!(sim.players[alysa].position.z > HALF_WIDTH - 1.0);
+        }
+    }
+    assert!((60..=90).contains(&longest), "rode {longest} ticks");
+    assert!(sim.players[alysa].grounded(), "never came down");
+}
+
+#[test]
+fn alysa_jumps_off_the_wall_she_rides() {
+    let mut sim = Sim::new(MatchConfig::default());
+    let (alysa, _) = alysa_skates_into_the_wall(&mut sim, -20.0);
+    for _ in 0..10 {
+        sim.step(&idle(&sim));
+    }
+    let mut inputs = idle(&sim);
+    inputs[alysa].jump = true;
+    let events = sim.step(&inputs);
+    assert!(events.iter().any(|e| matches!(e, Event::WallJumped { player, .. } if *player == alysa)), "{events:?}");
+    assert!(sim.players[alysa].wall_skate.is_none());
+    assert!(sim.players[alysa].vertical_velocity > 6.0);
+    assert!(sim.players[alysa].velocity.y < 0.0, "not pushed off the wall");
+}
+
+#[test]
+fn cracked_glass_gives_way_under_a_wall_skate() {
+    let mut sim = Sim::new(MatchConfig::default());
+    // Every panel of the +z side wall cracked.
+    for panel in 0..PANELS {
+        let at = Vec3::new(-20.0 + 6.0 * (panel % 8) as f32, 1.0, HALF_WIDTH);
+        sim.walls[court::wall_panel(at, false)] = 1;
+    }
+    let (alysa, mut events) = alysa_skates_into_the_wall(&mut sim, -20.0);
+    events.extend(sim.step(&idle(&sim)));
+    assert!(events.iter().any(|e| matches!(e, Event::WallBroken { .. })), "{events:?}");
+    assert!(sim.players[alysa].wall_skate.is_none());
+}
+
+#[test]
+fn alysa_dashes_a_trail_of_ice() {
+    let mut sim = Sim::new(MatchConfig::default());
+    clear_the_court(&mut sim);
+    let alysa = sim.player_index(0, 1);
+    let other = sim.player_index(0, 2);
+    sim.set_kit(alysa, moves::ALYSA);
+    sim.players[alysa].position = Vec3::new(-14.0, 0.0, 0.0);
+    let mut inputs = idle(&sim);
+    inputs[alysa].movement = Vec2::new(1.0, 0.0);
+    inputs[alysa].dash = true;
+    sim.step(&inputs);
+    for _ in 0..20 {
+        sim.step(&idle(&sim));
+    }
+    assert!(!sim.ice.is_empty(), "no ice");
+    // A teammate standing on the trail glides; it melts after three seconds.
+    sim.players[other].position = Vec3::new(-12.5, 0.0, 0.0);
+    sim.step(&idle(&sim));
+    assert!(sim.players[other].gliding(sim.tick));
+    assert!(!sim.players[sim.player_index(1, 0)].gliding(sim.tick));
+    for _ in 0..3 * TICK_HZ {
+        sim.step(&idle(&sim));
+    }
+    sim.players[other].position = Vec3::new(-12.5, 0.0, 0.0);
+    sim.step(&idle(&sim));
+    assert!(!sim.players[other].gliding(sim.tick));
+}
+
+#[test]
+fn a_bot_kicks_off_the_wall_into_a_wall_shot() {
+    let mut sim = Sim::new(MatchConfig::default());
+    clear_the_court(&mut sim);
+    let setter = sim.player_index(0, 2);
+    let attacker = sim.player_index(0, 0);
+    sim.players[attacker].position = Vec3::new(-5.0, 0.0, 8.0);
+    // A set from the middle of the court, coming down by the +z wall.
+    let from = Vec3::new(-6.0, 1.5, 2.0);
+    sim.ball = Ball::InFlight(Flight::to_target(from, Vec3::new(-3.0, BALL_RADIUS, 10.8), 1.6, sim.tick));
+    sim.touches = Touches { count: 2, last: Some(setter), ..Touches::new(0) };
+    sim.last_hitter = Some(setter);
+    let mut events = Vec::new();
+    for _ in 0..2 * TICK_HZ {
+        let step = sim.step(&bot_inputs(&sim));
+        let touched = step.iter().any(|e| matches!(e, Event::Touched { .. }));
+        events.extend(step);
+        if touched {
+            break;
+        }
+    }
+    assert!(events.iter().any(|e| matches!(e, Event::WallJumped { player, .. } if *player == attacker)), "{events:?}");
+    assert!(events.iter().any(|e| matches!(e, Event::WallShot { player } if *player == attacker)), "{events:?}");
+}

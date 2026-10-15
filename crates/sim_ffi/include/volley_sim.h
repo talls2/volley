@@ -52,6 +52,8 @@ typedef struct VolleyPlayerState {
     float contact_x, contact_y, contact_z;
     uint32_t technique;
     uint8_t no_look;
+    uint8_t wall_skating;  /* riding along a wall (Wall Skate) */
+    uint8_t on_ice;        /* gliding: Alysa, or anyone on ice */
     int32_t takeoff_ticks;
     float future_x[3], future_z[3];  /* feet 0.2, 0.4 and 0.6 s ahead */
     float charge;     /* the ultimate's charge, 0 to 1 (ready) */
@@ -125,6 +127,8 @@ enum {
     /* x, y, z: where an ice ball burst; a ring of ice on the floor below,
      * 1.5 m around (radius), for two seconds. */
     VOLLEY_EVENT_ICE_BURST = 26,
+    /* Started riding along a wall (Wall Skate); x, z: the way off it. */
+    VOLLEY_EVENT_WALL_SKATED = 27,
 };
 
 /* Touched's detail, in the sim's HitKind order. */

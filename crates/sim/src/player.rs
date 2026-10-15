@@ -38,6 +38,19 @@ const GLIDE_BRAKE: f32 = 30.0;
 /// A turn counts as gentle while the wanted direction is within this cosine
 /// of the way the body moves.
 const GLIDE_CARVE: f32 = 0.7;
+/// Wall Skate: skating into an arena wall at `WALL_SKATE_START` m/s or faster
+/// turns the run along the wall, riding `WALL_SKATE_HEIGHT` m up (rising at
+/// `WALL_SKATE_RISE` m/s) for up to `WALL_SKATE_TICKS`. Steering along it
+/// speeds up or slows down at `WALL_SKATE_PUSH` m/s^2; steering off it
+/// (`WALL_SKATE_LEAVE`, a cosine), slowing below `WALL_SKATE_MIN` or any
+/// jump ends it.
+const WALL_SKATE_START: f32 = 5.0;
+const WALL_SKATE_MIN: f32 = 2.5;
+const WALL_SKATE_HEIGHT: f32 = 0.6;
+const WALL_SKATE_RISE: f32 = 5.0;
+const WALL_SKATE_TICKS: u32 = crate::TICK_HZ * 3 / 2;
+const WALL_SKATE_PUSH: f32 = 12.0;
+const WALL_SKATE_LEAVE: f32 = 0.6;
 /// Stronger than real gravity so jumps feel snappy. Apex ≈ 1.2 m.
 pub(crate) const PLAYER_GRAVITY: f32 = 20.0;
 /// Jumping in the air within this far of a wall kicks off it: a second jump,
@@ -142,8 +155,11 @@ pub struct Player {
     pub carry: Option<Carry>,
     /// Knocked down (by a dunk through the block) until this tick.
     pub stunned_until: u32,
-    /// On ice (an ice ball's burst) until this tick: gliding, like Alysa.
+    /// On ice (an ice ball's burst, an ice trail) until this tick: gliding,
+    /// like Alysa.
     pub ice_until: u32,
+    /// Riding along a wall (Wall Skate).
+    pub wall_skate: Option<WallSkate>,
     /// The latest movement input, world XZ.
     pub(crate) movement: Vec2,
 }
@@ -154,6 +170,14 @@ pub struct Carry {
     pub until_tick: u32,
     /// World XZ velocity of the shift.
     pub velocity: Vec2,
+}
+
+/// A ride along a wall.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WallSkate {
+    pub until_tick: u32,
+    /// The way off the wall, world XZ, unit length.
+    pub away: Vec2,
 }
 
 /// A quick burst along the ground.
@@ -171,6 +195,8 @@ pub(crate) struct Started {
     pub(crate) dash: bool,
     /// Kicked off a wall, pushing away along this (world XZ, unit length).
     pub(crate) wall_jump: Option<Vec2>,
+    /// Started riding along a wall (Wall Skate), off it along this.
+    pub(crate) wall_skate: Option<Vec2>,
 }
 
 impl Player {
@@ -195,6 +221,7 @@ impl Player {
             carry: None,
             stunned_until: 0,
             ice_until: 0,
+            wall_skate: None,
             movement: Vec2::ZERO,
         }
     }
@@ -447,6 +474,7 @@ impl Player {
             Some((action, MovePhase::Recovery)) if action.id.spec().recovery > 0 => self.velocity = Vec2::ZERO,
             _ if self.carrying(tick) => self.velocity = self.carry.map(|carry| carry.velocity).unwrap_or_default(),
             _ => {
+                let before = self.velocity;
                 let running = input.movement.clamp_length_max(1.0) * self.kit.run_speed;
                 let (wanted, acceleration) = match self.steering(tick, ball) {
                     Some(to_spot) => ((to_spot / STEER_SECONDS).clamp_length_max(self.kit.run_speed), STEER_ACCELERATION),
@@ -458,6 +486,12 @@ impl Player {
                 self.velocity = move_towards(self.velocity, wanted, acceleration * DT);
                 if let Some(dash) = self.dash.filter(|_| self.dashing(tick)) {
                     self.velocity = dash.direction * self.kit.dash_speed;
+                }
+                if let Some(skate) = self.wall_skate {
+                    // Along the wall only, keeping her speed; steering along it pushes.
+                    let along = Vec2::new(-skate.away.y, skate.away.x);
+                    let push = input.movement.clamp_length_max(1.0).dot(along) * WALL_SKATE_PUSH * DT;
+                    self.velocity = along * (before.dot(along) + push).clamp(-self.kit.dash_speed, self.kit.dash_speed);
                 }
                 if input.jump && self.grounded() {
                     self.vertical_velocity = self.takeoff_speed();
@@ -478,6 +512,7 @@ impl Player {
                     self.rising = true;
                     self.wall_jumped = true;
                     self.wall_jump_tick = tick;
+                    self.wall_skate = None;
                     started.wall_jump = Some(away);
                 }
             }
@@ -496,6 +531,7 @@ impl Player {
         };
         let max_z = HALF_WIDTH - BODY_RADIUS;
         let unclamped = self.position;
+        let moving = self.velocity;
         self.position.x = self.position.x.clamp(min_x, max_x);
         self.position.z = self.position.z.clamp(-max_z, max_z);
         // Running into the net or the edge of the sand stops you.
@@ -505,8 +541,41 @@ impl Player {
         if self.position.z != unclamped.z {
             self.velocity.y = 0.0;
         }
+        // Wall Skate: skating into an arena wall (not the net) rides along it.
+        let into_end_wall = self.position.x != unclamped.x && self.position.x.abs() > HALF_LENGTH / 2.0;
+        let into_side_wall = self.position.z != unclamped.z;
+        if self.kit.has(Passive::WallSkate)
+            && self.wall_skate.is_none()
+            && self.grounded()
+            && !serving
+            && !committed
+            && (into_end_wall || into_side_wall)
+            && moving.length() >= WALL_SKATE_START
+        {
+            let away = if into_side_wall { Vec2::new(0.0, -self.position.z.signum()) } else { Vec2::new(-self.position.x.signum(), 0.0) };
+            let along = Vec2::new(-away.y, away.x);
+            let way = if moving.dot(along) < 0.0 { -1.0 } else { 1.0 };
+            self.velocity = along * way * moving.length();
+            self.wall_skate = Some(WallSkate { until_tick: tick + WALL_SKATE_TICKS, away });
+            started.wall_skate = Some(away);
+        }
+        if let Some(skate) = self.wall_skate {
+            let leaving = input.movement.length() > 0.1 && input.movement.normalize().dot(skate.away) > WALL_SKATE_LEAVE;
+            if tick >= skate.until_tick
+                || self.velocity.length() < WALL_SKATE_MIN
+                || leaving
+                || self.vertical_velocity > 0.0
+                || self.stunned(tick)
+                || self.wall_beside().is_none()
+            {
+                self.wall_skate = None;
+            } else {
+                self.position.y = (self.position.y + WALL_SKATE_RISE * DT).min(WALL_SKATE_HEIGHT);
+                self.vertical_velocity = 0.0;
+            }
+        }
 
-        if !self.grounded() || self.vertical_velocity > 0.0 {
+        if self.wall_skate.is_none() && (!self.grounded() || self.vertical_velocity > 0.0) {
             let gravity = if self.carrying(tick) {
                 CARRY_GRAVITY
             } else {

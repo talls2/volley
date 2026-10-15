@@ -328,6 +328,12 @@ pub enum Passive {
     /// Skates: accelerates fastest and carves wide turns, but can't stop
     /// dead; a hard stop or reversal slides.
     Glide,
+    /// Skating into a wall rides along it for a while, up off the sand: a
+    /// wall jump or an attack from there, or a drop when she steers away.
+    WallSkate,
+    /// A dash leaves a strip of ice behind for a few seconds: anyone on it
+    /// glides, either team.
+    IceTrail,
 }
 
 /// A hero: moves, passives and physical stats.
@@ -412,7 +418,7 @@ pub const ALYSA: Kit = Kit {
     jump_speed: 6.8,
     dash_speed: 18.0,
     moves: &[MoveId::Pass, MoveId::Spike, MoveId::FootSave, MoveId::FlashFreeze, MoveId::TripleAxel],
-    passives: &[Passive::Glide],
+    passives: &[Passive::Glide, Passive::WallSkate, Passive::IceTrail],
 };
 
 /// Every hero, in the order the hero select shows them.

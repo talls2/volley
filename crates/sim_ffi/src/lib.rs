@@ -120,6 +120,10 @@ pub struct VolleyPlayerState {
     /// ball at contact, or the ball now if there's no contact.
     pub technique: u32,
     pub no_look: u8,
+    /// Riding along a wall (Wall Skate).
+    pub wall_skating: u8,
+    /// Gliding: Alysa, or anyone on ice.
+    pub on_ice: u8,
     /// About to jump: ticks until the feet leave the ground (-1 if not
     /// within `GATHER_TICKS`), for the gather before a jump. From the match
     /// stepped ahead with the bots' inputs; a human's jumps can't be known.
@@ -265,6 +269,8 @@ pub const EVENT_BALL_THAWED: u32 = 25;
 /// An ice ball burst into a ring of ice (x, y, z: where; the ring is on the
 /// floor below, 1.5 m around, for two seconds).
 pub const EVENT_ICE_BURST: u32 = 26;
+/// Started riding along a wall (x, z: the way off it).
+pub const EVENT_WALL_SKATED: u32 = 27;
 
 /// One event, flattened. Fields an event doesn't use are 0 (`player` and
 /// `team` are -1).
@@ -496,6 +502,7 @@ impl From<&Event> for VolleyEvent {
             Event::BallFrozen { at } => VolleyEvent::at(EVENT_BALL_FROZEN, at),
             Event::BallThawed { at } => VolleyEvent::at(EVENT_BALL_THAWED, at),
             Event::IceBurst { at } => VolleyEvent::at(EVENT_ICE_BURST, at),
+            Event::WallSkated { player, away } => VolleyEvent { x: away.x, z: away.y, ..VolleyEvent::by(EVENT_WALL_SKATED, player) },
         }
     }
 }
@@ -742,6 +749,8 @@ pub fn player_state(sim: &Sim, i: usize, ahead: Ahead) -> VolleyPlayerState {
         contact_z: contact.map_or(0.0, |(_, at)| at.z),
         technique: hit_kind(technique),
         no_look: player.kit.has(Passive::NoLook) as u8,
+        wall_skating: player.wall_skate.is_some() as u8,
+        on_ice: player.gliding(sim.tick) as u8,
         takeoff_ticks: ahead.takeoff.map_or(-1, |ticks| ticks as i32),
         future_x: ahead.future.map(|spot| spot.x),
         future_z: ahead.future.map(|spot| spot.y),

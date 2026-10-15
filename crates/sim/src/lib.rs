@@ -16,7 +16,7 @@ pub mod reception;
 pub use ball::{Ball, Flight};
 pub use glam::{Vec2, Vec3};
 pub use moves::{Kit, Move, MoveId, Passive};
-pub use player::{Action, Carry, Dash, MovePhase, Player};
+pub use player::{Action, Carry, Dash, MovePhase, Player, WallSkate};
 
 use moves::Touch;
 use court::{BALL_RADIUS, BODY_BOTTOM, BODY_RADIUS, BODY_TOP, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT, NET_HALF_WIDTH, PANELS};
@@ -74,6 +74,10 @@ const FREEZE_TICKS: u32 = TICK_HZ / 2;
 const ICE_SPEED: f32 = 0.15;
 const ICE_RING_RADIUS: f32 = 1.5;
 const ICE_TICKS: u32 = 2 * TICK_HZ;
+/// Ice Trail: a dash leaves ice this wide (radius, m) along its path for
+/// this long (ticks).
+const ICE_TRAIL_RADIUS: f32 = 0.6;
+const ICE_TRAIL_TICKS: u32 = 3 * TICK_HZ;
 /// Ultimate charge from each touch, and for each point the team wins.
 const CHARGE_PER_TOUCH: f32 = 0.05;
 /// How hard a banana kick bends, sideways (m/s²).
@@ -362,6 +366,8 @@ pub enum Event {
     BallThawed { at: Vec3 },
     /// An ice ball burst into a ring of ice here (on the floor below).
     IceBurst { at: Vec3 },
+    /// Started riding along a wall (Wall Skate), off it along `away`.
+    WallSkated { player: usize, away: Vec2 },
     Point { team: usize, reason: PointReason },
     /// The teams will switch sides before the next rally.
     SidesSwitched,
@@ -432,8 +438,17 @@ pub struct Sim {
     frozen_left: u32,
     /// The ball in flight is an ice ball, not yet burst.
     ice_ball: bool,
-    /// The latest ring of ice: its center on the floor and the tick it melts.
-    pub ice: Option<(Vec3, u32)>,
+    /// Ice on the floor: rings from ice balls and strips from ice trails.
+    pub ice: Vec<Ice>,
+}
+
+/// A patch of ice on the floor, where anyone glides.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ice {
+    pub at: Vec2,
+    pub radius: f32,
+    /// The tick it melts.
+    pub until: u32,
 }
 
 impl Sim {
@@ -471,7 +486,7 @@ impl Sim {
             freeze_pending: false,
             frozen_left: 0,
             ice_ball: false,
-            ice: None,
+            ice: Vec::new(),
         };
         sim.start_rally();
         sim
@@ -492,14 +507,13 @@ impl Sim {
             self.start_rally();
         }
 
-        // Anyone in a ring of ice glides while it lasts.
-        if let Some((center, until)) = self.ice
-            && self.tick < until
-        {
-            for player in &mut self.players {
-                if Vec2::new(player.position.x - center.x, player.position.z - center.z).length() <= ICE_RING_RADIUS {
-                    player.ice_until = self.tick + 1;
-                }
+        // Anyone on ice glides while it lasts.
+        let tick = self.tick;
+        self.ice.retain(|ice| tick < ice.until);
+        for player in &mut self.players {
+            let feet = Vec2::new(player.position.x, player.position.z);
+            if self.ice.iter().any(|ice| feet.distance(ice.at) <= ice.radius) {
+                player.ice_until = tick + 1;
             }
         }
         let ball = self.ball_position();
@@ -515,6 +529,11 @@ impl Sim {
             if let Some(away) = started.wall_jump {
                 events.push(Event::WallJumped { player: i, away });
             }
+            if let Some(away) = started.wall_skate {
+                events.push(Event::WallSkated { player: i, away });
+            }
+            self.ice_trail(i);
+            self.skate_on_glass(i, &mut events);
         }
 
         match self.ball {
@@ -635,7 +654,7 @@ impl Sim {
         self.freeze_pending = false;
         self.frozen_left = 0;
         self.ice_ball = false;
-        self.ice = None;
+        self.ice.clear();
         if self.switch_pending {
             self.switch_pending = false;
             self.sides = [self.sides[1], self.sides[0]];
@@ -899,6 +918,39 @@ impl Sim {
         }
     }
 
+    /// Ice Trail: a dash leaves ice where it passes.
+    fn ice_trail(&mut self, player: usize) {
+        let body = &self.players[player];
+        if body.kit.has(Passive::IceTrail) && body.grounded() && body.dashing(self.tick) {
+            let at = Vec2::new(body.position.x, body.position.z);
+            self.ice.push(Ice { at, radius: ICE_TRAIL_RADIUS, until: self.tick + ICE_TRAIL_TICKS });
+        }
+    }
+
+    /// Skating along a wall: a cracked panel gives way under her (broken,
+    /// and she drops), and there's nothing to ride where one is broken.
+    fn skate_on_glass(&mut self, player: usize, events: &mut Vec<Event>) {
+        let body = &self.players[player];
+        let Some(skate) = body.wall_skate else {
+            return;
+        };
+        if !self.config.breakable_walls {
+            return;
+        }
+        let at = Vec3::new(body.position.x - skate.away.x * BODY_RADIUS, 1.0, body.position.z - skate.away.y * BODY_RADIUS);
+        let panel = court::wall_panel(at, skate.away.x != 0.0);
+        match self.walls[panel] {
+            0 => {}
+            state => {
+                if state == 1 {
+                    self.walls[panel] = 2;
+                    events.push(Event::WallBroken { panel, at });
+                }
+                self.players[player].wall_skate = None;
+            }
+        }
+    }
+
     /// A frozen ball: it hangs where it is (its flight starts a tick later
     /// each tick), out of everyone's reach, then goes on exactly as it was.
     fn update_frozen(&mut self, flight: Flight, events: &mut Vec<Event>) {
@@ -915,7 +967,7 @@ impl Sim {
         if !std::mem::take(&mut self.ice_ball) {
             return;
         }
-        self.ice = Some((at.with_y(0.0), self.tick + ICE_TICKS));
+        self.ice.push(Ice { at: Vec2::new(at.x, at.z), radius: ICE_RING_RADIUS, until: self.tick + ICE_TICKS });
         events.push(Event::IceBurst { at });
     }
 

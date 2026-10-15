@@ -10,7 +10,7 @@ fn default<T: Default>() -> T {
 
 use crate::moves::{Button, MoveId};
 use crate::player::{BLOCK_DISTANCE, DASH_TICKS, PLAYER_GRAVITY, Player};
-use crate::court::{self, BALL_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT};
+use crate::court::{self, BALL_RADIUS, BODY_RADIUS, HALF_LENGTH, HALF_WIDTH, NET_HEIGHT};
 use crate::{Aim, Ball, DT, Flight, HitKind, MAX_TOUCHES, OVER_DEPTH, Passive, PlayerInput, SET_DEPTH, Sim, TICK_HZ, bank_off_wall, dice, flight_seconds, mirrored_beyond_wall};
 
 /// How long a bot waits before serving.
@@ -96,6 +96,8 @@ pub fn input_for(sim: &Sim, me: usize) -> PlayerInput {
                 let to_ball = Vec2::new(at.x - player.position.x, at.z - player.position.z);
                 return if banana {
                     banana_kick(sim, me, &flight, to_ball)
+                } else if attack && !ultimate_ready {
+                    wall_spike(sim, me, &flight).unwrap_or_else(|| spike(sim, me, &flight, to_ball, seconds_left))
                 } else if attack {
                     spike(sim, me, &flight, to_ball, seconds_left)
                 } else {
@@ -387,7 +389,62 @@ fn pass_aim(sim: &Sim, me: usize) -> Option<Vec2> {
         return Some(Vec2::new(sim.side(team) * SET_DEPTH, sim.players[me].position.z));
     }
     let attacker = (0..sim.config.players_per_team).map(|slot| sim.player_index(team, slot)).find(|&i| i != me)?;
-    Some(Vec2::new(sim.side(team) * SET_DEPTH, sim.players[attacker].position.z))
+    let z = sim.players[attacker].position.z;
+    // Now and then a set up the wall lane on the attacker's side, for a wall shot.
+    if dice(sim.tick, sim.rally.wrapping_add(3)) % WALL_SET_EVERY == 0 {
+        let wall = if z < 0.0 { -1.0 } else { 1.0 };
+        return Some(Vec2::new(sim.side(team) * SET_DEPTH, wall * (HALF_WIDTH - WALL_LANE)));
+    }
+    Some(Vec2::new(sim.side(team) * SET_DEPTH, z))
+}
+
+/// A wall play, when the set comes down near a side wall: run to the wall
+/// under it, jump, kick off the wall at `WALL_KICK_HEIGHT` toward the ball
+/// (a wall jump is a full jump again), and spike on the way out, a wall shot.
+/// None when it doesn't fit (too far from a wall, too late, set too low), or
+/// once off the wall: then it's a plain spike.
+fn wall_spike(sim: &Sim, me: usize, flight: &Flight) -> Option<PlayerInput> {
+    let player = &sim.players[me];
+    let feet = Vec2::new(player.position.x, player.position.z);
+    let ball_now = flight.position_at(sim.tick);
+    if !player.grounded() {
+        // Up beside the wall and not kicked off it yet: kick once high enough
+        // (or at the top), toward the ball.
+        if !player.can_wall_jump() || ball_now.y < player.position.y + 1.0 {
+            return None;
+        }
+        let kick = player.position.y >= WALL_KICK_HEIGHT || player.vertical_velocity <= 0.0;
+        let toward = Vec2::new(ball_now.x - feet.x, ball_now.z - feet.y).normalize_or_zero();
+        return Some(PlayerInput { jump: kick, movement: if kick { toward } else { Vec2::ZERO }, ..PlayerInput::default() });
+    }
+    // Meet the ball on the way up from the kick: jump so the kick comes
+    // `WALL_KICK_LEAD` before the ball drops to `WALL_SHOT_HEIGHT`.
+    let gravity = PLAYER_GRAVITY;
+    let first = player.takeoff_speed();
+    let to_kick = (first - (first * first - 2.0 * gravity * WALL_KICK_HEIGHT).max(0.0).sqrt()) / gravity;
+    let meet = flight.descending_time_at_height(WALL_SHOT_HEIGHT)?;
+    let at = flight.position_at_time(meet);
+    if sim.team_on(at.x) != player.team || !(WALL_PLAY_NEAR..=WALL_PLAY_FAR).contains(&(HALF_WIDTH - at.z.abs())) {
+        return None;
+    }
+    let seconds_left = meet - flight.elapsed(sim.tick);
+    let spot = Vec2::new(at.x, at.z.signum() * (HALF_WIDTH - BODY_RADIUS));
+    let to_spot = spot - feet;
+    let there = to_spot.length() < WALL_SPOT_REACH;
+    // Getting there: running, with a dash if one is ready and running alone is too slow.
+    let running = to_spot.length() / player.kit.run_speed;
+    let dash = player.can_dash(sim.tick).then(|| player.kit.dash_speed * DASH_TICKS as f32 * DT);
+    let dashing = dash.map_or(running, |reach| (to_spot.length() - reach).max(0.0) / player.kit.run_speed + DASH_TICKS as f32 * DT);
+    let jump_at = to_kick + WALL_KICK_LEAD;
+    if !there && seconds_left < jump_at + running.min(dashing) {
+        return None;
+    }
+    Some(PlayerInput {
+        movement: (to_spot / 0.3).clamp_length_max(1.0),
+        dash: !there && dash.is_some() && seconds_left < jump_at + running + 0.1,
+        jump: there && seconds_left <= jump_at,
+        ..PlayerInput::default()
+    })
 }
 
 /// Aim for open court, around any block: rank nine spots across the opponents'
@@ -397,6 +454,22 @@ fn pass_aim(sim: &Sim, me: usize) -> Option<Vec2> {
 /// How much more open a bank shot off a side wall counts (m): the block and
 /// the defense read it late.
 const BANK_SURPRISE: f32 = 3.0;
+
+/// Wall plays: an attacker meets a set coming down this far from a side wall
+/// (m) by running to the wall, jumping, and kicking off it into a wall shot,
+/// kicking once this high (m). A setter sets toward a wall lane, this far in,
+/// one time in `WALL_SET_EVERY`.
+const WALL_PLAY_NEAR: f32 = 1.0;
+const WALL_PLAY_FAR: f32 = 4.5;
+const WALL_KICK_HEIGHT: f32 = 0.5;
+const WALL_LANE: f32 = 1.2;
+const WALL_SET_EVERY: u32 = 3;
+/// The kick off the wall comes this long (s) before the ball drops to this
+/// height (m), so the spike meets it on the way up.
+const WALL_KICK_LEAD: f32 = 0.2;
+const WALL_SHOT_HEIGHT: f32 = 3.3;
+/// Close enough to the spot under the ball by the wall to jump (m).
+const WALL_SPOT_REACH: f32 = 1.2;
 
 fn spike_aim(sim: &Sim, team: usize, from: Vec3) -> Vec2 {
     let options = spike_options(sim, team, from);

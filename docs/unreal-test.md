@@ -1277,3 +1277,50 @@ The ice skater is the fourth hero. 73 sim tests pass, three of them new.
 - **Bevy client:** her hero card, lineup, clips (Flash Freeze and Triple
   Axel play the spike) and event arms.
 
+## 2026-10-15: heroes only, Alysa's full kit, bots' wall plays (`game-progress`)
+
+80 sim tests pass, seven of them new.
+
+- **Lore:** `docs/lore.md` (ARBITER, the AGI that reconstructs a forgotten
+  volleyball), and a paragraph in the README.
+- **The All-rounder is gone.**
+  - Its moves are `moves::BASE`: the kit every hero builds on, and a bare
+    sim's default. It isn't a hero.
+  - Teams are heroes only:
+    - Red: the chosen hero plus the other two (`moves::team_with`, Golazo
+      in the attacking slot when he can be).
+    - Blue: `moves::RIVALS` (Cross, Alysa, Golazo).
+  - The bot match is Red Alysa, Golazo, Cross against Blue Cross, Alysa,
+    Golazo. In 8 minutes every hero uses their kit: 35 banana kicks, 31
+    Flash Freezes, 6 crossovers, and all three ultimates.
+  - FFI `KIT_BASE` = 0. The hero select has three cards (Alysa by default),
+    and `VOLLEY_HERO` defaults to Alysa.
+- **Wall Skate** (`Passive::WallSkate`, `Player::wall_skate`):
+  - Into an arena wall (not the net) at 5 m/s or more, her run turns along
+    the wall at full speed, 0.6 m up.
+  - It lasts up to 1.5 s. Steering along the wall pushes at 12 m/s². It
+    ends on steering away from the wall, below 2.5 m/s, on any jump (a wall
+    jump from it is a full jump), or when stunned.
+  - Riding a cracked panel breaks it (`WallBroken`) and drops her; she can't
+    ride over a broken one.
+  - Event `WallSkated` (FFI 27); `VolleyPlayerState.wall_skating`.
+- **Ice Trail** (`Passive::IceTrail`):
+  - Each tick of her dash leaves ice 0.6 m in radius for 3 s. Anyone on it
+    glides.
+  - The sim's ice is now a list of patches (`Sim::ice`, `Ice`), the ice
+    ball's ring among them.
+  - `VolleyPlayerState.on_ice`.
+- **Bots' wall plays:**
+  - A setter sends one set in three up a wall lane, 1.2 m from the wall.
+  - An attacker meets a set coming down 1-4.5 m from a side wall: it runs
+    (dashing if it must) to the wall under it, jumps, kicks off the wall at
+    0.5 m about 0.2 s before the ball drops to 3.3 m, and spikes on the way
+    out.
+  - About 9-10 wall shots per 10 minutes of bot play (none before), and
+    Alysa rides walls about 11 times in 8 minutes.
+- **Unreal:**
+  - Riding a wall plays as running, leaning off the glass about 30°, feet
+    on it, throwing ice off the blades.
+  - Her dash lays a trail of shimmering ice discs that fade over 3 s.
+  - Anyone gliding at speed glitters with ice.
+

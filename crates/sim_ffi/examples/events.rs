@@ -38,7 +38,8 @@ fn main() {
                 | Event::Out { .. }
                 | Event::BallFrozen { .. }
                 | Event::BallThawed { .. }
-                | Event::IceBurst { .. } => format!("{event:?}"),
+                | Event::IceBurst { .. }
+                | Event::WallSkated { .. } => format!("{event:?}"),
                 _ => continue,
             };
             println!("tick {:6}  {what}", sim.tick);

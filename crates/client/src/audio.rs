@@ -166,6 +166,7 @@ fn play_game_sounds(
             | Event::BallFrozen { .. }
             | Event::BallThawed { .. }
             | Event::IceBurst { .. }
+            | Event::WallSkated { .. }
             | Event::SidesSwitched => {}
         }
     }

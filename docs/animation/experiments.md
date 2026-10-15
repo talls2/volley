@@ -655,6 +655,9 @@ it resumes in step.
 **Decision: keep, as the default.** `VOLLEY_BLEND=crossfade` brings the
 old blending back; `VOLLEY_DEAD_HALFLIFE` tunes the half-life.
 
+(Tick numbers in these entries are for the bot match of their date; see the
+note at the top of `docs/unreal-test.md`.)
+
 ## 21 · Overlap: the chest and arms on springs
 
 **Idea.** In hand-keyed animation the body doesn't move as one piece. The
@@ -999,3 +1002,103 @@ skeleton, and swapped in.
 
 **Decision: keep behind `VOLLEY_KC=1`.** It stays a switch while digs, the
 other heroes' moves, and shipping permission are worked out.
+
+## 27 · A minimum strike for hand-keyed whips
+
+**Why.** With Knockout City's clips on (`VOLLEY_KC=1`), most frames with a
+palm over 30 m/s came from the spike's wind-up, timed. Snappy timing (22)
+gives the strike, loaded pose to contact, 70% of the clip's own strike time
+and speeds up into the ball. Mocap strikes take about 0.2 s; their lob's whip
+takes 0.03 s, so the whole strike landed in one frame.
+
+**Change.** A strike never takes less than 0.07 s (`MinStrike`,
+`VOLLEY_MIN_STRIKE`). Mocap strikes are longer, so it only touches their
+whips.
+
+**Result** (two runs each):
+
+| | No minimum | 0.07 s |
+|---|---|---|
+| Palm over 30 m/s | 187, 192 | 158, 146 |
+| Palm over 40 m/s | 35, 38 | 22, 27 |
+| Spike pops (pose-driven) | 44, 52 | 11, 11 |
+| Contact gap (m) | 0.165, 0.164 | 0.162, 0.161 |
+
+**Decision: keep.** What's left is mostly the dash (the body's speed, not a
+snap), Knockout City's run at sprint pace, and our crossover clip.
+
+## 28 · Landings by direction
+
+**Change.** With `VOLLEY_KC=1`, touching down picks one of their 20 landings:
+- standing, or running on in one of eight directions from the facing, or
+  into a sprint (`jump_end_transto_<way>`);
+- the high jump's version when coming down faster than 7 m/s.
+
+A run-on landing gives way to running 0.2 s in, instead of at once.
+
+**Result.** Foot sliding 0.21 -> 0.19-0.20 over the next runs; about 30 more
+frames with a palm over 30 m/s (their landings' arm swings), none over 40.
+
+**Decision: keep.**
+
+## 29 · Pivots (rejected)
+
+**Why.** Their `run_X_transto_run_Y` clips plant and push the other way.
+
+**Finding.** They're strafing moves: the body turns only about 17° in a
+pivot, since their characters face one way and run in any direction. Ours
+turn to face where they run.
+
+**Tried** (two runs each, against no pivots):
+- **Holding the facing through the plant, then turning:** palm over 30 m/s
+  rose from about 180 to 300-400. At first pivots chained, since the body
+  hadn't turned by the end of one; with one every 0.8 s, the turn came at a
+  sprint, and the arm pumps plus the turn crossed 30 m/s.
+- **Turning during the plant:** about 575.
+- **Foot sliding:** unchanged either way.
+
+**Decision: off** (`VOLLEY_PIVOT=1` turns it on). A pivot for bodies that
+turn to run would need its own clip.
+
+## 30 · A jump serve from their throw
+
+**Why.** Experiment 26 kept the mocap serve: their lob meets the ball 0.78 m
+ahead of where the sim holds it (beside the shoulder), and the body slid
+78 cm through the swing to line up.
+
+**Finding.** Every Knockout City throw releases the ball 0.74-1.1 m in front
+of the body, and every one is a jump throw: the feet leave the ground about
+0.1 s in and rise to 0.86 m. The closest to our serve spot is the high front
+throw (`throw_front_h2`): contact at 0.10 s, 0.22 m right, 0.74 m forward,
+2.08 m up.
+
+**Change:**
+- **Serve stance:** while holding the ball, the server stands where the
+  serve's contact spot is on it, so there's no slide. This applies to any
+  serve, and the mocap one barely moves.
+- **Timing:** timed as serves are, from the first frame (no wind-up hold).
+  A wind-up hold had it arrive late: contact gap 0.33 m.
+- **Speed:** played at 0.55x. At its own speed the whip moves the hand at
+  50 m/s (43 frames over 40 m/s per run); slowed, those are gone.
+- **No coil,** like their spike.
+
+**Result.** Serve contact gap 0.096-0.105 m, as the mocap serve's. Frames
+with a palm over 40 m/s are back to about 32; it adds about 40 between 30
+and 40 m/s. Films show a jump serve: the hand at the ball through the hold,
+the whip, a leap and the landing into a run.
+
+**Decision: keep** (with `VOLLEY_KC=1`).
+
+## 31 · Alysa skates (procedural)
+
+She has no clips of her own yet, so her skating is layered on the shared
+ones:
+- **Strides:** her run clips play at 0.75x (a long glide on each push), with
+  a sway onto each pushing blade.
+- **Hockey stop:** braking harder than 14 m/s² from over 4 m/s, she turns
+  side-on for 0.35 s, leaning back, with a spray of ice.
+- **Triple Axel:** three turns on the way up, over 0.75 s of the leap. The
+  hand streaks draw a helix.
+- **Wall Skate:** riding the glass plays as running, leaning about 30° off the
+  wall, the feet on it (see `docs/unreal-test.md`, 2026-10-15).
+

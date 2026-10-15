@@ -3,6 +3,23 @@
 A time-boxed test of Unreal Engine as Volley's client, to decide whether the
 game moves to it or stays on Bevy. Written 2026-10-11, at commit 041f87f.
 
+**Tick numbers below are for the bot match of their entry's date.** The
+lineup changed on 2026-10-14 (Alysa joined) and on 2026-10-15 (heroes only),
+and every rule change shifts the match too, so the same moments now fall at
+other ticks, and older checksums no longer match. To find a moment in today's
+match, run `cargo run -p volley_sim_ffi --release --example events [TICKS]`.
+In the 2026-10-15 match, for example:
+
+| Moment | Tick |
+|---|---|
+| Flash Freeze (Blue's Alysa) | 311, frozen 330-360 |
+| Banana kick (Red's Golazo) | 582 |
+| Crossover (Blue's Cross) | 821 |
+| First cracked panel | 1860 |
+| Wall skate, then a wall shot (Blue's Alysa) | 4804, 4847 |
+| Chilena (Red's Golazo) | 7610 |
+| Triple Axel (Red's Alysa), ice burst | 12058, 12177 |
+
 ## Decision (2026-10-11)
 
 **Volley moves to Unreal.** After milestones 0 to 5, the user decided to

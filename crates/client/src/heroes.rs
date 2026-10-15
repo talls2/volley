@@ -2,7 +2,7 @@
 //! heroes themselves, their kits, live in `volley_sim::moves`.
 
 use bevy::prelude::*;
-use volley_sim::moves::{ALL_ROUNDER, ALYSA, CROSS, GOLAZO, HEROES};
+use volley_sim::moves::{HEROES, RIVALS, team_with};
 use volley_sim::{MatchConfig, Sim};
 
 use crate::input::{ActiveDevice, LOCAL_TEAM};
@@ -19,12 +19,6 @@ pub struct HeroInfo {
 
 /// In the same order as [`HEROES`].
 pub const INFO: [HeroInfo; HEROES.len()] = [
-    HeroInfo {
-        title: "Beach volleyball pro",
-        blurb: "Solid everywhere, no tricks and no weak spots.",
-        lines: &["Foot save: a leg out for balls too low for the arms", "No ability or ultimate: pure volleyball"],
-        color: Color::srgb(0.95, 0.85, 0.55),
-    },
     HeroInfo {
         title: "Pro basketball superstar",
         blurb: "Quick, springy, and the best ball-handler on the sand. Bends the rules his way, but has no foot save.",
@@ -75,11 +69,11 @@ pub fn buttons(device: ActiveDevice) -> (&'static str, &'static str) {
     }
 }
 
-/// A new match with you as `choice` and two All-rounder teammates, against a
-/// Cross, an Alysa and a Golazo, so there's always every hero to face.
+/// A new match with you as `choice` and the other two heroes as your
+/// teammates, against one of each hero, so there's always every hero to face.
 pub fn new_match(choice: usize) -> Sim {
     let mut sim = Sim::new(MatchConfig::default());
-    let lineup = [[HEROES[choice], ALL_ROUNDER, ALL_ROUNDER], [CROSS, ALYSA, GOLAZO]];
+    let lineup = [team_with(HEROES[choice]), RIVALS];
     for (team, kits) in lineup.into_iter().enumerate() {
         let team = if team == 0 { LOCAL_TEAM } else { 1 - LOCAL_TEAM };
         for (slot, kit) in kits.into_iter().enumerate() {

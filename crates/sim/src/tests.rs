@@ -770,7 +770,7 @@ fn a_dribbler_touches_twice_in_a_row_once_per_possession() {
 
     // Anyone else doing it is a double touch.
     let (mut sim, player) = cross_under_ball(Vec3::new(-4.0, 1.6, 0.0), 1, Some(0));
-    sim.set_kit(player, moves::ALL_ROUNDER);
+    sim.set_kit(player, moves::BASE);
     let events = play_until_touch(&mut sim, player, PlayerInput { pass: true, ..default() });
     assert!(events.contains(&Event::Point { team: 1, reason: PointReason::DoubleTouch }), "{events:?}");
 }
@@ -948,7 +948,7 @@ fn attacks_pointed_backward_still_go_over() {
 fn holding_pass_waits_for_the_ball() {
     // Pressed well before the ball arrives: a held pass still takes it.
     let (mut sim, player) = cross_under_ball(Vec3::new(-4.0, 4.0, 0.0), 0, None);
-    sim.set_kit(player, moves::ALL_ROUNDER);
+    sim.set_kit(player, moves::BASE);
     let mut events = Vec::new();
     for tick in 0..2 * TICK_HZ {
         let mut inputs = idle(&sim);
@@ -962,7 +962,7 @@ fn holding_pass_waits_for_the_ball() {
 
     // Tapped as early and let go, it's long gone by then.
     let (mut sim, player) = cross_under_ball(Vec3::new(-4.0, 4.0, 0.0), 0, None);
-    sim.set_kit(player, moves::ALL_ROUNDER);
+    sim.set_kit(player, moves::BASE);
     let mut inputs = idle(&sim);
     inputs[player].pass = true;
     let mut events = sim.step(&inputs);
@@ -1147,7 +1147,7 @@ fn great_feet_only_kick() {
 fn predicted_contact_matches_the_real_touch() {
     // A pass held as the ball drops onto the player: the prediction says when.
     let (mut sim, player) = cross_under_ball(Vec3::new(-4.0, 4.0, 0.0), 0, None);
-    sim.set_kit(player, moves::ALL_ROUNDER);
+    sim.set_kit(player, moves::BASE);
     let mut inputs = idle(&sim);
     inputs[player] = PlayerInput { pass: true, pass_held: true, ..default() };
     sim.step(&inputs);
@@ -1171,7 +1171,7 @@ fn predicted_contact_matches_a_banana_kick() {
     // A banana kick is met without the attack's hits_now check, so its
     // prediction mustn't wait for it: every prediction made while the kick
     // is armed lands on the real touch. Played with the game's lineup (Blue
-    // a Cross, a Golazo and an All-rounder), whose kicks found it.
+    // a Cross, a Golazo and a base kit), whose kicks found it.
     let mut sim = Sim::new(MatchConfig::default());
     sim.set_kit(sim.player_index(1, 0), moves::CROSS);
     sim.set_kit(sim.player_index(1, 1), moves::GOLAZO);
@@ -1261,7 +1261,7 @@ fn press_pass(sim: &mut Sim, player: usize, when: f32, movement: Vec2) -> Vec<Ev
 #[test]
 fn one_button_kicks_a_low_ball_in_reach() {
     let (mut sim, player) = low_ball_beside(1.6);
-    sim.set_kit(player, moves::ALL_ROUNDER);
+    sim.set_kit(player, moves::BASE);
     let events = press_pass(&mut sim, player, 0.15, Vec2::ZERO);
     assert!(events.contains(&Event::MoveStarted { player, id: MoveId::FootSave }), "{events:?}");
     assert!(events.iter().any(|e| matches!(e, Event::Touched { player: p, kind: HitKind::Kick, .. } if *p == player)), "{events:?}");
@@ -1284,7 +1284,7 @@ fn one_button_dives_for_a_ball_out_of_reach_when_steering_to_it() {
 #[test]
 fn one_button_passes_a_ball_at_chest_height() {
     let (mut sim, player) = cross_under_ball(Vec3::new(-4.0, 4.0, 0.0), 0, None);
-    sim.set_kit(player, moves::ALL_ROUNDER);
+    sim.set_kit(player, moves::BASE);
     let events = press_pass(&mut sim, player, 0.4, Vec2::ZERO);
     assert!(events.iter().any(|e| matches!(e, Event::Touched { kind: HitKind::Pass, .. })), "{events:?}");
 }
@@ -1517,9 +1517,9 @@ fn stopping_distance(kit: Kit) -> f32 {
 #[test]
 fn alysa_glides_to_a_stop() {
     let skater = stopping_distance(moves::ALYSA);
-    let runner = stopping_distance(moves::ALL_ROUNDER);
+    let runner = stopping_distance(moves::BASE);
     assert!(skater > 1.3 && skater < 1.9, "Alysa slid {skater} m");
-    assert!(runner < 0.7, "the All-rounder slid {runner} m");
+    assert!(runner < 0.7, "a base kit slid {runner} m");
 }
 
 /// Alysa in the air by the net, hitting with `id` toward the far court's

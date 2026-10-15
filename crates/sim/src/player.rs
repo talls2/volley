@@ -1,7 +1,7 @@
 use glam::{Vec2, Vec3};
 
 use crate::court::{self, BODY_RADIUS, HALF_LENGTH, HALF_WIDTH};
-use crate::moves::{ALL_ROUNDER, Button, Kit, MoveId, Passive, Stance};
+use crate::moves::{BASE, Button, Kit, MoveId, Passive, Stance};
 use crate::{Aim, DT, PlayerInput, attack};
 
 /// How quickly players speed up and slow down, in m/s². On the ground they reach
@@ -178,7 +178,7 @@ impl Player {
         Self {
             team,
             side,
-            kit: ALL_ROUNDER,
+            kit: BASE,
             position,
             vertical_velocity: 0.0,
             velocity: Vec2::ZERO,

@@ -99,8 +99,8 @@ buttons when you use one.
 Before each match you pick a hero, and an arena (W / S or up and down on the
 hero select screen): the **Beach**, a glass cage on the sand by the sea, or the
 **Neon Stadium**, a night arena with a glowing floor, energy walls and a crowd
-all around. The court is the same in both. You play Red with two All-rounder bot
-teammates, against Cross, Golazo and an All-rounder. The camera follows you from behind, and movement
+all around. The court is the same in both. You play Red with the other two heroes
+as bot teammates, against a Cross, an Alysa and a Golazo. The camera follows you from behind, and movement
 is relative to where it faces. The arena is 48 x 24 m, more than twice a real court, with glass walls all
 around: the ball bounces off them and stays in play, so nothing is ever out.
 It only ends when it hits the floor, and that side loses the point.
@@ -139,7 +139,6 @@ with their own stats, passives, ability (on a cooldown) and ultimate (charged by
 touching the ball and winning points). A gold ring under a player means their
 ultimate is ready.
 
-- **All-rounder**, beach volleyball pro: solid everywhere, with the foot save; no ability or ultimate.
 - **Cross**, pro basketball superstar: quicker and a higher jumper, but no foot save. Concept art in [`docs/concept/cross.webp`](docs/concept/cross.webp).
   - *Dribble* (passive): once per possession, two touches in a row without a double-touch fault. Set yourself for a self alley-oop.
   - *No-look* (passive): defenders read his hits late, and he doesn't turn toward where the ball goes.
@@ -168,8 +167,10 @@ net, carry it, or dunk it), how accurately, how long it hangs, and for hero
 moves their cooldown, ultimate charge, leap, hang time and air steering.
 Attacks pick their technique and contact quality in `crates/sim/src/attack.rs`.
 A *kit* is a hero: moves, passives, and stats like run speed, jump height and
-dash speed. Adding a hero is mostly a new kit (plus any new kind of touch or
-passive it needs), a card in `crates/client/src/heroes.rs`, and its animations.
+dash speed. Every hero builds on the base kit (`moves::BASE`: pass, spike, dive,
+foot save), which isn't a hero itself; it's what a bare sim's players start
+with. Adding a hero is mostly a new kit (plus any new kind of touch or passive
+it needs), a card in `crates/client/src/heroes.rs`, and its animations.
 
 ## Art and sound
 
@@ -184,7 +185,7 @@ weights from the placeholder body, so every animation plays on it:
         -P tools/blender/rig_hero.py -- --hero Cross --source Cross.glb --height 1.93
 
 The raw generated models (about 70 MB each) stay outside the repository, with
-the other source files (next paragraph). The All-rounders are the free Quaternius placeholder characters. Movement (the ready
+the other source files (next paragraph). The free Quaternius characters stand in for heroes without a model yet (Alysa, for now). Movement (the ready
 stance, jogging, sprinting, the air, landing, dashing, getting knocked down and
 cheering) is Mixamo motion capture, and Cross celebrates with a jump shot from
 the free CMU motion capture database. `tools/blender/retarget_mocap.py`

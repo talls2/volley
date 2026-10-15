@@ -370,8 +370,10 @@ impl Kit {
     }
 }
 
-pub const ALL_ROUNDER: Kit = Kit {
-    name: "All-rounder",
+/// The moves every hero builds on: pass, spike, dive and foot save, with no
+/// ability or ultimate. Not a hero; a bare sim's players start with it.
+pub const BASE: Kit = Kit {
+    name: "Base",
     run_speed: 8.5,
     jump_speed: 7.0,
     dash_speed: 15.0,
@@ -414,4 +416,16 @@ pub const ALYSA: Kit = Kit {
 };
 
 /// Every hero, in the order the hero select shows them.
-pub const HEROES: [Kit; 4] = [ALL_ROUNDER, CROSS, GOLAZO, ALYSA];
+pub const HEROES: [Kit; 3] = [CROSS, GOLAZO, ALYSA];
+
+/// A team for a match with `choice` in the first slot (the one a person
+/// plays) and the other heroes after it. Golazo goes in the attacking slot
+/// when he can, where his banana kicks get used; the last slot mostly
+/// passes.
+pub fn team_with(choice: Kit) -> [Kit; 3] {
+    let mut rest = [GOLAZO, ALYSA, CROSS].into_iter().filter(|kit| kit.name != choice.name);
+    [choice, rest.next().unwrap_or(GOLAZO), rest.next().unwrap_or(CROSS)]
+}
+
+/// The other team: one of each hero, in the slots where each uses their kit.
+pub const RIVALS: [Kit; 3] = [CROSS, ALYSA, GOLAZO];

@@ -23,7 +23,8 @@ typedef struct VolleyInput {
     uint8_t jump, jump_released, pass, pass_held, spike, dive, kick, dash, ability, ultimate;
 } VolleyInput;
 
-enum { VOLLEY_KIT_ALL_ROUNDER = 0, VOLLEY_KIT_CROSS = 1, VOLLEY_KIT_GOLAZO = 2, VOLLEY_KIT_ALYSA = 3 };
+/* VOLLEY_KIT_BASE: no hero (the base kit every hero builds on). */
+enum { VOLLEY_KIT_BASE = 0, VOLLEY_KIT_CROSS = 1, VOLLEY_KIT_GOLAZO = 2, VOLLEY_KIT_ALYSA = 3 };
 enum { VOLLEY_MOVE_WINDUP = 0, VOLLEY_MOVE_ACTIVE = 1, VOLLEY_MOVE_RECOVERY = 2, VOLLEY_MOVE_OVER = 3 };
 
 /* Moves, in the sim's MoveId order. */

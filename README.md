@@ -8,6 +8,12 @@ touches but plays in a big walled arena built for dashes, leaps and powers.
 Right now it's a local 3v3 against bots: you and two bot teammates against three
 bots, with heroes picked before each match. Online play comes later.
 
+**The story:** centuries from now, an AGI called ARBITER reunites the greatest
+athletes of every sport to prove who is the best of all, in a game none of them
+knows: volleyball, long forgotten. Nobody remembers how it was played, not even
+ARBITER, so it guessed. Glass walls, superpowers and knockdowns are its best
+reconstruction. More in [`docs/lore.md`](docs/lore.md).
+
 ## Layout
 
 | Crate | What it is |

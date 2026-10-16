@@ -19,7 +19,7 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy::world_serialization::WorldInstanceReady;
 use volley_sim::court::BALL_RADIUS;
-use volley_sim::moves::{CROSS, GOLAZO, HEROES};
+use volley_sim::moves::{ALYSA, CROSS, GOLAZO, HEROES};
 use volley_sim::{Ball, DT, Event, HitKind, Kit, MoveId, MovePhase, Passive, Phase, PlayerInput, Sim, attack};
 
 use crate::feel::HitStop;
@@ -54,11 +54,13 @@ const LOOKS: [Look; 2] = [
 /// and rigged to the shared skeleton by `tools/blender/rig_hero.py`.
 const CROSS_LOOK: Look = Look { body: "characters/Cross.glb", hair: None };
 const GOLAZO_LOOK: Look = Look { body: "characters/Golazo.glb", hair: None };
+const ALYSA_LOOK: Look = Look { body: "characters/Alysa.glb", hair: None };
 
 fn look_for(kit: &Kit, index: usize) -> &'static Look {
     match kit.name {
         name if name == CROSS.name => &CROSS_LOOK,
         name if name == GOLAZO.name => &GOLAZO_LOOK,
+        name if name == ALYSA.name => &ALYSA_LOOK,
         _ => &LOOKS[index % LOOKS.len()],
     }
 }

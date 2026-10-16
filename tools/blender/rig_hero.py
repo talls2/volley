@@ -9,8 +9,8 @@ The model comes in as one textured mesh in a relaxed A-pose. This:
    layout of its own and its colors and surface detail are baked onto it from
    the full model;
 2. scales the placeholder superhero's skeleton and body to the same height,
-   stretches the arm bones to reach the model's hands, and poses the arms down
-   to the model's A-pose;
+   stretches the arm bones to reach the model's hands, poses the arms down to
+   the model's A-pose, and turns the legs to stand over the model's feet;
 3. copies each vertex's bone weights from the nearest point of the placeholder
    body, which is skinned to the same skeleton and now in the same pose;
 4. makes that pose the skeleton's rest pose and exports the rigged model as
@@ -24,7 +24,7 @@ Run from the repository root:
 
     ~/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \\
         -P tools/blender/rig_hero.py -- --hero Cross --source MODEL.glb \\
-        [--height 1.9] [--faces 50000] [--preview DIR]
+        [--height 1.9] [--faces 50000] [--body male|female] [--preview DIR]
 """
 
 import sys
@@ -35,9 +35,12 @@ from mathutils import Quaternion, Vector
 
 REPO = Path(__file__).resolve().parents[2]
 CHARACTERS = REPO / "crates/client/assets/characters"
-SKELETON = CHARACTERS / "Superhero_Male_FullBody.gltf"
-# The placeholder body, whose skeleton and weights the model borrows.
-BODY = "SuperHero_Male"
+# The placeholder bodies (same skeleton), whose weights the model borrows:
+# the file and its body mesh. `--body female` suits a woman's proportions.
+BODIES = {
+    "male": (CHARACTERS / "Superhero_Male_FullBody.gltf", "SuperHero_Male"),
+    "female": (CHARACTERS / "Superhero_Female_FullBody.gltf", "Superhero_Female"),
+}
 TEXTURE_SIZE = 2048
 
 ARM_CHAIN = ("upperarm", "lowerarm", "hand")
@@ -156,11 +159,12 @@ def bake_textures(full, model):
     links.new(normal_map.outputs["Normal"], shader.inputs["Normal"])
 
 
-def load_skeleton(height):
+def load_skeleton(height, placeholder="male"):
     """The placeholder superhero, scaled to `height`: its armature and body."""
-    added = objects_added(lambda: bpy.ops.import_scene.gltf(filepath=str(SKELETON)))
+    path, name = BODIES[placeholder]
+    added = objects_added(lambda: bpy.ops.import_scene.gltf(filepath=str(path)))
     armature = next(ob for ob in added if ob.type == "ARMATURE")
-    body = next(ob for ob in added if ob.name == BODY)
+    body = next(ob for ob in added if ob.name == name)
     for ob in added:
         if ob not in (armature, body):
             bpy.data.objects.remove(ob)
@@ -216,6 +220,34 @@ def fit_arms(armature, tips):
     bpy.context.view_layer.update()
 
 
+def foot_spots(model):
+    """Where the model stands on each side: the middle of its lowest points
+    (its soles, or a skate's blade)."""
+    _, _, points = bounds(model)
+    low = min(p.z for p in points)
+    feet = [p for p in points if p.z < low + 0.12]
+    mean = lambda ps: sum(ps, Vector()) / len(ps)
+    return {"l": mean([p for p in feet if p.x > 0]), "r": mean([p for p in feet if p.x < 0])}
+
+
+def fit_legs(armature, feet):
+    """Turns each leg out (or in) at the hip so the skeleton's ankle is over
+    the model's foot: a model standing with its feet apart."""
+    bpy.ops.object.mode_set(mode="POSE")
+    for side, spot in feet.items():
+        thigh = armature.pose.bones[f"thigh_{side}"]
+        hip = thigh.bone.head_local
+        ankle = armature.pose.bones[f"foot_{side}"].bone.head_local
+        target = Vector((spot.x, ankle.y, ankle.z))
+        rest = thigh.bone.matrix_local.to_quaternion()
+        turn = (ankle - hip).normalized().rotation_difference((target - hip).normalized())
+        thigh.rotation_mode = "QUATERNION"
+        thigh.rotation_quaternion = rest.inverted() @ turn @ rest
+        print(f"leg {side}: turned {turn.angle * 57.3:.1f} degrees to the foot at x {spot.x:.3f}")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.context.view_layer.update()
+
+
 def transfer_weights(body, model):
     """Each model vertex takes the bone weights of the nearest point on the
     posed placeholder body."""
@@ -232,11 +264,12 @@ def transfer_weights(body, model):
     bpy.ops.object.modifier_apply(modifier=transfer.name)
 
 
-def rig(hero, source, height, faces):
+def rig(hero, source, height, faces, placeholder="male"):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     model = load_model(source, height, faces)
-    armature, body = load_skeleton(height)
+    armature, body = load_skeleton(height, placeholder)
     fit_arms(armature, hand_tips(model))
+    fit_legs(armature, foot_spots(model))
     transfer_weights(body, model)
     bpy.data.objects.remove(body)
     # The A-pose becomes the skeleton's rest pose, and the model is bound to it.
@@ -319,7 +352,8 @@ def main():
     args = sys.argv[sys.argv.index("--") + 1 :]
     value = lambda flag, default=None: args[args.index(flag) + 1] if flag in args else default
     hero = value("--hero")
-    armature, model = rig(hero, Path(value("--source")).expanduser(), float(value("--height", 1.88)), int(value("--faces", 50000)))
+    armature, model = rig(hero, Path(value("--source")).expanduser(), float(value("--height", 1.88)), int(value("--faces", 50000)),
+                          value("--body", "male"))
     export(hero, armature, model)
     if value("--preview"):
         render_preview(armature, value("--preview"), hero)

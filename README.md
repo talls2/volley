@@ -185,8 +185,13 @@ weights from the placeholder body, so every animation plays on it:
     ~/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
         -P tools/blender/rig_hero.py -- --hero Cross --source Cross.glb --height 1.93
 
+For a woman's proportions, `--body female` borrows the female placeholder's
+weights. The legs are turned to stand over the model's feet too, for models
+that stand with their feet apart, as Alysa's does (she's 1.72 m, from the
+four views of her turnaround).
+
 The raw generated models (about 70 MB each) stay outside the repository, with
-the other source files (next paragraph). The free Quaternius characters stand in for heroes without a model yet (Alysa, for now). Movement (the ready
+the other source files (next paragraph). The free Quaternius characters are the base kit's bodies, and their skin weights are what the heroes' models borrow. Movement (the ready
 stance, jogging, sprinting, the air, landing, dashing, getting knocked down and
 cheering) is Mixamo motion capture, and Cross celebrates with a jump shot from
 the free CMU motion capture database. `tools/blender/retarget_mocap.py`

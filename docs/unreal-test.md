@@ -1341,3 +1341,20 @@ The ice skater is the fourth hero. 73 sim tests pass, three of them new.
   - Her dash lays a trail of shimmering ice discs that fade over 3 s.
   - Anyone gliding at speed glitters with ice.
 
+## 2026-10-15: Alysa's model
+
+- **Tripo:** multiview from the four views of her turnaround (cropped from
+  `docs/concept/alysa.webp`), with a 4K texture, lighting removed and no PBR.
+- **`tools/blender/rig_hero.py`:**
+  - Simplified to about 57k vertices and rebaked to a 2K texture.
+  - Rigged with the new `--body female` (the female placeholder's weights).
+  - **Leg fitting (new):** her model stands with its feet apart, which left
+    her standing in a wide V in every pose until the legs were fitted. Each
+    thigh now turns about 9° so the skeleton's ankle is over the model's foot,
+    and that's the rest pose. The Blender preview poses relative to the rest
+    pose, so it still shows the V; the game sets bone rotations outright, and
+    she stands with her feet together.
+- **Unreal:** `MAKE_ASSETS_ONLY=bodies:Alysa` imports just that body
+  (`Characters/Alysa`), and her look is her own model, with her trims
+  glowing in her color. The Bevy client uses it too.
+

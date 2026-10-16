@@ -2,7 +2,9 @@
 
 In the game since 2026-10-14 (`game-progress`): her whole kit is in the sim
 (stats, Glide, Wall Skate, Ice Trail, Flash Freeze, Triple Axel, no dive), and
-both clients play her. Her concept sheet, generated from
+both clients play her. Her model (2026-10-15) is from Tripo's multiview, given
+the four views of the turnaround below (4K texture, lighting removed, no PBR),
+rigged with `tools/blender/rig_hero.py --body female --height 1.72`. Her concept sheet, generated from
 the prompt below, is [`alysa.webp`](alysa.webp). Her dialogue portraits are in
 `volley-unreal/Tools/portrait-art/`.
 

@@ -1442,6 +1442,11 @@ The ice skater is the fourth hero. 73 sim tests pass, three of them new.
     HEROES opens it just to look.
   - **Settings:** hit effects, screen shake, hit-stop and music volume (kept
     with the other settings).
+  - **After a match**, like a hero shooter's end screen: your team (Red, all
+    three heroes) on the stage, square on. They cheer under a gold VICTORY,
+    or stand with heads down (the lost point's slump, held) under a red
+    DEFEAT. The sets and Play again / Main menu show too, with the fanfare on
+    a win.
   - **Keys:** Esc / B goes back everywhere. Backspace / View on the pause
     screen leaves the match for the menu.
 - **The match is hidden behind the menus:** its players, ball and rings.
@@ -1454,6 +1459,6 @@ The ice skater is the fourth hero. 73 sim tests pass, three of them new.
   menus, the match loop in play, the fanfare when a match is won. They
   crossfade over 1.2 s; the volume follows the setting. Resampled to
   48 kHz: ACE-Step wrote 192 kHz, which made 50 MB assets.
-- **Films:** `VOLLEY_SCREEN=title|select|gallery|settings`, with
+- **Films:** `VOLLEY_SCREEN=title|select|gallery|settings|victory|defeat`, with
   `VOLLEY_MENU_EVERY=N` (a shot every N frames), `VOLLEY_MENU_FRAMES` and
   `VOLLEY_MENU_HERO=1-3`.

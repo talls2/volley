@@ -1102,3 +1102,62 @@ ones:
 - **Wall Skate:** riding the glass plays as running, leaning about 30° off the
   wall, the feet on it (see `docs/unreal-test.md`, 2026-10-15).
 
+## 32 · Punchy hits, scaled by strength
+
+**Why.** A game-dev tip on hit "juice" stacks five layers on a hit: the target
+flashes white, a sharp sound, particles along the hit, knockback with the
+hitter bouncing back, and a little screen shake plus a hit-stop. The volley
+game had parts (the freeze by ball speed, camera shake on attacks, the lens
+punch), nothing white, sparks only on special hits and in every direction, and
+no way to turn the shake off.
+
+**Change** (`VolleyImpact.h`, all tuning in one table):
+- **One strength per hit, 0-1:**
+  - From the ball's speed off it (0 at 10 m/s, 1 at 30 m/s), weighted by
+    contact quality on attacks.
+  - Bonuses: +0.25 for a hero's power move, +0.15 for a perfect attack, +0.2
+    for a wall shot.
+  - Blocks, dunks, body hits and shoves have their own.
+- **Each layer reads it,** starting at a strength and full at 1:
+
+| Layer | Starts at | At full strength |
+|---|---|---|
+| Ball flashes white (and a player hit hard by the ball, or a receiver of a hard ball) | 0.4 | Emissive 6, 0.07 s |
+| Louder | 0 | +40% |
+| Deeper | 0.3 | -15% pitch |
+| A crack layered on (`sounds/hit_crack.wav`, synthesized) | 0.55 | Volume 0.9 |
+| Sparks along the ball's new path, a 28° cone | 0.15 | 45 sparks, 8 m/s |
+| The hitter bounces back | 0.3 | 8 cm |
+| Freeze | 0.2 | 0.12 s |
+| Camera shake | 0.5 | Trauma 0.5 |
+
+- **Settings:**
+  - *Hit effects* scale every layer (full, reduced, off).
+  - *Screen shake* scales the camera shake, the hitter's shake and the lens
+    punch (full, reduced, off).
+  - *Hit-stop* turns the freeze on or off.
+  - All three are on the pause screen (J / K / L or the d-pad) and kept in the
+    user settings. `VOLLEY_JUICE`, `VOLLEY_SHAKE` and `VOLLEY_HITSTOP`
+    override them for films and tests.
+- **Material:** `M_Character` gets a `Flash` parameter (white light over
+  everything); the ball uses the same material.
+
+**Result.**
+- **Films** of the same spike with the effects on and off: on, the ball goes
+  white the moment it's struck and a spray of sparks follows it along its
+  new path. Off, only the gold "perfect" glow there was before.
+- **Soft touches** (passes, sets) come out at strength 0-0.1, so nothing.
+- **Bench** (effects on, against experiment 30's runs): contact gap 0.158 m
+  (was about 0.167), palm over 30 m/s 153 (about 220), over 40 m/s 10 (about
+  32); serve gap 0.137 m (0.10), probably the hitter's bounce-back. A run
+  with the effects off isn't comparable: the bench measures from rendered
+  frames, and the freeze puts many of them right at contact.
+- **A crash, fixed before this:** the crack sound wasn't in the audio's
+  garbage-collection keep list, so the engine freed it mid-match and the
+  next strong hit played freed memory.
+- **Animation:** the hitter's anticipation and follow-through (the comment's
+  point) were already in: wind-up timing, the coil, the follow-through and the
+  faster whip on a perfect hit.
+
+**Decision: keep,** full by default.
+

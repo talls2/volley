@@ -96,6 +96,14 @@ On a controller, hits are on the bumpers and triggers so your right thumb can
 stay on the stick and keep aiming. The on-screen help switches to controller
 buttons when you use one.
 
+**Hit feel** (Unreal client): the harder a hit, the more it punches: the ball
+flashes white, the sound gets louder and deeper with a crack on top, sparks fly
+along the ball's path, the hitter bounces back, the camera shakes and the game
+freezes for a beat. A soft pass gets none of it. On the pause screen, J / K / L
+(or the d-pad: up, left, right) set the hit effects (full, reduced, off), the
+screen shake (full, reduced, off) and the hit-stop freeze (on, off); the choice
+is kept between sessions.
+
 Before each match you pick a hero, and an arena (W / S or up and down on the
 hero select screen): the **Beach**, a glass cage on the sand by the sea, or the
 **Neon Stadium**, a night arena with a glowing floor, energy walls and a crowd

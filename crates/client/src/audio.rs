@@ -1,25 +1,30 @@
 //! Sound: hits, the ball on the floor, footsteps, the referee's whistle, a
 //! crowd and, at the beach, the sea. Hits, landings and footsteps come from
-//! where they happen on the court.
+//! where they happen on the court. And music: the menus' theme, the match's
+//! loop and the win's fanfare (made with ACE-Step for the game).
 
 use bevy::audio::{DefaultSpatialScale, SpatialScale, Volume};
 use bevy::prelude::*;
 use volley_sim::{DT, Event, HitKind, MoveId};
 
 use crate::arena::Arena;
+use crate::flow::Screen;
 use crate::{Match, SimEvent};
 
 /// Meters of running between footsteps.
 const STRIDE: f32 = 1.3;
 /// Seconds between waves, at least and at most.
 const WAVE_GAP: (f32, f32) = (3.5, 7.0);
+/// How loud the music plays.
+const MUSIC_VOLUME: f32 = 0.42;
 
 pub fn plugin(app: &mut App) {
     // Shrinks distances for stereo panning and falloff, so the far side of the
     // court is quieter but still clearly audible.
     app.insert_resource(DefaultSpatialScale(SpatialScale::new(0.15)))
         .add_systems(Startup, load_sounds)
-        .add_systems(Update, (play_game_sounds, footsteps, waves).run_if(resource_exists::<Sounds>));
+        .add_systems(Update, (play_game_sounds, footsteps, waves).run_if(resource_exists::<Sounds>))
+        .add_systems(Update, music);
 }
 
 #[derive(Resource)]
@@ -61,6 +66,33 @@ fn load_sounds(mut commands: Commands, assets: Res<AssetServer>) {
 }
 
 /// Plays a sound once, from `at` on the court if given.
+/// The track playing now.
+#[derive(Component)]
+struct Music;
+
+/// The screen's track: the theme on the title and hero select, the loop in a
+/// match, the fanfare (once) when it's over. A new track replaces the last.
+fn music(mut commands: Commands, assets: Res<AssetServer>, screen: Res<State<Screen>>, playing: Query<Entity, With<Music>>, mut track: Local<&'static str>) {
+    let (wanted, looped) = match screen.get() {
+        Screen::Playing => ("music_match", true),
+        Screen::MatchOver => ("music_victory", false),
+        Screen::Title | Screen::HeroSelect => ("music_menu", true),
+    };
+    if *track == wanted {
+        return;
+    }
+    *track = wanted;
+    for entity in &playing {
+        commands.entity(entity).despawn();
+    }
+    let settings = if looped { PlaybackSettings::LOOP } else { PlaybackSettings::DESPAWN };
+    commands.spawn((
+        AudioPlayer::new(assets.load::<AudioSource>(format!("sounds/{wanted}.ogg"))),
+        settings.with_volume(Volume::Linear(MUSIC_VOLUME)),
+        Music,
+    ));
+}
+
 fn play(commands: &mut Commands, sound: &Handle<AudioSource>, volume: f32, at: Option<Vec3>) {
     let settings = PlaybackSettings { spatial: at.is_some(), ..PlaybackSettings::DESPAWN.with_volume(Volume::Linear(volume)) };
     commands.spawn((AudioPlayer::new(sound.clone()), settings, Transform::from_translation(at.unwrap_or_default())));

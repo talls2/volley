@@ -110,7 +110,12 @@ def bake_textures(full, model):
     select_only(model)
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.uv.smart_project(angle_limit=1.15, island_margin=0.003)
+    bpy.ops.uv.smart_project(angle_limit=1.4, island_margin=0.001)
+    # Smart project leaves most of the texture empty (Alysa's used 7%): even
+    # out the islands' texel density and pack them tight, turned to fit.
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.average_islands_scale()
+    bpy.ops.uv.pack_islands(rotate=True, shape_method="CONCAVE", margin_method="FRACTION", margin=0.001)
     bpy.ops.object.mode_set(mode="OBJECT")
 
     material = bpy.data.materials.new("MI_Hero")

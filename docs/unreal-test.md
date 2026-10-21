@@ -1358,3 +1358,37 @@ The ice skater is the fourth hero. 73 sim tests pass, three of them new.
   (`Characters/Alysa`), and her look is her own model, with her trims
   glowing in her color. The Bevy client uses it too.
 
+## 2026-10-21: sounds from Openverse, and the heroes' models checked
+
+- **Sounds** (Openverse, CC0 only, from Freesound; credited in
+  `crates/client/assets/CREDITS.md`), trimmed, mono and normalized:
+  - **The glass:** a crack when a panel cracks; a shatter, and the crowd's
+    "ooh", when one breaks.
+  - **Alysa's ice:** Flash Freeze freezes and thaws; the ice ball bursts.
+  - **Skates:** a scrape up onto the wall (Wall Skate) and on a real hockey
+    stop (from over 6 m/s, braking harder than 24 m/s², at most every 1.5 s).
+    At first every glide's slowdown counted: 206 scrapes in 80 s.
+  - **The crowd's "ooh"** on knockdowns, wall shots and the hardest hits (hit
+    strength 0.9 or more), at most every 2 s.
+  - Checked with `VOLLEY_SOUND_LOG` over 4900 ticks of bot play: every one
+    plays.
+- **Model check** (the `blender-asset-qa` skill on Alysa):
+  - **Passed:** no floating parts or inside-out pieces, all vertices
+    weighted, at most 4 influences, 50k triangles.
+  - **Found:** the texture layout used **7.4%** of the texture. Smart UV
+    Project makes the islands but doesn't pack them.
+    - `rig_hero.py` now evens out the islands' texel density and packs them
+      tight, turned to fit, with larger islands (angle limit 80°) and thinner
+      margins.
+    - Coverage is now about **40%**, about 5x the texture detail. The rest is
+      lost to some 7,000 islands, each with a margin.
+  - **Accepted:** 17 overlapping triangle pairs and 144 hidden back-to-back
+    pairs left by Tripo; the duplicate vertices are glTF splitting at texture
+    seams.
+- **All three heroes re-rigged** from their Tripo sources (`volley-assets`)
+  with the new packing. Cross's and Golazo's models stood with their feet
+  apart too (the legs now turn 8° and 14° to fit, as Alysa's 9°).
+- **An import bug:** re-importing a hero over its old folder replaced the
+  mesh but kept the old textures. With a new texture layout, Cross came out
+  in patches (fine in Blender). `import_bodies` now clears the folder first.
+

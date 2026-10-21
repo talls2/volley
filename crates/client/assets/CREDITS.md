@@ -14,6 +14,13 @@
 | `sounds/wave_*` Beach Ocean Waves (from "alkaibeach" by jasinski) | [OpenGameArt](https://opengameart.org/content/beach-ocean-waves) | CC0 1.0 |
 | `sounds/crowd_*` Free Crowd Cheering Sounds (trimmed and converted) | **Gregor Quendel**, [OpenGameArt](https://opengameart.org/content/free-crowd-cheering-sounds) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | `sounds/whistle`, `sounds/hit_crack` | Synthesized for this project | — |
+| `sounds/glass_crack` (trimmed, normalized): "glass-shattering_05.ogg" by C_Rogers | [Freesound via Openverse](https://freesound.org/people/C_Rogers/sounds/203377) | CC0 1.0 |
+| `sounds/glass_break` (trimmed, normalized): "Glass Shatter 1" by lurpsis | [Freesound via Openverse](https://freesound.org/people/lurpsis/sounds/444134) | CC0 1.0 |
+| `sounds/ice_freeze` (trimmed, normalized): "Ice Crack 1" by j_p_higgins | [Freesound via Openverse](https://freesound.org/people/j_p_higgins/sounds/262635) | CC0 1.0 |
+| `sounds/ice_thaw` (trimmed, normalized): "Ice Breaking 5" by giwake | [Freesound via Openverse](https://freesound.org/people/giwake/sounds/666482) | CC0 1.0 |
+| `sounds/ice_burst` (trimmed, normalized): "ice break on ice.wav" by itinerantmonk108 | [Freesound via Openverse](https://freesound.org/people/itinerantmonk108/sounds/668786) | CC0 1.0 |
+| `sounds/skate_0`, `sounds/skate_1` (trimmed, normalized): "Skating.wav" by 13FPanska_Marval_Lukas | [Freesound via Openverse](https://freesound.org/people/13FPanska_Marval_Lukas/sounds/379329) | CC0 1.0 |
+| `sounds/crowd_ooh_0`, `sounds/crowd_ooh_1` (trimmed, normalized): "Crowd Oooh.wav" by deleted_user_2104797 | [Freesound via Openverse](https://freesound.org/people/deleted_user_2104797/sounds/324890) | CC0 1.0 |
 
 CC BY 4.0 requires crediting the author: "Crowd cheering sounds by Gregor Quendel,
 licensed under CC BY 4.0". Keep this credit in the game's credits when it ships.

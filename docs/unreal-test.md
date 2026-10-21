@@ -1421,6 +1421,16 @@ The ice skater is the fourth hero. 73 sim tests pass, three of them new.
   - **On the hero select** the chosen hero walks forward into the light,
     the other two step back and dim, and the chosen one cheers on arriving.
     They step round each other on the way.
+  - **A ball between them:** on the main menu a ball drops in and they pass
+    it round: Golazo's kick pass, Alysa's bump, Cross's set. Each swing starts
+    so its contact frame meets the ball, and heads follow it. After six passes
+    Golazo volleys it into the stands, and they all turn to watch. Rallies and
+    showing off take turns.
+  - **Keeping it up alone:** after the cheer, the hero in front keeps the ball
+    up by themselves: Golazo with kick-ups, Alysa bumping, Cross setting
+    himself high.
+  - **On the beach** the spotlights stay low (in daylight they blew out the
+    sand) and the rim light is off.
   - The camera drifts slowly, off to the side, so the heroes stand right of
     the menu.
 - **The screens:**
@@ -1435,6 +1445,11 @@ The ice skater is the fourth hero. 73 sim tests pass, three of them new.
   - **Keys:** Esc / B goes back everywhere. Backspace / View on the pause
     screen leaves the match for the menu.
 - **The match is hidden behind the menus:** its players, ball and rings.
+- **The ragdoll** now also throws a blocker flattened by a dunk or an ice
+  ball (POSTERIZED), from the hands and head. Bot matches give few hard body
+  hits (3 body hits in 10 minutes, one hard enough), so this adds moments.
+  A posterize didn't come up in 20 minutes of the example match, so this
+  one isn't filmed yet.
 - **Music** (ACE-Step 1.5, made locally for the game): the menu theme on the
   menus, the match loop in play, the fanfare when a match is won. They
   crossfade over 1.2 s; the volume follows the setting. Resampled to

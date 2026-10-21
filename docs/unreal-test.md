@@ -1392,3 +1392,18 @@ The ice skater is the fourth hero. 73 sim tests pass, three of them new.
   mesh but kept the old textures. With a new texture layout, Cross came out
   in patches (fine in Blender). `import_bodies` now clears the folder first.
 
+
+## 2026-10-21: a ragdoll for hard body hits
+
+- A ball hitting a body at **14 m/s or more** now throws it as a ragdoll,
+  led by the part it hit (experiment 33). Softer hits keep the knockdown
+  clips.
+- **The throw:**
+  - Along the ball and spread by distance from the impact, so a head shot
+    whips the head back first and the body turns over.
+  - About 2 m on a hard hit.
+- **Recovery:** after the stun, the pose it landed in blends into the get-up
+  and the body eases back to its spot.
+- **Off when hit effects are off.**
+- **Test:** `VOLLEY_TEST_HITS=30` (four players hit from four sides at four
+  heights).

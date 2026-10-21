@@ -1161,3 +1161,46 @@ no way to turn the shake off.
 
 **Decision: keep,** full by default.
 
+
+## 33 · A ragdoll for the hardest body hits
+
+**Why.** William asked for a Toribash-like reaction to a ball hitting a body
+at high speed. The body should fly the way the ball went, led by the part it
+hit: a ball to the head throws the head back first. Until now every body hit
+played a canned knockdown clip, whatever the speed and wherever it landed.
+
+**Change** (`FVolleyCharacter::StartRagdoll` / `Kick` / `EndRagdoll`):
+- **When:** a body hit at strength 0.75 or more (14 m/s or faster). Softer
+  hits keep the knockdown and flinch clips. Off when hit effects are off.
+- **The struck part:** the bone nearest the hit, among head, neck, spine,
+  pelvis, thighs, calves and upper arms.
+- **The throw**, set on each body on the first frame they simulate (setting it
+  the frame the bodies are made didn't take):
+  - Along the ball, flat: a spike down onto a head would only pin the body to
+    the floor. The test hits come with no ball speed, so they go from the hit
+    spot through the pelvis, at the speed the sim's strength stands for.
+  - 28 cm/s per m/s of ball (at most 25 m/s), lifted 2.2 m/s.
+  - **Spread by distance from the hit:** parts at the impact take 1.7× the
+    throw, parts 1.3 m or more away 0.3×. The body turns over from where it
+    was struck: a head shot whips the head back and the feet trail; a ball
+    to the shins sweeps the legs out.
+  - The struck bone gets 90 cm/s per m/s more on top, so it leads.
+- **Floor and walls:** five hidden boxes around the court that only the
+  ragdoll collides with.
+- **Back up:** after at least 0.7 s, and once the sim's stun ends (at most
+  2 s), physics lets go. The pose it lies in seeds the dead blend, so it
+  blends into the get-up (Knockout City's, else the mocap knockdown's end)
+  over 0.45 s. The body eases from where it landed back to the sim's spot
+  over 0.6 s.
+
+**Result.**
+- **First films:** the body only folded in place. Two causes:
+  - The impulses were sent the frame the bodies were created and never
+    arrived.
+  - The test hit's direction (hit spot to pelvis) pointed down: at 1.6 m
+    against a pelvis at 0.9 m, 90% of it went into the floor.
+- **With both fixed and the throw spread,** a 1.6 m test hit tips the body
+  over head first. It flies about 2 m, lands on its back, gets up and runs
+  back.
+
+**Decision: keep.**

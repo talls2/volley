@@ -21,6 +21,7 @@
 | `sounds/ice_burst` (trimmed, normalized): "ice break on ice.wav" by itinerantmonk108 | [Freesound via Openverse](https://freesound.org/people/itinerantmonk108/sounds/668786) | CC0 1.0 |
 | `sounds/skate_0`, `sounds/skate_1` (trimmed, normalized): "Skating.wav" by 13FPanska_Marval_Lukas | [Freesound via Openverse](https://freesound.org/people/13FPanska_Marval_Lukas/sounds/379329) | CC0 1.0 |
 | `sounds/crowd_ooh_0`, `sounds/crowd_ooh_1` (trimmed, normalized): "Crowd Oooh.wav" by deleted_user_2104797 | [Freesound via Openverse](https://freesound.org/people/deleted_user_2104797/sounds/324890) | CC0 1.0 |
+| `sounds/music_menu`, `music_match`, `music_victory`: the menu theme, the match loop and the win fanfare | Generated for this project with [ACE-Step 1.5](https://github.com/ace-step/ACE-Step) (run locally) | ACE-Step is MIT licensed; the generated music is the project's |
 
 CC BY 4.0 requires crediting the author: "Crowd cheering sounds by Gregor Quendel,
 licensed under CC BY 4.0". Keep this credit in the game's credits when it ships.

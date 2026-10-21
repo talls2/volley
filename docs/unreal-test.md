@@ -1407,3 +1407,38 @@ The ice skater is the fourth hero. 73 sim tests pass, three of them new.
 - **Off when hit effects are off.**
 - **Test:** `VOLLEY_TEST_HITS=30` (four players hit from four sides at four
   heights).
+
+## 2026-10-21: a main menu like a hero shooter's, and music
+
+- **The heroes on a stage** (`VolleyMenu.h`): Cross, Golazo and Alysa stand
+  in a row at one end of the arena, each under a spotlight with a touch of
+  their color, a rim light behind them.
+  - They're the game's own characters on made-up player states, so they
+    idle, turn, walk and glow as in a match (charged ultimates breathe).
+  - **On the main menu** they take turns showing off every 4.5 s: Cross's
+    jump-shot cheer, Golazo's volley kick, Alysa's spin. The other two turn
+    to watch.
+  - **On the hero select** the chosen hero walks forward into the light,
+    the other two step back and dim, and the chosen one cheers on arriving.
+    They step round each other on the way.
+  - The camera drifts slowly, off to the side, so the heroes stand right of
+    the menu.
+- **The screens:**
+  - **Main menu:** a dark shade down the left, the logo, and PLAY, HEROES,
+    ARENA (changes the arena behind), SETTINGS and QUIT, with the
+    highlighted item in orange and a line on what it does.
+  - **Hero select:** the hero's name in their color, title, blurb and moves
+    on the left, the roster along the bottom, the arena top right.
+    HEROES opens it just to look.
+  - **Settings:** hit effects, screen shake, hit-stop and music volume (kept
+    with the other settings).
+  - **Keys:** Esc / B goes back everywhere. Backspace / View on the pause
+    screen leaves the match for the menu.
+- **The match is hidden behind the menus:** its players, ball and rings.
+- **Music** (ACE-Step 1.5, made locally for the game): the menu theme on the
+  menus, the match loop in play, the fanfare when a match is won. They
+  crossfade over 1.2 s; the volume follows the setting. Resampled to
+  48 kHz: ACE-Step wrote 192 kHz, which made 50 MB assets.
+- **Films:** `VOLLEY_SCREEN=title|select|gallery|settings`, with
+  `VOLLEY_MENU_EVERY=N` (a shot every N frames), `VOLLEY_MENU_FRAMES` and
+  `VOLLEY_MENU_HERO=1-3`.

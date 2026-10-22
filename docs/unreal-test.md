@@ -1462,3 +1462,31 @@ The ice skater is the fourth hero. 73 sim tests pass, three of them new.
 - **Films:** `VOLLEY_SCREEN=title|select|gallery|settings|victory|defeat`, with
   `VOLLEY_MENU_EVERY=N` (a shot every N frames), `VOLLEY_MENU_FRAMES` and
   `VOLLEY_MENU_HERO=1-3`.
+
+## 2026-10-22: the match ran at 20 fps (fixed)
+
+- **What William saw:** matches lagging badly.
+- **Measured:** about 5 ms a frame until the camera looked down the whole
+  court (about 10 s in, at the first rally), then 30-40 ms for good. The
+  menus stayed at 200 fps.
+- **GPU profiles** (`VOLLEY_PROFILE_AT=TICKS`, a `ProfileGPU` every so many
+  ticks, to the log):
+  - 22-30 ms went to the GPU skin cache's skinning of six ~50k-vertex
+    bodies. The same dispatch took 0 ms in one place and 7-13 ms in another.
+  - So it was waiting, not working: the skinning stalled on Lumen's async
+    compute work.
+- **Turning things off, frame time after the slowdown:**
+
+  | Setting | Frame time |
+  |---|---|
+  | Nothing off | 38 ms |
+  | Skin cache off | 11 ms |
+  | Virtual shadow maps off | 6.5 ms |
+  | Lumen off | 2.6 ms |
+  | Async compute off (`r.RDG.AsyncCompute=0`) | 5.5-6.9 ms |
+
+- **Fix:** `r.RDG.AsyncCompute=0` in `Config/DefaultEngine.ini`. It keeps
+  Lumen and the shadows as they were, and runs the whole match at about
+  6 ms a frame.
+- **Not the cause:** the new menu stage, its lights, the ragdoll, or the
+  local LLM (`llama-server`) sharing the GPU (idle while measured).
